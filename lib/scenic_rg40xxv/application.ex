@@ -57,7 +57,10 @@ defmodule ScenicRg40xxv.Application do
 
         # The way back in when WiFi does not come up. Nothing populates USB
         # configfs at boot, so without this usb0 never appears.
-        ScenicRg40xxv.USBGadget
+        ScenicRg40xxv.USBGadget,
+
+        # A launches the external GPU demo, Start stops it.
+        ScenicRg40xxv.Launcher
       ] ++ boot_diagnostics()
     end
 
