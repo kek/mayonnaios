@@ -47,11 +47,29 @@ defmodule ScenicRg40xxv.Application do
     end
   else
     defp target_children() do
+      # Order is deliberate, and it is about diagnosing a boot that fails.
+      # Each of these is a way of finding out what happened when the one after
+      # it never runs, so the cheapest and most reliable goes first.
       [
-        # Children for all targets except host
-        # Starts a worker by calling: Target.Worker.start_link(arg)
-        # {Target.Worker, arg},
-      ]
+        # Earliest possible sign of life, and the only one that survives a UI
+        # that fails to start. Needs nothing but sysfs.
+        ScenicRg40xxv.Heartbeat,
+
+        # The way back in when WiFi does not come up. Nothing populates USB
+        # configfs at boot, so without this usb0 never appears.
+        ScenicRg40xxv.USBGadget
+      ] ++ boot_diagnostics()
+    end
+
+    # Last, because it sleeps 15 s and then 75 s before writing: it is
+    # reporting on a boot that has already happened, and must not delay
+    # anything that makes the device reachable.
+    defp boot_diagnostics() do
+      if Application.get_env(:scenic_rg40xxv, :boot_diagnostics, true) do
+        [ScenicRg40xxv.BootDiagnostics]
+      else
+        []
+      end
     end
   end
 end
