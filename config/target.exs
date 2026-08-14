@@ -47,6 +47,20 @@ if keys == [],
 config :nerves_ssh,
   authorized_keys: Enum.map(keys, &File.read!/1)
 
+wifi = fn var ->
+  System.get_env(var) ||
+    raise """
+    #{var} is not set.
+
+    This device has no other way in: the USB-C gadget is unreliable here and
+    UART0 is on internal test pads, so firmware that boots without working
+    WiFi credentials has to be recovered by reflashing the card.
+
+        export RG40XXV_WIFI_SSID="your-ssid"
+        export RG40XXV_WIFI_PSK="your-psk"
+    """
+end
+
 # Configure the network using vintage_net
 #
 # Update regulatory_domain to your 2-letter country code E.g., "US"
@@ -66,10 +80,10 @@ config :vintage_net,
     # without working credentials here is unreachable until the card is
     # reflashed by hand -- which has already happened once.
     #
-    # Credentials come from the build environment so they are not committed:
-    #
-    #   export RG40XXV_WIFI_SSID=...
-    #   export RG40XXV_WIFI_PSK=...
+    # Credentials come from the build environment so they are not committed.
+    # Missing ones fail the build rather than producing firmware that cannot
+    # be reached -- but with a message that says what to do, since this is
+    # evaluated for every mix task on this target, `deps.get` included.
     {"wlan0",
      %{
        type: VintageNetWiFi,
@@ -77,8 +91,8 @@ config :vintage_net,
          networks: [
            %{
              key_mgmt: :wpa_psk,
-             ssid: System.fetch_env!("RG40XXV_WIFI_SSID"),
-             psk: System.fetch_env!("RG40XXV_WIFI_PSK")
+             ssid: wifi.("RG40XXV_WIFI_SSID"),
+             psk: wifi.("RG40XXV_WIFI_PSK")
            }
          ]
        },

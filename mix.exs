@@ -94,13 +94,9 @@ defmodule ScenicRg40xxv.MixProject do
       {:nerves_system_rpi5, "~> 2.0", runtime: false, targets: :rpi5},
       {:nerves_system_x86_64, "~> 1.24", runtime: false, targets: :x86_64},
 
-      # The Anbernic RG40XXV system. Points at the worktree that carries the
-      # cairo/freetype and Mali changes; repoint to ../nerves_anbernic once
-      # that branch is merged to trunk.
-      {:nerves_system_rg40xxv,
-       path: "/Users/ke/src/nerves_anbernic/.claude/worktrees/gpu-and-cairo",
-       runtime: false,
-       targets: :rg40xxv}
+      # The Anbernic RG40XXV system. Must ship cairo and freetype for the
+      # Scenic driver to link, and Mesa for anything wanting GLES.
+      {:nerves_system_rg40xxv, path: "../nerves_anbernic", runtime: false, targets: :rg40xxv}
     ]
   end
 
