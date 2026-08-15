@@ -96,7 +96,8 @@ defmodule ScenicRg40xxv.MixProject do
 
       # The Anbernic RG40XXV system. Must ship cairo and freetype for the
       # Scenic driver to link, and Mesa for anything wanting GLES.
-      {:nerves_system_rg40xxv, path: "../nerves_anbernic", runtime: false, targets: :rg40xxv}
+      {:nerves_system_rg40xxv,
+       path: "../nerves_system_rg40xxv", runtime: false, targets: :rg40xxv}
     ]
   end
 
