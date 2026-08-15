@@ -59,7 +59,13 @@ defmodule ScenicRg40xxv.Application do
         # configfs at boot, so without this usb0 never appears.
         ScenicRg40xxv.USBGadget,
 
-        # A launches the external GPU demo, Start stops it.
+        # Collects battery, thermal, RTC, Bluetooth and mixer readings, and
+        # owns the volume keys and the headphone-jack switch. Before the
+        # Launcher, so the readout has data the moment the scene is opened.
+        ScenicRg40xxv.Diagnostics,
+
+        # A launches the external GPU demo, Start stops it, Y opens the
+        # diagnostics readout.
         ScenicRg40xxv.Launcher
       ] ++ boot_diagnostics()
     end

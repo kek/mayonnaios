@@ -158,6 +158,17 @@ config :scenic_rg40xxv, :viewport,
 # on_close, input_blacklist.
 config :scenic_rg40xxv, autostart_ui: true
 
+# The audio test is built and switched off.
+#
+# The codec is known to have bound -- aplay lists card 0 and /dev/snd/pcmC0D0p
+# exists -- and the mixer is known to be muted: DAC sits at 100% with its
+# switch off, Line Out at 0% and off. So the remaining question is only
+# whether sound reaches the speaker, and answering it means making noise.
+#
+# Set this to true and press X to unmute and play a second of sine. Until
+# then `ScenicRg40xxv.Audio` refuses and nothing here opens the PCM.
+config :scenic_rg40xxv, audio_test: false
+
 # Import target specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 # Uncomment to use target specific configurations

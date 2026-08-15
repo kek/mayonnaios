@@ -26,6 +26,19 @@ defmodule ScenicRg40xxv.Launcher do
   Scenic only writes `/dev/fb0` when its graph changes, so after the external
   program exits the panel still shows whatever that program left there. The
   viewport has to be told to repaint; `Scenic.ViewPort.set_root/2` does it.
+
+  ## The full set of bindings
+
+      A             launch kmscube
+      Start         stop it
+      Y             switch between the demo scene and diagnostics
+      X             run the audio test, if it has been armed
+      Select+Menu   power off
+
+  This process owns `event0`, so everything on the gamepad is bound here even
+  when it belongs to something else -- `ScenicRg40xxv.Audio` decides whether X
+  does anything, and it refuses by default. `ScenicRg40xxv.Diagnostics` owns
+  the other two input devices for the same reason in reverse.
   """
 
   use GenServer
@@ -36,6 +49,17 @@ defmodule ScenicRg40xxv.Launcher do
   # See the moduledoc: these are physical A and Start, not the atoms' names.
   @launch_button :btn_b
   @stop_button :btn_start
+
+  # X and Y need no such translation. The device tree puts X on north (307)
+  # and Y on west (308), which is where Linux's BTN_X and BTN_Y already are --
+  # the Nintendo layout only disagrees with Linux about A and B.
+  @diagnostics_button :btn_y
+  @audio_button :btn_x
+
+  # Power off is a chord rather than a button, because it is not undoable and
+  # the device is a handheld that will be carried in a pocket.
+  @poweroff_modifier :btn_select
+  @poweroff_button :btn_mode
 
   @program "/usr/bin/kmscube"
 
@@ -56,16 +80,18 @@ defmodule ScenicRg40xxv.Launcher do
   def init(_opts) do
     case InputEvent.start_link(@device) do
       {:ok, _pid} ->
-        Logger.info("[launcher] watching #{@device}: A launches, Start stops")
-        {:ok, %{port: nil}}
+        Logger.info("[launcher] watching #{@device}: A launches, Start stops, Y diagnostics")
+        {:ok, new_state()}
 
       {:error, reason} ->
         # No buttons is not a reason to fail the boot -- the UI is still
         # useful, and this is the only thing that would be lost.
         Logger.warning("[launcher] #{@device} unavailable: #{inspect(reason)}")
-        {:ok, %{port: nil}}
+        {:ok, new_state()}
     end
   end
+
+  defp new_state, do: %{port: nil, held: MapSet.new(), scene: :home}
 
   @impl GenServer
   def handle_call(:running?, _from, state), do: {:reply, state.port != nil, state}
@@ -76,9 +102,10 @@ defmodule ScenicRg40xxv.Launcher do
   def handle_info({:input_event, _device, events}, state) do
     state =
       Enum.reduce(events, state, fn
-        # value 1 is press; 2 is autorepeat and 0 is release, both ignored.
-        {:ev_key, @launch_button, 1}, acc -> do_launch(acc)
-        {:ev_key, @stop_button, 1}, acc -> do_stop(acc)
+        # value 1 is press and 0 is release; 2 is autorepeat and is ignored.
+        # Releases matter now: the power-off chord needs to know what is held.
+        {:ev_key, key, 1}, acc -> acc |> hold(key) |> press(key)
+        {:ev_key, key, 0}, acc -> release(acc, key)
         _, acc -> acc
       end)
 
@@ -88,12 +115,56 @@ defmodule ScenicRg40xxv.Launcher do
   # The program exited on its own.
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     Logger.info("[launcher] #{Path.basename(@program)} exited (#{status})")
-    repaint()
+    repaint(state)
     {:noreply, %{state | port: nil}}
   end
 
   def handle_info({port, {:data, _}}, %{port: port} = state), do: {:noreply, state}
   def handle_info(_msg, state), do: {:noreply, state}
+
+  defp hold(state, key), do: %{state | held: MapSet.put(state.held, key)}
+  defp release(state, key), do: %{state | held: MapSet.delete(state.held, key)}
+
+  defp press(state, @launch_button), do: do_launch(state)
+  defp press(state, @stop_button), do: do_stop(state)
+  defp press(state, @diagnostics_button), do: toggle_scene(state)
+
+  defp press(state, @poweroff_button) do
+    if MapSet.member?(state.held, @poweroff_modifier), do: poweroff()
+    state
+  end
+
+  defp press(state, @audio_button) do
+    # Refuses unless config :scenic_rg40xxv, audio_test: true. Pressing X on a
+    # device that has not been armed does nothing and says so in the log.
+    case ScenicRg40xxv.Audio.run() do
+      :ok -> Logger.info("[launcher] audio test finished")
+      {:error, reason} -> Logger.info("[launcher] audio test skipped: #{inspect(reason)}")
+    end
+
+    state
+  end
+
+  defp press(state, _key), do: state
+
+  # Flip between the demo scene and the diagnostics readout. The readout is
+  # what makes the physical checks -- charger, volume keys, headphone jack --
+  # answerable by looking at the device instead of over SSH.
+  defp toggle_scene(state) do
+    next = if state.scene == :home, do: :diagnostics, else: :home
+    show(next)
+    %{state | scene: next}
+  end
+
+  defp poweroff do
+    Logger.info("[launcher] Select+Menu: powering off")
+
+    # Whether poweroff/0 brings this board down cleanly is the genuinely
+    # unknown part. The PMIC power key is not wired into Linux here
+    # (CONFIG_INPUT_AXP20X_PEK is unset and there is no power-key node), so
+    # this is the only orderly shutdown the device has.
+    Nerves.Runtime.poweroff()
+  end
 
   defp do_launch(%{port: nil} = state) do
     if File.exists?(@program) do
@@ -131,19 +202,29 @@ defmodule ScenicRg40xxv.Launcher do
     _ = try do: Port.close(port), rescue: (_ -> :ok)
 
     Logger.info("[launcher] stopped")
-    repaint()
+    repaint(state)
     %{state | port: nil}
   end
 
   # Scenic redraws on change, so the panel keeps the external program's last
-  # frame until the viewport is pushed again.
-  defp repaint do
-    with {:ok, vp} <- Scenic.ViewPort.info(:main_viewport),
-         scene when not is_nil(scene) <-
-           get_in(Application.get_env(:scenic_rg40xxv, :viewport), [:default_scene]) do
-      Scenic.ViewPort.set_root(vp, scene)
-    else
+  # frame until the viewport is pushed again. Coming back from kmscube has to
+  # return to whichever scene was showing, not always the home one -- watching
+  # the GPU temperature climb means being on diagnostics before and after.
+  defp repaint(%{scene: scene}), do: show(scene)
+
+  defp show(:diagnostics), do: set_root(ScenicRg40xxv.Scene.Diagnostics)
+  defp show(_home), do: set_root(default_scene())
+
+  defp set_root(nil), do: :ok
+
+  defp set_root(scene) do
+    case Scenic.ViewPort.info(:main_viewport) do
+      {:ok, vp} -> Scenic.ViewPort.set_root(vp, scene)
       _ -> :ok
     end
+  end
+
+  defp default_scene do
+    get_in(Application.get_env(:scenic_rg40xxv, :viewport), [:default_scene])
   end
 end
