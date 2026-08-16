@@ -1,10 +1,6 @@
 defmodule ScenicRg40xxv.Audio do
   @moduledoc """
-  The audio check, built but deliberately switched off.
-
-  Audio is the last large unverified thing on this board. It is inherited from
-  the same `rg35xx-plus.dts` that got the display routing wrong, and `aplay`,
-  `amixer` and `speaker-test` were put in the image specifically to settle it.
+  The mixer, and the test tone that settled whether audio works at all.
 
   **Audio works.** Confirmed on hardware: unmute the mixer, play 440 Hz, and
   the speaker produces it. So the codec routing inherited from
@@ -23,20 +19,28 @@ defmodule ScenicRg40xxv.Audio do
   as evidence that the inherited device tree was wrong. It would have been
   evidence about a default. Unmute, *then* play, or the result means nothing.
 
-  ## This device powers on muted
+  ## The device boots silent, on purpose
 
-  There is no `/var/lib/alsa/asound.state` and nothing runs `alsactl restore`,
-  so the mixer returns to `DAC` off and `Line Out` 0% on every boot. A games
-  machine that boots silent is broken, so `unmute/0` runs at startup and is
-  not gated -- it makes no sound.
+  `Startup` sets every playback control to 0% and switches it off at boot.
+
+  That is what the hardware does anyway -- there is no
+  `/var/lib/alsa/asound.state` and nothing runs `alsactl restore`, so the
+  mixer returns to `DAC` off and `Line Out` 0% on every power-on. Setting it
+  explicitly rather than inheriting it is the point: a default that happens
+  to be right is the exact shape of thing this board has already been wrong
+  about twice, and a handheld that makes a noise nobody asked for, in a
+  pocket, is a worse failure than one that starts quiet.
+
+  Raising the volume is `unmute/0`, and it is a deliberate act.
 
   ## The test tone
 
-  `run/0` unmutes and then plays one second of sine, and is gated behind
+  `run/0` unmutes and plays one second of sine. It is not bound to a button.
+  It was bound to Y while audio was the open question; that question is
+  closed, and leaving a key on the pad that makes noise is not what the key
+  is for. Call it from IEx when the mixer needs checking again:
 
-      config :scenic_rg40xxv, audio_test: true
-
-  which is now on, since audio is verified and pressing Y is deliberate.
+      iex> ScenicRg40xxv.Audio.run()
   """
 
   require Logger
@@ -49,6 +53,14 @@ defmodule ScenicRg40xxv.Audio do
     {"Line Out", ["100%", "unmute"]}
   ]
 
+  # The mirror image, and the boot state. `Speaker` takes no percentage --
+  # it is a switch and amixer errors on `0%` for it -- so it only gets muted.
+  @mute [
+    {"Speaker", ["mute"]},
+    {"DAC", ["0%", "mute"]},
+    {"Line Out", ["0%", "mute"]}
+  ]
+
   @doc """
   Whether the audio test has been switched on. False unless configured.
   """
@@ -57,7 +69,8 @@ defmodule ScenicRg40xxv.Audio do
   @doc """
   Open the mixer, then play a short test. Refuses unless `enabled?/0`.
 
-  Returns `{:error, :disabled}`, `{:error, {:no_tool, name}}` or `:ok`.
+  Not bound to any button -- call it from IEx. Returns `{:error, :disabled}`,
+  `{:error, {:no_tool, name}}` or `:ok`.
   """
   def run do
     if enabled?() do
@@ -73,15 +86,25 @@ defmodule ScenicRg40xxv.Audio do
   @doc """
   Raise and unswitch the playback controls.
 
-  Called at boot, and not gated, because **this device powers on muted**.
-  `DAC` and `Line Out` both come up with their switches off and Line Out at
-  0%, there is no `/var/lib/alsa/asound.state`, and nothing runs `alsactl
-  restore` -- so without this a games machine boots silent every time.
-
-  Makes no sound by itself.
+  A deliberate act, not a boot step. Makes no sound by itself.
   """
-  def unmute do
-    Enum.reduce_while(@unmute, :ok, fn {control, args}, _acc ->
+  def unmute, do: apply_controls(@unmute)
+
+  @doc """
+  Take every playback control to 0% and switch it off.
+
+  This is what `Startup` does at boot. It is also what the hardware does on
+  its own -- `DAC` and `Line Out` come up switched off with Line Out at 0%,
+  there is no `/var/lib/alsa/asound.state` and nothing runs `alsactl restore`
+  -- and doing it anyway is the point. An inherited default that happens to
+  be right is indistinguishable from one that is about to stop being right,
+  and this board has already been wrong twice about things read rather than
+  set.
+  """
+  def mute, do: apply_controls(@mute)
+
+  defp apply_controls(controls) do
+    Enum.reduce_while(controls, :ok, fn {control, args}, _acc ->
       case cmd("amixer", ["sset", control | args]) do
         {:ok, _} -> {:cont, :ok}
         :error -> {:halt, {:error, {:no_tool, "amixer"}}}
@@ -111,12 +134,15 @@ defmodule ScenicRg40xxv.Audio do
 
   defmodule Startup do
     @moduledoc """
-    Opens the mixer once at boot, then stops.
+    Closes the mixer once at boot, then stops.
+
+    Every playback control to 0% and off, so the device is silent until
+    someone asks it not to be.
 
     A `:transient` one-shot rather than a long-lived process: there is nothing
     to supervise afterwards, and it must not keep the supervisor busy. A
-    failure here should not take the boot down either -- a silent device is
-    worse than a loud one, but both are better than one that reverts.
+    failure here should not take the boot down either -- it would leave the
+    mixer at whatever the hardware chose, which today is the same thing.
     """
 
     use Task, restart: :transient
@@ -125,9 +151,9 @@ defmodule ScenicRg40xxv.Audio do
     def start_link(_opts), do: Task.start_link(__MODULE__, :run, [])
 
     def run do
-      case ScenicRg40xxv.Audio.unmute() do
-        :ok -> Logger.info("[audio] mixer opened")
-        other -> Logger.warning("[audio] could not open the mixer: #{inspect(other)}")
+      case ScenicRg40xxv.Audio.mute() do
+        :ok -> Logger.info("[audio] mixer muted at 0%")
+        other -> Logger.warning("[audio] could not set the mixer: #{inspect(other)}")
       end
     end
   end

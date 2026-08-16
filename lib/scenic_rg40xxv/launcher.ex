@@ -31,18 +31,26 @@ defmodule ScenicRg40xxv.Launcher do
 
       D-pad up/down move the menu cursor
       A             launch the selected program
-      Start         stop it
+      Menu          go back to the home screen
       X             switch between the menu and diagnostics
-      Y             run the audio test, if it has been armed
       Select+Menu   power off
 
-  These are the buttons as printed on the shell. Two of the four atoms above
-  name the opposite button; see the note on the attributes below.
+  These are the buttons as printed on the shell. Two of the atoms above name
+  the opposite button; see the note on the attributes below.
+
+  Menu is the one way back. It stops a running program if there is one and
+  otherwise leaves diagnostics, so the same press always means the same thing
+  -- "put me back where I started" -- rather than depending on what is
+  currently on the panel. Start used to do the stopping, which split "get out
+  of this" across two keys depending on which kind of thing you were in.
+
+  Select+Menu still powers off, so the chord is checked before the plain
+  press. Power off is a chord rather than a button because it is not undoable
+  and this is a handheld that gets carried in a pocket.
 
   This process owns `event0`, so everything on the gamepad is bound here even
-  when it belongs to something else -- `ScenicRg40xxv.Audio` decides whether X
-  does anything, and it refuses by default. `ScenicRg40xxv.Diagnostics` owns
-  the other two input devices for the same reason in reverse.
+  when it belongs to something else. `ScenicRg40xxv.Diagnostics` owns the
+  other two input devices for the same reason in reverse.
 
   ## Where the menu lives, and why the cursor is here
 
@@ -72,9 +80,8 @@ defmodule ScenicRg40xxv.Launcher do
 
   @device "/dev/input/event0"
 
-  # See the moduledoc: these are physical A and Start, not the atoms' names.
+  # See the moduledoc: this is physical A, not the atom's name.
   @launch_button :btn_b
-  @stop_button :btn_start
 
   # X and Y are swapped too, and the device tree does not admit it.
   #
@@ -88,13 +95,17 @@ defmodule ScenicRg40xxv.Launcher do
   # So :btn_y below really is the X button. Reading the device tree was not
   # enough here, which is the same lesson as A and B and was available the
   # whole time; it just was not applied twice.
+  #
+  # Y (:btn_x) is deliberately unbound. It played the audio test while audio
+  # was the open question on this board; that is answered, and a key on a
+  # handheld that makes a noise when pressed by accident is not worth keeping
+  # for a check that belongs in IEx. `ScenicRg40xxv.Audio.run/0` still does it.
   @diagnostics_button :btn_y
-  @audio_button :btn_x
 
-  # Power off is a chord rather than a button, because it is not undoable and
-  # the device is a handheld that will be carried in a pocket.
+  # Menu, doing double duty: alone it is the way back to the home screen,
+  # and held with Select it powers off. The chord is tested first.
   @poweroff_modifier :btn_select
-  @poweroff_button :btn_mode
+  @home_button :btn_mode
 
   # The D-pad. Codes 544-547 are BTN_DPAD_UP..RIGHT, and InputEvent decodes
   # them to these atoms (deps/input_event types table). Unlike the face
@@ -251,25 +262,22 @@ defmodule ScenicRg40xxv.Launcher do
   defp release(state, key), do: %{state | held: MapSet.delete(state.held, key)}
 
   defp press(state, @launch_button), do: do_launch(state)
-  defp press(state, @stop_button), do: do_stop(state)
   defp press(state, @diagnostics_button), do: toggle_scene(state)
   defp press(state, @up_button), do: move(state, -1)
   defp press(state, @down_button), do: move(state, +1)
 
-  defp press(state, @poweroff_button) do
-    if MapSet.member?(state.held, @poweroff_modifier), do: poweroff()
-    state
-  end
-
-  defp press(state, @audio_button) do
-    # Refuses unless config :scenic_rg40xxv, audio_test: true. Pressing X on a
-    # device that has not been armed does nothing and says so in the log.
-    case ScenicRg40xxv.Audio.run() do
-      :ok -> Logger.info("[launcher] audio test finished")
-      {:error, reason} -> Logger.info("[launcher] audio test skipped: #{inspect(reason)}")
+  # Menu: back to the home screen, or -- with Select held -- power off.
+  #
+  # The chord is checked first, so the modifier is not decorative: a bare
+  # Menu must never be able to shut the device down, because it is the key
+  # someone reaches for to get out of a game.
+  defp press(state, @home_button) do
+    if MapSet.member?(state.held, @poweroff_modifier) do
+      poweroff()
+      state
+    else
+      go_home(state)
     end
-
-    state
   end
 
   defp press(state, key) do
@@ -306,6 +314,32 @@ defmodule ScenicRg40xxv.Launcher do
     end
 
     %{state | selected: moved}
+  end
+
+  # Back to the menu, from wherever we are.
+  #
+  # `scene` is set before `do_stop/1` rather than after, because do_stop
+  # repaints whatever `scene` says: setting it first makes one viewport push
+  # do both jobs. Pushing twice would be visible -- diagnostics for a frame,
+  # then the menu.
+  defp go_home(state) do
+    home = %{state | scene: :home}
+
+    cond do
+      state.port != nil ->
+        do_stop(home)
+
+      state.scene != :home ->
+        show(:home, home)
+        home
+
+      # Already home with nothing running. Deliberately not a repaint: this is
+      # the button people press when unsure, and `set_root/3` tears the scene
+      # down and builds a new one, so answering an idle press with a rebuild
+      # would make the panel flicker for no reason.
+      true ->
+        state
+    end
   end
 
   # Flip between the menu and the diagnostics readout. The readout is

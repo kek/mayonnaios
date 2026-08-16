@@ -59,9 +59,10 @@ defmodule ScenicRg40xxv.Application do
         # configfs at boot, so without this usb0 never appears.
         ScenicRg40xxv.USBGadget,
 
-        # Opens the mixer. This board powers on with DAC and Line Out
-        # switched off, and nothing restores ALSA state, so without it the
-        # device is silent every boot. Makes no sound itself.
+        # Takes the mixer to 0% and mutes it, so the device starts silent by
+        # decision rather than by inheritance. The hardware happens to power
+        # on that way too -- DAC and Line Out switched off, no ALSA state to
+        # restore -- which is exactly why it is worth setting.
         ScenicRg40xxv.Audio.Startup,
 
         # Collects battery, thermal, RTC, Bluetooth and mixer readings, and
@@ -69,8 +70,8 @@ defmodule ScenicRg40xxv.Application do
         # Launcher, so the readout has data the moment the scene is opened.
         ScenicRg40xxv.Diagnostics,
 
-        # A launches the external GPU demo, Start stops it, X opens the
-        # diagnostics readout.
+        # A launches the selected program, Menu goes back to the home screen,
+        # X opens the diagnostics readout, Select+Menu powers off.
         ScenicRg40xxv.Launcher
       ] ++ boot_diagnostics()
     end

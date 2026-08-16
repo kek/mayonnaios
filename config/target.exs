@@ -235,7 +235,7 @@ config :scenic_rg40xxv, :bundles, %{
 # on_close, input_blacklist.
 config :scenic_rg40xxv, autostart_ui: true
 
-# Audio works, so the test tone is armed. Press Y for a second of 440 Hz.
+# Audio works, so `ScenicRg40xxv.Audio.run/0` is allowed to make a sound.
 #
 # It stayed off until the speaker had been heard, because the answer was
 # worth having in the right order: the mixer powers on muted, so playing
@@ -243,9 +243,13 @@ config :scenic_rg40xxv, autostart_ui: true
 # a fault in the device tree inherited from the RG35XX Plus. It is not --
 # unmute first and the routing is fine.
 #
-# Note this only controls the *test tone*. `ScenicRg40xxv.Audio.unmute/0`
-# runs at boot regardless, because the mixer resets to muted every power-on
-# and there is no saved ALSA state to restore.
+# The tone is not on a button. It was on Y while audio was the open question;
+# now that it is answered, a key that makes noise when brushed in a pocket is
+# not worth keeping for a check that belongs in IEx.
+#
+# This flag only gates the tone. The mixer itself is taken to 0% and muted at
+# boot by `ScenicRg40xxv.Audio.Startup` either way -- volume is something the
+# player asks for, not something the device assumes.
 config :scenic_rg40xxv, audio_test: true
 
 # Import target specific config. This must remain at the bottom

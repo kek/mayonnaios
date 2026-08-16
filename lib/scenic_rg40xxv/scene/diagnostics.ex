@@ -259,10 +259,12 @@ defmodule ScenicRg40xxv.Scene.Diagnostics do
       [{:row, "test", audio_state(), if(Audio.enabled?(), do: @pass, else: @dim)}]
   end
 
-  # Muted controls are amber, not red: it is the expected default, and the
-  # thing to fix before drawing any conclusion about the device tree.
+  # Muted controls are amber, not red: silent at 0% is the state this device
+  # is *set* to at boot, not a fault. The tone is no longer on a button, so
+  # this row says whether calling it would do anything rather than what to
+  # press.
   defp audio_state do
-    if Audio.enabled?(), do: "armed — Y plays", else: "off (silent)"
+    if Audio.enabled?(), do: "armed — Audio.run/0", else: "off (silent)"
   end
 
   defp volume_rows(v) do
