@@ -62,6 +62,17 @@ defmodule ScenicRg40xxv.Bundle do
   def root, do: Application.get_env(:scenic_rg40xxv, :bundle_root, "/root/bundles")
 
   @doc """
+  A configured bundle spec by key, or `nil`.
+
+      iex> ScenicRg40xxv.Bundle.install(ScenicRg40xxv.Bundle.spec(:retroarch))
+
+  The specs live in config rather than here because the SHA-256 in them is
+  what decides whether a downloaded tarball is used at all, and a checksum
+  belongs with the firmware it is trusted by.
+  """
+  def spec(key), do: Application.get_env(:scenic_rg40xxv, :bundles, %{})[key]
+
+  @doc """
   The directory a bundle's `current` symlink points into, or `nil`.
   """
   def current(name, root \\ root()) do

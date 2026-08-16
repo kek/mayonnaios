@@ -182,6 +182,29 @@ config :scenic_rg40xxv, :programs, [
 # -- is mounted nodev but not noexec, so binaries there can actually run.
 config :scenic_rg40xxv, bundle_root: "/root/bundles"
 
+# Bundles this device knows how to install, by name.
+#
+# The SHA-256 is the trust anchor and it lives here, in the firmware, rather
+# than being fetched alongside the tarball -- a checksum served next to the
+# thing it describes is not evidence about anything. So the download is
+# untrusted and this line is what decides whether the bytes are used.
+#
+# Installing is deliberately not automatic. It happens when asked:
+#
+#     iex> ScenicRg40xxv.Bundle.install(ScenicRg40xxv.Bundle.spec(:retroarch))
+#
+# Built by github.com/kek/retroarch-rg40xxv against this system's own staging
+# sysroot, so the sonames match what the rootfs ships.
+config :scenic_rg40xxv, :bundles, %{
+  retroarch: %{
+    name: "retroarch",
+    version: "1.22.2",
+    url:
+      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-1/retroarch-1.22.2-aarch64.tar.gz",
+    sha256: "6ddea749a79ca03285f9fa584440dea31008695031217bf010b49daf539f0db2"
+  }
+}
+
 # Scenic validates driver options strictly and raises on an unknown key. An
 # `opts:` key here (a reasonable guess, and wrong) took the whole application
 # down at boot, so StartupGuard never validated and U-Boot reverted to the
