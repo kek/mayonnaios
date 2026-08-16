@@ -6,42 +6,37 @@ defmodule ScenicRg40xxv.Audio do
   the same `rg35xx-plus.dts` that got the display routing wrong, and `aplay`,
   `amixer` and `speaker-test` were put in the image specifically to settle it.
 
-  What is already known, from reading the device and making no sound:
+  **Audio works.** Confirmed on hardware: unmute the mixer, play 440 Hz, and
+  the speaker produces it. So the codec routing inherited from
+  `rg35xx-plus.dts` does describe this board after all, and the last large
+  question about that inheritance is closed.
 
-    * the codec bound -- `aplay -l` lists *card 0: Codec [H616 Audio Codec]*,
-      and `/dev/snd/pcmC0D0p` exists, so the "no card" failure is ruled out
-    * the mixer is muted -- `DAC` is at 100% with its switch **off**, and
-      `Line Out` is at 0% and off
+  Getting there needed the two steps in the right order, and the order was
+  the whole point:
 
-  That second point is the whole reason this module is careful. The plan says
-  it in as many words: silence is far more likely to be a muted mixer than
-  wrong device-tree routing, and reading silence as routing evidence sends the
-  next person into the DTS for nothing. The mixer state above is now measured,
-  so a test that plays into a muted mixer would produce exactly that false
-  conclusion.
+    * the codec was bound -- `aplay -l` lists *card 0: Codec [H616 Audio
+      Codec]* -- so the "no card" failure was ruled out by reading alone
+    * the mixer was **muted** -- `DAC` at 100% with its switch off, `Line Out`
+      at 0% and off
 
-  ## Why nothing plays yet
+  Playing first would have produced silence, and silence would have been read
+  as evidence that the inherited device tree was wrong. It would have been
+  evidence about a default. Unmute, *then* play, or the result means nothing.
 
-  Making noise is not a thing to do to someone's device while they are away
-  from it, so this is gated:
+  ## This device powers on muted
+
+  There is no `/var/lib/alsa/asound.state` and nothing runs `alsactl restore`,
+  so the mixer returns to `DAC` off and `Line Out` 0% on every boot. A games
+  machine that boots silent is broken, so `unmute/0` runs at startup and is
+  not gated -- it makes no sound.
+
+  ## The test tone
+
+  `run/0` unmutes and then plays one second of sine, and is gated behind
 
       config :scenic_rg40xxv, audio_test: true
 
-  It defaults to `false`, and with it `false` every entry point here refuses
-  and returns `{:error, :disabled}`. Nothing in this application opens the
-  PCM until that is flipped by hand.
-
-  ## What it does once enabled
-
-  `run/0` unmutes first and then plays, because the two together answer the
-  question and either alone does not:
-
-    1. `DAC` switch on, `Line Out` switch on and raised, `Speaker` on
-    2. one second of `speaker-test`
-
-  Then the result means something. Sound is a pass. Silence, *with the mixer
-  known to be open*, is the first real evidence that the routing inherited
-  from the RG35XX Plus does not describe this board.
+  which is now on, since audio is verified and pressing Y is deliberate.
   """
 
   require Logger
@@ -76,27 +71,32 @@ defmodule ScenicRg40xxv.Audio do
   end
 
   @doc """
-  Raise and unswitch the playback controls. Makes no sound by itself, but is
-  still gated -- it changes device state, and the point of the gate is that
-  the device is left as found until someone asks otherwise.
+  Raise and unswitch the playback controls.
+
+  Called at boot, and not gated, because **this device powers on muted**.
+  `DAC` and `Line Out` both come up with their switches off and Line Out at
+  0%, there is no `/var/lib/alsa/asound.state`, and nothing runs `alsactl
+  restore` -- so without this a games machine boots silent every time.
+
+  Makes no sound by itself.
   """
   def unmute do
-    if enabled?() do
-      Enum.reduce_while(@unmute, :ok, fn {control, args}, _acc ->
-        case cmd("amixer", ["sset", control | args]) do
-          {:ok, _} -> {:cont, :ok}
-          :error -> {:halt, {:error, {:no_tool, "amixer"}}}
-        end
-      end)
-    else
-      {:error, :disabled}
-    end
+    Enum.reduce_while(@unmute, :ok, fn {control, args}, _acc ->
+      case cmd("amixer", ["sset", control | args]) do
+        {:ok, _} -> {:cont, :ok}
+        :error -> {:halt, {:error, {:no_tool, "amixer"}}}
+      end
+    end)
   end
 
   defp play do
     Logger.info("[audio] playing one second of test signal")
 
-    case cmd("speaker-test", ["-c", "2", "-t", "sine", "-f", "440", "-l", "1", "-P", "1"]) do
+    # No -P here. `-P 1` is rejected outright -- "Invalid number of periods 1",
+    # exit 1, nothing played -- because the minimum is 2. It was in the first
+    # version of this function, so the test would have failed silently-ish on
+    # the first press and looked like a hardware problem.
+    case cmd("speaker-test", ["-c", "2", "-t", "sine", "-f", "440", "-l", "1"]) do
       {:ok, _} -> :ok
       :error -> {:error, {:no_tool, "speaker-test"}}
     end
@@ -107,5 +107,28 @@ defmodule ScenicRg40xxv.Audio do
     {:ok, out}
   rescue
     _ -> :error
+  end
+
+  defmodule Startup do
+    @moduledoc """
+    Opens the mixer once at boot, then stops.
+
+    A `:transient` one-shot rather than a long-lived process: there is nothing
+    to supervise afterwards, and it must not keep the supervisor busy. A
+    failure here should not take the boot down either -- a silent device is
+    worse than a loud one, but both are better than one that reverts.
+    """
+
+    use Task, restart: :transient
+    require Logger
+
+    def start_link(_opts), do: Task.start_link(__MODULE__, :run, [])
+
+    def run do
+      case ScenicRg40xxv.Audio.unmute() do
+        :ok -> Logger.info("[audio] mixer opened")
+        other -> Logger.warning("[audio] could not open the mixer: #{inspect(other)}")
+      end
+    end
   end
 end

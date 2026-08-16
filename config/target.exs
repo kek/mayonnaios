@@ -158,16 +158,18 @@ config :scenic_rg40xxv, :viewport,
 # on_close, input_blacklist.
 config :scenic_rg40xxv, autostart_ui: true
 
-# The audio test is built and switched off.
+# Audio works, so the test tone is armed. Press Y for a second of 440 Hz.
 #
-# The codec is known to have bound -- aplay lists card 0 and /dev/snd/pcmC0D0p
-# exists -- and the mixer is known to be muted: DAC sits at 100% with its
-# switch off, Line Out at 0% and off. So the remaining question is only
-# whether sound reaches the speaker, and answering it means making noise.
+# It stayed off until the speaker had been heard, because the answer was
+# worth having in the right order: the mixer powers on muted, so playing
+# first would have produced silence and that silence would have been read as
+# a fault in the device tree inherited from the RG35XX Plus. It is not --
+# unmute first and the routing is fine.
 #
-# Set this to true and press Y to unmute and play a second of sine. Until
-# then `ScenicRg40xxv.Audio` refuses and nothing here opens the PCM.
-config :scenic_rg40xxv, audio_test: false
+# Note this only controls the *test tone*. `ScenicRg40xxv.Audio.unmute/0`
+# runs at boot regardless, because the mixer resets to muted every power-on
+# and there is no saved ALSA state to restore.
+config :scenic_rg40xxv, audio_test: true
 
 # Import target specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
