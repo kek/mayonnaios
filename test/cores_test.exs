@@ -1,0 +1,158 @@
+defmodule ScenicRg40xxv.CoresTest do
+  use ExUnit.Case, async: false
+
+  alias ScenicRg40xxv.Cores
+
+  # The interesting behaviour is `sync/0`, and specifically that it *clears*
+  # before it links. A core that was uninstalled, or that went away with a
+  # RetroArch upgrade, must not survive as a dangling symlink: RetroArch lists
+  # the directory and would offer it, then fail at dlopen with an error about
+  # a file rather than about an install.
+
+  setup do
+    base = Path.join(System.tmp_dir!(), "cores-test-#{System.unique_integer([:positive])}")
+    bundles = Path.join(base, "bundles")
+    core_root = Path.join(base, "cores")
+    core_dir = Path.join(base, "active")
+    File.mkdir_p!(core_dir)
+
+    prev = %{
+      bundle_root: Application.get_env(:scenic_rg40xxv, :bundle_root),
+      core_root: Application.get_env(:scenic_rg40xxv, :core_root),
+      core_dir: Application.get_env(:scenic_rg40xxv, :core_dir),
+      cores: Application.get_env(:scenic_rg40xxv, :cores)
+    }
+
+    Application.put_env(:scenic_rg40xxv, :bundle_root, bundles)
+    Application.put_env(:scenic_rg40xxv, :core_root, core_root)
+    Application.put_env(:scenic_rg40xxv, :core_dir, core_dir)
+    Application.put_env(:scenic_rg40xxv, :cores, %{})
+
+    on_exit(fn ->
+      File.rm_rf(base)
+
+      Enum.each(prev, fn
+        {k, nil} -> Application.delete_env(:scenic_rg40xxv, k)
+        {k, v} -> Application.put_env(:scenic_rg40xxv, k, v)
+      end)
+    end)
+
+    %{bundles: bundles, core_root: core_root, core_dir: core_dir}
+  end
+
+  # A bundle as it looks once installed: a version directory and a `current`
+  # symlink pointing at it, which is what Bundle.publish/3 leaves behind.
+  defp install_retroarch(bundles, version, cores) do
+    dir = Path.join([bundles, "retroarch", version, "lib", "libretro"])
+    File.mkdir_p!(dir)
+    Enum.each(cores, &File.write!(Path.join(dir, "#{&1}_libretro.so"), "so"))
+    link_current(Path.join([bundles, "retroarch"]), version)
+  end
+
+  defp install_core(core_root, name, version) do
+    dir = Path.join([core_root, name, version])
+    File.mkdir_p!(dir)
+    File.write!(Path.join(dir, "#{name}_libretro.so"), "so")
+    link_current(Path.join(core_root, name), version)
+  end
+
+  defp link_current(parent, version) do
+    current = Path.join(parent, "current")
+    File.rm(current)
+    File.ln_s!(Path.join(parent, version), current)
+  end
+
+  test "an empty device syncs to an empty directory, and that is not an error", %{
+    core_dir: core_dir
+  } do
+    assert Cores.sync() == []
+    assert File.dir?(core_dir)
+  end
+
+  test "picks up the cores the RetroArch bundle ships", %{bundles: bundles} do
+    install_retroarch(bundles, "1.22.2", ["2048", "snes9x2010"])
+
+    assert Cores.sync() == ["2048_libretro.so", "snes9x2010_libretro.so"]
+  end
+
+  test "picks up separately installed cores", %{bundles: bundles, core_root: core_root} do
+    install_retroarch(bundles, "1.22.2", ["2048"])
+    install_core(core_root, "gambatte", "0.5.0")
+
+    Application.put_env(:scenic_rg40xxv, :cores, %{
+      gambatte: %{name: "gambatte", version: "0.5.0", url: "x", sha256: "y"}
+    })
+
+    assert Cores.sync() == ["2048_libretro.so", "gambatte_libretro.so"]
+  end
+
+  test "the links resolve to real files", %{bundles: bundles, core_dir: core_dir} do
+    install_retroarch(bundles, "1.22.2", ["2048"])
+    Cores.sync()
+
+    path = Path.join(core_dir, "2048_libretro.so")
+    assert File.read!(path) == "so"
+  end
+
+  test "a core installed by hand survives a RetroArch upgrade", %{
+    bundles: bundles,
+    core_root: core_root
+  } do
+    install_retroarch(bundles, "1.22.2", ["2048"])
+    install_core(core_root, "snes9x2010", "1.22.2")
+
+    Application.put_env(:scenic_rg40xxv, :cores, %{
+      snes9x2010: %{name: "snes9x2010", version: "1.22.2", url: "x", sha256: "y"}
+    })
+
+    assert Cores.sync() == ["2048_libretro.so", "snes9x2010_libretro.so"]
+
+    # The upgrade: a new version directory, `current` moved. This is the case
+    # that loses a hand-copied core when libretro_directory points inside the
+    # bundle, which is the whole reason this module exists.
+    install_retroarch(bundles, "1.23.0", ["2048"])
+
+    assert Cores.sync() == ["2048_libretro.so", "snes9x2010_libretro.so"]
+  end
+
+  test "sync clears a core that is no longer anywhere", %{bundles: bundles, core_dir: core_dir} do
+    install_retroarch(bundles, "1.22.2", ["2048", "doomed"])
+    assert "doomed_libretro.so" in Cores.sync()
+
+    install_retroarch(bundles, "1.23.0", ["2048"])
+
+    assert Cores.sync() == ["2048_libretro.so"]
+    refute File.exists?(Path.join(core_dir, "doomed_libretro.so"))
+  end
+
+  test "sync is idempotent", %{bundles: bundles} do
+    install_retroarch(bundles, "1.22.2", ["2048"])
+
+    assert Cores.sync() == Cores.sync()
+  end
+
+  test "list reports installed and available separately", %{bundles: bundles} do
+    install_retroarch(bundles, "1.22.2", ["2048"])
+
+    Application.put_env(:scenic_rg40xxv, :cores, %{
+      "2048": %{name: "2048", version: "9.9", url: "x", sha256: "y", label: "2048"},
+      gambatte: %{name: "gambatte", version: "0.5.0", url: "x", sha256: "y", label: "Game Boy"}
+    })
+
+    Cores.sync()
+    by_key = Map.new(Cores.list(), &{&1.key, &1})
+
+    # 2048 comes from the RetroArch bundle: usable, but not installed as its
+    # own bundle -- and the catalogue entry claims a version that is not what
+    # is there. Those are genuinely different facts and the UI needs both.
+    assert by_key["2048"].available
+    refute by_key["2048"].installed
+
+    refute by_key["gambatte"].available
+    refute by_key["gambatte"].installed
+  end
+
+  test "installing an uncatalogued core is refused rather than attempted" do
+    assert {:error, :unknown_core} = Cores.install("nonesuch")
+  end
+end

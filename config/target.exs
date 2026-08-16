@@ -226,6 +226,58 @@ config :scenic_rg40xxv, :bundles, %{
   }
 }
 
+# The game library, and the systems the upload page offers.
+#
+# The key is the directory name under :rom_root and it is never taken from a
+# request -- a request supplies a key, this list turns it into a path. That is
+# what makes the directory component of an upload URL safe without any
+# sanitising: an unknown key is a 404, not a traversal.
+#
+# Extensions are the accept-list. `.zip` is in each of them because RetroArch
+# reads zipped ROMs directly and phones like to hand over archives.
+config :scenic_rg40xxv, rom_root: "/root/roms"
+
+config :scenic_rg40xxv, :systems, [
+  %{
+    key: "snes",
+    name: "Super Nintendo",
+    extensions: [".sfc", ".smc", ".zip"]
+  }
+]
+
+# One gigabyte. Not about space -- there is 13 GB -- but about a request that
+# never ends: without a ceiling one client can fill the partition that holds
+# the bundles and the saves, and the failure then shows up everywhere except
+# where it was caused.
+config :scenic_rg40xxv, max_upload_bytes: 1_073_741_824
+
+# Cores.
+#
+# `core_dir` is what RetroArch's `libretro_directory` points at, and it lives
+# outside every bundle on purpose: a core installed into the RetroArch
+# bundle's own lib/libretro belongs to that version of the bundle and vanishes
+# at the next upgrade. `ScenicRg40xxv.Cores.sync/0` fills this directory with
+# symlinks at boot, from both the RetroArch bundle and the installed cores.
+config :scenic_rg40xxv, core_root: "/root/cores"
+config :scenic_rg40xxv, core_dir: "/root/retroarch/cores"
+
+# The catalogue the upload page offers to install. Same trust model as the
+# bundles above: the SHA-256 is here in the firmware, and it is what decides
+# whether the downloaded bytes are unpacked at all.
+#
+# Empty until retroarch-rg40xxv publishes per-core tarballs. Cores that ship
+# inside the RetroArch bundle need no entry -- `sync/0` picks those up from
+# the bundle itself, so they appear in RetroArch without being catalogued.
+config :scenic_rg40xxv, :cores, %{}
+
+# The upload page. Port 80 so the address is just the hostname:
+#
+#     http://nerves-5322903c.local/
+#
+# No authentication and no TLS; see the moduledoc on ScenicRg40xxv.Web for
+# what that means and when it should change.
+config :scenic_rg40xxv, web_port: 80
+
 # Scenic validates driver options strictly and raises on an unknown key. An
 # `opts:` key here (a reasonable guess, and wrong) took the whole application
 # down at boot, so StartupGuard never validated and U-Boot reverted to the

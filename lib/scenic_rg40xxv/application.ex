@@ -70,6 +70,16 @@ defmodule ScenicRg40xxv.Application do
         # Launcher, so the readout has data the moment the scene is opened.
         ScenicRg40xxv.Diagnostics,
 
+        # Relinks /root/retroarch/cores from the RetroArch bundle and the
+        # installed core bundles. Before the web server, so the first page
+        # load reports what is really there.
+        ScenicRg40xxv.Cores.Startup,
+
+        # The upload page. Last of the services because nothing else waits on
+        # it: a device with no web server is still a console, and one whose
+        # boot stopped at the web server is not.
+        ScenicRg40xxv.Web,
+
         # A launches the selected program, Menu goes back to the home screen,
         # X opens the diagnostics readout, Select+Menu powers off.
         ScenicRg40xxv.Launcher

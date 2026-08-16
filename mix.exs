@@ -52,6 +52,20 @@ defmodule ScenicRg40xxv.MixProject do
       {:ring_logger, "~> 0.11.0"},
       {:toolshed, "~> 0.5.0"},
 
+      # The upload UI. Plug for routing, Bandit for the socket.
+      #
+      # Bandit rather than Cowboy because it is pure Elixir -- no NIF, nothing
+      # compiled against a sysroot, nothing for the cross build to get wrong --
+      # and because it streams request bodies. That last part is the whole
+      # requirement: this device has 1 GB of RAM and a CD image is several
+      # hundred megabytes.
+      #
+      # No Phoenix. There is one page and a handful of endpoints, none of them
+      # stateful, and Phoenix would bring an asset pipeline and thirty
+      # dependencies to serve a file input.
+      {:bandit, "~> 1.6"},
+      {:plug, "~> 1.16"},
+
       # Scenic.
       #
       # scenic_driver_local comes from git, not Hex, and that is deliberate.
