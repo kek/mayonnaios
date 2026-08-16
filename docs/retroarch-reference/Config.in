@@ -1,0 +1,31 @@
+config BR2_PACKAGE_RETROARCH
+	bool "retroarch"
+	depends on BR2_PACKAGE_HAS_LIBEGL
+	depends on BR2_PACKAGE_HAS_LIBGBM
+	depends on BR2_PACKAGE_HAS_LIBGLES
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on !BR2_STATIC_LIBS # dlopen() for cores
+	select BR2_PACKAGE_ALSA_LIB
+	select BR2_PACKAGE_FREETYPE
+	select BR2_PACKAGE_LIBDRM
+	select BR2_PACKAGE_SDL2
+	select BR2_PACKAGE_SDL2_OPENGLES
+	select BR2_PACKAGE_SDL2_KMSDRM
+	select BR2_PACKAGE_ZLIB
+	help
+	  RetroArch is the reference libretro frontend. On this board it
+	  renders through KMS/DRM with EGL and GLES2 -- the same GBM path
+	  kmscube already proved -- because there is no X11 and no Wayland
+	  in this system.
+
+	  The dependencies are hard selects rather than optional knobs on
+	  purpose: the point of this package is one predictable binary that
+	  can be checked on the device, not a configurable matrix.
+
+	  https://www.retroarch.com/
+
+comment "retroarch needs EGL, GBM and OpenGL ES, and a toolchain w/ threads, C++, dynamic library"
+	depends on !BR2_PACKAGE_HAS_LIBEGL || !BR2_PACKAGE_HAS_LIBGBM || \
+		!BR2_PACKAGE_HAS_LIBGLES || !BR2_TOOLCHAIN_HAS_THREADS || \
+		!BR2_INSTALL_LIBSTDCPP || BR2_STATIC_LIBS
