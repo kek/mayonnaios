@@ -58,27 +58,32 @@ Three pieces:
    appears on the data partition after boot shows up without a restart. That
    was written for exactly this.
 
-## The open question
+## The load-bearing question, now answered
 
-**Is the writable partition mounted `exec`?** Everything above depends on it
-and it is *not yet verified*. `fwup_include/fwup-common.conf:19-21` puts an
-f2fs application partition on `/dev/mmcblk0p4` mounted at `/root`, and
-specifies no mount options, so the default (exec permitted) should apply. That
-is an inference, not a reading.
+**The writable partition allows execution.** Checked on the device rather
+than inferred: a script was written to it, `chmod 0755`, and run.
 
-One command settles it, next time the device is up:
+    /dev/mmcblk0p4 on /root type f2fs (rw,lazytime,nodev,relatime,...)
 
-```elixir
-# on the device
-File.write!("/root/exectest.sh", "#!/bin/sh\necho ok\n")
-File.chmod!("/root/exectest.sh", 0o755)
-System.cmd("/root/exectest.sh", [])   # {"ok\n", 0} means exec works
-```
+    /root -> EXEC WORKS
+    /data -> EXEC WORKS
 
-If it turns out to be `noexec`, route B is dead in this form and the fallback
-is a dedicated read-only content partition written by fwup — which does touch
-the system repo, but generically, as "a content partition" rather than as
-RetroArch.
+`nodev` is set; `noexec` is not. `/data` is a symlink to `root`, so both names
+are the same f2fs partition.
+
+Space is not a constraint either, and the contrast is the argument for this
+whole approach in two lines:
+
+    /dev/root         66.5M   66.5M       0  100%  /
+    /dev/mmcblk0p4    13.7G  279.1M   13.4G    2%  /root
+
+The read-only rootfs is completely full at 66.5 MB. The writable partition has
+13.4 GB free. A 100 MB emulator payload does not fit in the first and
+disappears into the second — before considering ROMs, save states and
+thumbnails, which are pure content and belong there regardless.
+
+So route B stands, and the fallback (a dedicated read-only content partition
+written by fwup, which would touch the system repo) is not needed.
 
 ## Build reference
 
