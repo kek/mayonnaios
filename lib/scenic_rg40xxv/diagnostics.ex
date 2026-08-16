@@ -62,6 +62,7 @@ defmodule ScenicRg40xxv.Diagnostics do
             volume: %{last: nil, up: 0, down: 0},
             jack: %{inserted: nil, changes: 0},
             gpu_prev: nil,
+            rtl: {:error, "not read"},
             ticks: 0
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -83,6 +84,7 @@ defmodule ScenicRg40xxv.Diagnostics do
     state =
       %__MODULE__{}
       |> Map.put(:jack, %{inserted: query_jack(), changes: 0})
+      |> Map.put(:rtl, rtl_status())
       |> poll()
 
     :timer.send_interval(@poll_ms, :poll)
@@ -132,7 +134,7 @@ defmodule ScenicRg40xxv.Diagnostics do
       | battery: read_battery(),
         thermal: read_thermal(),
         rtc: read_rtc(),
-        bluetooth: read_bluetooth(),
+        bluetooth: read_bluetooth(state.rtl),
         audio: audio,
         gpu: gpu,
         gpu_prev: gpu_prev
@@ -245,15 +247,51 @@ defmodule ScenicRg40xxv.Diagnostics do
     }
   end
 
-  defp read_bluetooth do
+  defp read_bluetooth(rtl) do
     # An hci0 directory is not evidence of a working controller: it appears
-    # before setup runs, and stays after setup fails. The address attribute is
-    # what distinguishes the two, so both are reported.
+    # before setup runs, and stays after setup fails.
+    #
+    # It is tempting to reach for /sys/class/bluetooth/hci0/address as the
+    # thing that tells those apart. This kernel does not have it -- hci0
+    # exposes only uevent, power, device, subsystem and rfkill -- so a check
+    # for it reports "no address" on a perfectly healthy controller. That
+    # mistake was made here and cost an evening; the note is the fix.
+    #
+    # What actually distinguishes them is btrtl's own account of setup, which
+    # only exists in the kernel log. See rtl_status/0.
     %{
       hci0: File.dir?("/sys/class/bluetooth/hci0"),
-      address: read_str("/sys/class/bluetooth/hci0/address"),
-      config_firmware: File.exists?(@bt_config)
+      config_firmware: File.exists?(@bt_config),
+      rtl: rtl
     }
+  end
+
+  # btrtl logs its result once, during boot, and never again -- so this is
+  # read at startup and kept, rather than polled.
+  #
+  #   working: RTL: cfg_sz 25, total sz 36953
+  #            RTL: fw version 0x75b8f098
+  #   broken:  RTL: mandatory config file rtl_bt/rtl8821cs_config not found
+  defp rtl_status do
+    case cmd("dmesg", []) do
+      {:ok, out} ->
+        cond do
+          match = Regex.run(~r/RTL: fw version (0x[0-9a-f]+)/, out) ->
+            {:ok, Enum.at(match, 1)}
+
+          Regex.match?(~r/RTL: mandatory config file .* not found/, out) ->
+            {:error, "config missing"}
+
+          match = Regex.run(~r/Direct firmware load for (\S+) failed/, out) ->
+            {:error, "load failed: #{Path.basename(Enum.at(match, 1))}"}
+
+          true ->
+            {:error, "no RTL setup logged"}
+        end
+
+      :error ->
+        {:error, "dmesg unavailable"}
+    end
   end
 
   # Controls, and whether each is actually audible. Reported, never changed:

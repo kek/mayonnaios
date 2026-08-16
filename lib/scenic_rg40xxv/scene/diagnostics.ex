@@ -187,13 +187,26 @@ defmodule ScenicRg40xxv.Scene.Diagnostics do
   end
 
   defp bluetooth_rows(bt) do
-    # hci0 exists whether or not setup succeeded. The address is what tells
-    # the two apart, so it is the row that is coloured.
+    # hci0 exists whether or not setup succeeded, so it is shown but never
+    # coloured green on its own. The row that decides is "firmware", which
+    # reports what btrtl said while setting the controller up.
+    #
+    # There used to be an "address" row here, reading
+    # /sys/class/bluetooth/hci0/address. This kernel does not expose that
+    # attribute, so it read "none" on a working controller and sent someone
+    # looking for a fault that had already been fixed.
+    {firmware, colour} =
+      case bt[:rtl] do
+        {:ok, version} -> {"ok #{version}", @pass}
+        {:error, reason} -> {reason, @fail}
+        _ -> {"unknown", @wait}
+      end
+
     [
-      {:row, "hci0", yn(bt[:hci0]), if(bt[:hci0], do: @pass, else: @fail)},
-      {:row, "address", bt[:address] || "none", if(bt[:address], do: @pass, else: @fail)},
+      {:row, "hci0", yn(bt[:hci0]), if(bt[:hci0], do: @dim, else: @fail)},
       {:row, "config blob", yn(bt[:config_firmware]),
-       if(bt[:config_firmware], do: @pass, else: @fail)}
+       if(bt[:config_firmware], do: @pass, else: @fail)},
+      {:row, "firmware", firmware, colour}
     ]
   end
 
