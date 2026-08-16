@@ -324,6 +324,22 @@ defmodule ScenicRg40xxv.Launcher do
   defp start_program(program, state) do
     Logger.info("[launcher] launching #{Enum.join([program.path | program.args], " ")}")
 
+    # Programs that read input through udev need the daemon running and the
+    # input devices in its database first. Nothing in this application does --
+    # InputEvent reads evdev directly -- but RetroArch has no other way to see
+    # a gamepad, and without this it renders a frame and exits with "Cannot
+    # initialize input driver".
+    #
+    # Opt-in per program rather than always, because it is a daemon start for
+    # the benefit of one kind of program, and because a launcher that silently
+    # starts services is harder to reason about than one that is told to.
+    if Map.get(program, :needs_udev, false) do
+      case ScenicRg40xxv.Udev.ensure_started() do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("[launcher] udev unavailable: #{inspect(reason)}")
+      end
+    end
+
     # Port.open raises rather than returning an error, and `installed?` is only
     # File.exists?/1 -- so a configured path that is a directory, or a file
     # without the execute bit, reaches here looking launchable and then throws

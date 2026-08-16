@@ -79,6 +79,12 @@ defmodule ScenicRg40xxv.Programs do
       name: Map.get(entry, :name) || Path.basename(path),
       path: path,
       args: Map.get(entry, :args, []),
+      # Programs that read input through udev; see ScenicRg40xxv.Udev. Carried
+      # through explicitly because this function rebuilds the map rather than
+      # merging into it, so anything not named here is dropped -- and a flag
+      # that silently vanishes between config and launcher would look exactly
+      # like the feature not working.
+      needs_udev: Map.get(entry, :needs_udev, false),
       # Re-stat'd on every call, deliberately: firmware is immutable but the
       # data partition is not, and a cached "installed" would outlive the file.
       installed?: File.exists?(path)
@@ -96,6 +102,12 @@ defmodule ScenicRg40xxv.Programs do
   # panel with nothing saying the fault is one line of config. Rendering the
   # bad entry says exactly where to look.
   defp normalize(entry) do
-    %{name: "#{inspect(entry)} (no :path)", path: nil, args: [], installed?: false}
+    %{
+      name: "#{inspect(entry)} (no :path)",
+      path: nil,
+      args: [],
+      needs_udev: false,
+      installed?: false
+    }
   end
 end

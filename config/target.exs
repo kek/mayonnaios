@@ -174,7 +174,16 @@ config :scenic_rg40xxv, :programs, [
   #
   # `current` is a symlink to the installed version, so an upgrade or a
   # rollback moves the link and this path never changes.
-  %{name: "RetroArch", path: "/root/bundles/retroarch/current/bin/retroarch"}
+  #
+  # needs_udev because RetroArch reads the gamepad through udev and has no
+  # other way to: linuxraw sees only console keycodes, there is no plain evdev
+  # driver, and this kernel has no joydev. The Launcher starts udevd and
+  # replays the input uevents before launching anything with this flag.
+  %{
+    name: "RetroArch",
+    path: "/root/bundles/retroarch/current/bin/retroarch",
+    needs_udev: true
+  }
 ]
 
 # Where ScenicRg40xxv.Bundle installs content. On the f2fs application
