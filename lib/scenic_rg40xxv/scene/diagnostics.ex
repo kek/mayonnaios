@@ -107,6 +107,8 @@ defmodule ScenicRg40xxv.Scene.Diagnostics do
       battery_rows(s.battery) ++
       [{:head, "THERMAL"}] ++
       thermal_rows(s.thermal) ++
+      [{:head, "GPU"}] ++
+      gpu_rows(s.gpu) ++
       [{:head, "REAL-TIME CLOCK"}] ++ rtc_rows(s.rtc)
   end
 
@@ -136,9 +138,31 @@ defmodule ScenicRg40xxv.Scene.Diagnostics do
   defp thermal_rows([]), do: [{:row, "zones", "none", @fail}]
 
   defp thermal_rows(zones) do
+    # No "press A and watch this rise" row here any more. It was wrong:
+    # kmscube runs the GPU at about 5% and moves this sensor by 0.65 °C,
+    # which is noise. These sensors are known good from a CPU load test
+    # (+9.8 °C on cpu-thermal), and GPU work is measured directly below.
     Enum.map(zones, fn {type, milli} ->
       {:row, String.replace_suffix(type, "-thermal", ""), degrees(milli), @pass}
-    end) ++ [{:row, "• press A", "gpu must rise", @wait}]
+    end)
+  end
+
+  # Busy percentages from panfrost fdinfo. This is the honest answer to "is
+  # the GPU doing anything", and unlike temperature it responds instantly.
+  defp gpu_rows(%{client: nil}) do
+    [{:row, "client", "none", @dim}, {:row, "• press A", "run kmscube", @wait}]
+  end
+
+  defp gpu_rows(%{client: name, engines: engines}) do
+    rows =
+      engines
+      |> Enum.sort()
+      |> Enum.map(fn {engine, percent} ->
+        {:row, engine, if(percent, do: "#{percent} %", else: "..."),
+         if(percent && percent > 0.0, do: @pass, else: @dim)}
+      end)
+
+    [{:row, "client", name, @pass}] ++ rows
   end
 
   defp rtc_rows(r) do
@@ -197,7 +221,7 @@ defmodule ScenicRg40xxv.Scene.Diagnostics do
   # Muted controls are amber, not red: it is the expected default, and the
   # thing to fix before drawing any conclusion about the device tree.
   defp audio_state do
-    if Audio.enabled?(), do: "armed — X plays", else: "off (silent)"
+    if Audio.enabled?(), do: "armed — Y plays", else: "off (silent)"
   end
 
   defp volume_rows(v) do
@@ -229,7 +253,9 @@ defmodule ScenicRg40xxv.Scene.Diagnostics do
   end
 
   defp hints do
-    "Y diagnostics/home   A cube   Start stop   Select+Menu power off"
+    # X and Y as printed on the shell -- the device tree labels them the
+    # other way round, and the buttons settled it.
+    "X diagnostics/home   A cube   Start stop   Select+Menu power off"
   end
 
   # -- formatting ------------------------------------------------------------

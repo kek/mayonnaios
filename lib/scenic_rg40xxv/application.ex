@@ -64,7 +64,7 @@ defmodule ScenicRg40xxv.Application do
         # Launcher, so the readout has data the moment the scene is opened.
         ScenicRg40xxv.Diagnostics,
 
-        # A launches the external GPU demo, Start stops it, Y opens the
+        # A launches the external GPU demo, Start stops it, X opens the
         # diagnostics readout.
         ScenicRg40xxv.Launcher
       ] ++ boot_diagnostics()

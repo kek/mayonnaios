@@ -31,9 +31,12 @@ defmodule ScenicRg40xxv.Launcher do
 
       A             launch kmscube
       Start         stop it
-      Y             switch between the demo scene and diagnostics
-      X             run the audio test, if it has been armed
+      X             switch between the demo scene and diagnostics
+      Y             run the audio test, if it has been armed
       Select+Menu   power off
+
+  These are the buttons as printed on the shell. Two of the four atoms above
+  name the opposite button; see the note on the attributes below.
 
   This process owns `event0`, so everything on the gamepad is bound here even
   when it belongs to something else -- `ScenicRg40xxv.Audio` decides whether X
@@ -50,9 +53,18 @@ defmodule ScenicRg40xxv.Launcher do
   @launch_button :btn_b
   @stop_button :btn_start
 
-  # X and Y need no such translation. The device tree puts X on north (307)
-  # and Y on west (308), which is where Linux's BTN_X and BTN_Y already are --
-  # the Nintendo layout only disagrees with Linux about A and B.
+  # X and Y are swapped too, and the device tree does not admit it.
+  #
+  # The first version of this file said X and Y needed no translation: the DT
+  # labels "Action-Pad X" 307 and "Action Pad Y" 308, and Linux has
+  # BTN_X == BTN_NORTH == 307 and BTN_Y == BTN_WEST == 308, so the labels
+  # looked self-consistent. Pressing the buttons says otherwise. The button
+  # silkscreened X emits 308 and the one silkscreened Y emits 307 -- the DT's
+  # X/Y labels are the wrong way round for this board's shell.
+  #
+  # So :btn_y below really is the X button. Reading the device tree was not
+  # enough here, which is the same lesson as A and B and was available the
+  # whole time; it just was not applied twice.
   @diagnostics_button :btn_y
   @audio_button :btn_x
 
@@ -69,6 +81,17 @@ defmodule ScenicRg40xxv.Launcher do
   Whether the external program is running right now.
   """
   def running?, do: GenServer.call(__MODULE__, :running?)
+
+  @doc """
+  The OS pid of the running program, or `nil`.
+
+  `ScenicRg40xxv.Diagnostics` uses this to read GPU busy time out of that
+  process's `fdinfo`. Scanning every process for a panfrost fd would cost
+  thousands of procfs reads a second on this SoC, and it is unnecessary:
+  Scenic renders on the CPU through cairo, so the program launched here is
+  the only GPU client there is.
+  """
+  def os_pid, do: GenServer.call(__MODULE__, :os_pid)
 
   @doc """
   Start or stop it from a console, without pressing anything.
@@ -95,6 +118,16 @@ defmodule ScenicRg40xxv.Launcher do
 
   @impl GenServer
   def handle_call(:running?, _from, state), do: {:reply, state.port != nil, state}
+
+  def handle_call(:os_pid, _from, %{port: nil} = state), do: {:reply, nil, state}
+
+  def handle_call(:os_pid, _from, state) do
+    case Port.info(state.port, :os_pid) do
+      {:os_pid, pid} -> {:reply, pid, state}
+      _ -> {:reply, nil, state}
+    end
+  end
+
   def handle_call(:launch, _from, state), do: {:reply, :ok, do_launch(state)}
   def handle_call(:stop, _from, state), do: {:reply, :ok, do_stop(state)}
 

@@ -45,6 +45,10 @@ defmodule ScenicRg40xxv.Diagnostics do
   # comment against BR2_PACKAGE_LINUX_FIRMWARE_RTL_87XX_BT in nerves_defconfig.
   @bt_config "/lib/firmware/rtl_bt/rtl8821cs_config.bin"
 
+  # Panfrost publishes per-engine busy nanoseconds in fdinfo, but only once
+  # profiling is switched on.
+  @gpu "/sys/devices/platform/soc/1800000.gpu"
+
   @poll_ms 1_000
   # amixer means spawning a process, so it runs on its own slower clock.
   @audio_every 5
@@ -54,8 +58,10 @@ defmodule ScenicRg40xxv.Diagnostics do
             rtc: %{},
             bluetooth: %{},
             audio: %{},
+            gpu: %{client: nil, engines: %{}},
             volume: %{last: nil, up: 0, down: 0},
             jack: %{inserted: nil, changes: 0},
+            gpu_prev: nil,
             ticks: 0
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -69,6 +75,10 @@ defmodule ScenicRg40xxv.Diagnostics do
   def init(_opts) do
     open(@volume_device)
     open(@jack_device)
+
+    # Without this the fdinfo engine counters stay at zero, which would look
+    # exactly like a GPU doing nothing.
+    File.write("#{@gpu}/profiling", "1")
 
     state =
       %__MODULE__{}
@@ -115,6 +125,7 @@ defmodule ScenicRg40xxv.Diagnostics do
 
   defp poll(state) do
     audio = if rem(state.ticks, @audio_every) == 0, do: read_audio(), else: state.audio
+    {gpu, gpu_prev} = read_gpu(state.gpu_prev)
 
     %{
       state
@@ -122,8 +133,84 @@ defmodule ScenicRg40xxv.Diagnostics do
         thermal: read_thermal(),
         rtc: read_rtc(),
         bluetooth: read_bluetooth(),
-        audio: audio
+        audio: audio,
+        gpu: gpu,
+        gpu_prev: gpu_prev
     }
+  end
+
+  # Busy time is cumulative nanoseconds, so utilisation is a difference over
+  # elapsed wall clock. Measuring this rather than watching the temperature
+  # was the point: kmscube keeps this GPU about 5% busy, which is real work
+  # and produces no heat worth reading. A thermal check would have called
+  # that a dead GPU.
+  defp read_gpu(prev) do
+    now = System.monotonic_time(:nanosecond)
+
+    case gpu_client() do
+      nil ->
+        {%{client: nil, engines: %{}}, nil}
+
+      {pid, name} ->
+        totals = engine_totals(pid)
+
+        engines =
+          case prev do
+            {prev_at, prev_totals} when prev_at < now ->
+              elapsed = now - prev_at
+
+              Map.new(totals, fn {engine, busy} ->
+                delta = busy - Map.get(prev_totals, engine, busy)
+                {engine, Float.round(delta / elapsed * 100, 1)}
+              end)
+
+            _ ->
+              # First sample after launch has nothing to subtract from.
+              Map.new(totals, fn {engine, _} -> {engine, nil} end)
+          end
+
+        {%{client: name, engines: engines}, {now, totals}}
+    end
+  end
+
+  defp gpu_client do
+    with pid when is_integer(pid) <- launcher_pid(),
+         {:ok, comm} <- File.read("/proc/#{pid}/comm") do
+      {pid, String.trim(comm)}
+    else
+      _ -> nil
+    end
+  end
+
+  defp launcher_pid do
+    ScenicRg40xxv.Launcher.os_pid()
+  rescue
+    _ -> nil
+  catch
+    :exit, _ -> nil
+  end
+
+  defp engine_totals(pid) do
+    "/proc/#{pid}/fdinfo/*"
+    |> Path.wildcard()
+    |> Enum.reduce(%{}, fn path, acc ->
+      case File.read(path) do
+        {:ok, body} -> Map.merge(acc, parse_fdinfo(body), fn _k, a, b -> a + b end)
+        _ -> acc
+      end
+    end)
+  end
+
+  defp parse_fdinfo(body) do
+    if String.contains?(body, "drm-driver:\tpanfrost") do
+      ~r/^(drm-engine-[a-z-]+):\s+(\d+) ns$/m
+      |> Regex.scan(body)
+      |> Map.new(fn [_, engine, ns] ->
+        {String.replace_prefix(engine, "drm-engine-", ""), String.to_integer(ns)}
+      end)
+    else
+      %{}
+    end
   end
 
   defp read_battery do

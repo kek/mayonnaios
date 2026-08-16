@@ -165,7 +165,7 @@ config :scenic_rg40xxv, autostart_ui: true
 # switch off, Line Out at 0% and off. So the remaining question is only
 # whether sound reaches the speaker, and answering it means making noise.
 #
-# Set this to true and press X to unmute and play a second of sine. Until
+# Set this to true and press Y to unmute and play a second of sine. Until
 # then `ScenicRg40xxv.Audio` refuses and nothing here opens the PCM.
 config :scenic_rg40xxv, audio_test: false
 
