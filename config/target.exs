@@ -164,8 +164,23 @@ config :scenic_rg40xxv, :viewport,
 #
 #     %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]}
 config :scenic_rg40xxv, :programs, [
-  %{name: "Spinning cube (kmscube)", path: "/usr/bin/kmscube"}
+  %{name: "Spinning cube (kmscube)", path: "/usr/bin/kmscube"},
+
+  # Not in the firmware. This path only exists once ScenicRg40xxv.Bundle has
+  # installed RetroArch onto the writable partition, and until then Programs
+  # renders it as a greyed, unlaunchable row -- which is the honest state and
+  # better than hiding it, since "the menu is empty" gives nobody anything to
+  # act on.
+  #
+  # `current` is a symlink to the installed version, so an upgrade or a
+  # rollback moves the link and this path never changes.
+  %{name: "RetroArch", path: "/root/bundles/retroarch/current/bin/retroarch"}
 ]
+
+# Where ScenicRg40xxv.Bundle installs content. On the f2fs application
+# partition, which has 13.4 GB free and -- verified on the device, not assumed
+# -- is mounted nodev but not noexec, so binaries there can actually run.
+config :scenic_rg40xxv, bundle_root: "/root/bundles"
 
 # Scenic validates driver options strictly and raises on an unknown key. An
 # `opts:` key here (a reasonable guess, and wrong) took the whole application
