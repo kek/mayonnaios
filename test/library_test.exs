@@ -104,7 +104,7 @@ defmodule ScenicRg40xxv.LibraryTest do
 
   describe "receive_upload/4" do
     test "writes every chunk, in order, and reports the total", %{root: root} do
-      assert {:ok, %{name: "game.sfc", size: 9}} =
+      assert {:ok, %{name: "game.sfc", size: 9}, _} =
                Library.receive_upload("snes", "game.sfc", ["abc", "def", "ghi"], reader())
 
       assert File.read!(Path.join([root, "snes", "game.sfc"])) == "abcdefghi"
@@ -112,25 +112,25 @@ defmodule ScenicRg40xxv.LibraryTest do
 
     test "creates the system directory on first upload", %{root: root} do
       refute File.dir?(Path.join(root, "snes"))
-      assert {:ok, _} = Library.receive_upload("snes", "game.sfc", ["x"], reader())
+      assert {:ok, _, _} = Library.receive_upload("snes", "game.sfc", ["x"], reader())
       assert File.dir?(Path.join(root, "snes"))
     end
 
     test "overwrites an existing file rather than appending", %{root: root} do
-      {:ok, _} = Library.receive_upload("snes", "game.sfc", ["aaaa"], reader())
-      {:ok, %{size: 2}} = Library.receive_upload("snes", "game.sfc", ["bb"], reader())
+      {:ok, _, _} = Library.receive_upload("snes", "game.sfc", ["aaaa"], reader())
+      {:ok, %{size: 2}, _} = Library.receive_upload("snes", "game.sfc", ["bb"], reader())
       assert File.read!(Path.join([root, "snes", "game.sfc"])) == "bb"
     end
 
     test "leaves no .part behind on success", %{root: root} do
-      {:ok, _} = Library.receive_upload("snes", "game.sfc", ["x"], reader())
+      {:ok, _, _} = Library.receive_upload("snes", "game.sfc", ["x"], reader())
       assert File.ls!(Path.join(root, "snes")) == ["game.sfc"]
     end
 
     test "refuses a body over the ceiling and leaves nothing behind", %{root: root} do
       Application.put_env(:scenic_rg40xxv, :max_upload_bytes, 4)
 
-      assert {:error, :too_large} =
+      assert {:error, :too_large, _} =
                Library.receive_upload("snes", "game.sfc", ["aaa", "bbb"], reader())
 
       # Not even a .part: a partial file that the next upload would have to
@@ -139,7 +139,7 @@ defmodule ScenicRg40xxv.LibraryTest do
     end
 
     test "does not create a directory for a rejected name", %{root: root} do
-      assert {:error, :bad_name} = Library.receive_upload("snes", "../x.sfc", ["a"], reader())
+      assert {:error, :bad_name, _} = Library.receive_upload("snes", "../x.sfc", ["a"], reader())
       assert File.ls!(root) == []
     end
 
@@ -149,7 +149,7 @@ defmodule ScenicRg40xxv.LibraryTest do
         [h | t] -> {:more, h, t}
       end
 
-      assert {:error, {:read, :closed}} =
+      assert {:error, {:read, :closed}, _} =
                Library.receive_upload("snes", "game.sfc", ["ok", "boom"], reader)
 
       assert File.ls!(Path.join(root, "snes")) == []

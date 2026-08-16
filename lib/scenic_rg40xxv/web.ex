@@ -111,18 +111,25 @@ defmodule ScenicRg40xxv.Web do
     # read_body/2 is passed by reference rather than called here, so the
     # streaming loop lives in Library with the file handle it is writing to
     # and this module never holds a chunk.
-    result =
-      Library.receive_upload(system, filename, conn, fn c ->
-        Plug.Conn.read_body(c, length: 1_000_000, read_length: 1_000_000)
-      end)
-
-    case result do
-      {:ok, %{name: name, size: size}} ->
+    #
+    # The conn comes back out because Plug.Conn carries the adapter's state in
+    # the struct: the one that went in is stale as soon as a chunk is read,
+    # and replying on it would be replying on a description of the connection
+    # from before the body arrived.
+    case Library.receive_upload(system, filename, conn, &read_chunk/1) do
+      {:ok, %{name: name, size: size}, conn} ->
         json(conn, 201, %{"name" => name, "size" => size})
 
-      {:error, reason} ->
+      {:error, reason, conn} ->
         json(conn, status_for(reason), %{"error" => to_string(elem_or(reason))})
     end
+  end
+
+  # A megabyte at a time. Small enough that a rejected upload stops promptly,
+  # large enough that a 700 MB image is not seven hundred round trips through
+  # the loop.
+  defp read_chunk(conn) do
+    Plug.Conn.read_body(conn, length: 1_000_000, read_length: 1_000_000)
   end
 
   delete "/api/roms/:system/:filename" do

@@ -154,10 +154,17 @@ defmodule ScenicRg40xxv.Library do
   @doc """
   Stream a request body into a system's directory.
 
-  `read_chunk` is called repeatedly and must return `{:ok, binary, next}`,
-  `{:more, binary, next}` or `{:error, reason}` -- the shape `Plug.Conn.
-  read_body/2` already has, so the web layer passes its own conn through
-  without an adapter.
+  `read_chunk` is called repeatedly with the current state and must return
+  `{:ok, binary, next}`, `{:more, binary, next}` or `{:error, reason}` -- the
+  shape `Plug.Conn.read_body/2` already has, so the web layer passes its own
+  conn straight through with no adapter.
+
+  **Returns the final state alongside the result**, and that is not tidiness.
+  `Plug.Conn` carries the adapter's state inside the struct, so the conn that
+  went in is stale the moment the first chunk is read; replying on it means
+  replying on a description of the connection from before the body arrived.
+  It happens to work today, and "happens to work" is not a thing to build a
+  request path on. The caller gets the current one back and answers with that.
 
   Written to a `.part` file beside the destination and renamed at the end.
   Same directory, so the rename is atomic rather than a copy: a connection
@@ -165,84 +172,91 @@ defmodule ScenicRg40xxv.Library do
   truncated ROM that looks like a real one and fails at the checksum screen
   of a game three hours later.
   """
-  @spec receive_upload(String.t(), String.t(), term(), (term() -> tuple())) ::
-          {:ok, %{name: String.t(), size: non_neg_integer(), path: String.t()}}
-          | {:error, term()}
+  @spec receive_upload(String.t(), String.t(), state, (state -> tuple())) ::
+          {:ok, %{name: String.t(), size: non_neg_integer(), path: String.t()}, state}
+          | {:error, term(), state}
+        when state: term()
   def receive_upload(system_key, name, chunk_state, read_chunk) do
-    with {:ok, dest} <- path(system_key, name) do
-      File.mkdir_p!(Path.dirname(dest))
-      part = dest <> ".part"
-      File.rm(part)
+    case path(system_key, name) do
+      {:error, reason} ->
+        # Nothing was read, so the state is untouched and still current.
+        {:error, reason, chunk_state}
 
-      case File.open(part, [:write, :binary, :raw]) do
-        {:ok, fd} ->
-          result = pump(fd, chunk_state, read_chunk, 0)
-          # fsync before close, not after: this partition is f2fs and the
-          # device is a handheld that gets switched off by holding a button.
-          # An unsynced 200 MB write survives exactly as long as the page
-          # cache does, which was measured here at less than one reboot.
-          :file.sync(fd)
-          File.close(fd)
-          finish(result, part, dest, name)
+      {:ok, dest} ->
+        File.mkdir_p!(Path.dirname(dest))
+        part = dest <> ".part"
+        File.rm(part)
 
-        {:error, reason} ->
-          {:error, {:open, reason}}
-      end
+        case File.open(part, [:write, :binary, :raw]) do
+          {:ok, fd} ->
+            {result, state} = pump(fd, chunk_state, read_chunk, 0)
+            # fsync before close, not after: this partition is f2fs and the
+            # device is a handheld that gets switched off by holding a button.
+            # An unsynced 200 MB write survives exactly as long as the page
+            # cache does, which was measured here at less than one reboot.
+            :file.sync(fd)
+            File.close(fd)
+            finish(result, part, dest, name, state)
+
+          {:error, reason} ->
+            {:error, {:open, reason}, chunk_state}
+        end
     end
   end
 
   defp pump(fd, state, read_chunk, written) do
     case read_chunk.(state) do
-      {:ok, data, _next} ->
-        total = written + byte_size(data)
-
-        if total > max_bytes() do
-          {:error, :too_large}
-        else
-          # :file.write and not IO.binwrite -- the fd is opened :raw, which
-          # skips the IO server, and the IO functions do not speak to it.
-          case :file.write(fd, data) do
-            :ok -> {:ok, total}
-            {:error, reason} -> {:error, {:write, reason}}
-          end
-        end
+      {:ok, data, next} ->
+        write_chunk(fd, data, next, read_chunk, written, :last)
 
       {:more, data, next} ->
-        total = written + byte_size(data)
+        write_chunk(fd, data, next, read_chunk, written, :more)
 
-        if total > max_bytes() do
-          # Stop reading. The socket is closed by the caller's error response,
-          # which is the only way to make a client stop sending: there is no
-          # polite way to decline the second half of a body.
-          {:error, :too_large}
-        else
-          case :file.write(fd, data) do
-            :ok -> pump(fd, next, read_chunk, total)
-            {:error, reason} -> {:error, {:write, reason}}
-          end
-        end
-
+      # No `next` to hand back on an error, so the last good state stands.
       {:error, reason} ->
-        {:error, {:read, reason}}
+        {{:error, {:read, reason}}, state}
     end
   end
 
-  defp finish({:ok, size}, part, dest, name) do
+  defp write_chunk(fd, data, next, read_chunk, written, last_or_more) do
+    total = written + byte_size(data)
+
+    cond do
+      total > max_bytes() ->
+        # Stop reading here. Closing the socket is the only way to make a
+        # client stop sending: there is no polite way to decline the second
+        # half of a body.
+        {{:error, :too_large}, next}
+
+      # :file.write and not IO.binwrite -- the fd is opened :raw, which skips
+      # the IO server, and the IO functions do not speak to it.
+      :file.write(fd, data) != :ok ->
+        {{:error, :write}, next}
+
+      last_or_more == :last ->
+        {{:ok, total}, next}
+
+      true ->
+        pump(fd, next, read_chunk, total)
+    end
+  end
+
+  defp finish({:ok, size}, part, dest, name, state) do
     case File.rename(part, dest) do
       :ok ->
         Logger.info("[library] stored #{name} (#{size} bytes)")
-        {:ok, %{name: name, size: size, path: dest}}
+        {:ok, %{name: name, size: size, path: dest}, state}
 
       {:error, reason} ->
         File.rm(part)
-        {:error, {:rename, reason}}
+        {:error, {:rename, reason}, state}
     end
   end
 
-  defp finish({:error, reason}, part, _dest, name) do
+  defp finish({:error, reason}, part, _dest, name, state) do
     File.rm(part)
     Logger.warning("[library] rejected #{name}: #{inspect(reason)}")
-    {:error, reason}
+    {:error, reason, state}
   end
 
   @doc """
