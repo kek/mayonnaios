@@ -209,8 +209,8 @@ config :scenic_rg40xxv, :bundles, %{
     name: "retroarch",
     version: "1.22.2",
     url:
-      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-1/retroarch-1.22.2-aarch64.tar.gz",
-    sha256: "6ddea749a79ca03285f9fa584440dea31008695031217bf010b49daf539f0db2"
+      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-2/retroarch-1.22.2-aarch64.tar.gz",
+    sha256: "0cc2dd25fca7f8b53187a98c26f3aa3270c7b4a694c7e51d379990a4b6b7b3e9"
   }
 }
 

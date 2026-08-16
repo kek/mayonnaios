@@ -215,8 +215,37 @@ defmodule ScenicRg40xxv.Launcher do
     {:noreply, %{state | port: nil, running: nil}}
   end
 
-  def handle_info({port, {:data, _}}, %{port: port} = state), do: {:noreply, state}
+  # Log what the program says, rather than dropping it.
+  #
+  # This used to discard the data outright, and it cost an evening. RetroArch
+  # started, rendered one frame and exited, and the entire visible evidence was
+  # "a quick flash on the screen and nothing" -- while the program had been
+  # printing the exact reason to the pipe the whole time:
+  #
+  #     [ERROR] [Video] Cannot initialize input driver. Exiting...
+  #
+  # An external program that dies on this device has no other way to tell
+  # anyone why: there is no console, the screen belongs to whatever ran last,
+  # and the ring logger is the only thing anybody can read afterwards.
+  #
+  # Trimmed and length-capped because a chatty program should not be able to
+  # push everything else out of a fixed-size ring buffer.
+  def handle_info({port, {:data, data}}, %{port: port} = state) do
+    data
+    |> String.split("\n", trim: true)
+    |> Enum.each(fn line ->
+      Logger.info("[#{program_name(state)}] #{String.slice(line, 0, 300)}")
+    end)
+
+    {:noreply, state}
+  end
+
   def handle_info(_msg, state), do: {:noreply, state}
+
+  # The running program's name, for log lines. Falls back to "program" rather
+  # than crashing the log call if a message arrives after the state is cleared.
+  defp program_name(%{running: %{name: name}}), do: name
+  defp program_name(_), do: "program"
 
   defp hold(state, key), do: %{state | held: MapSet.put(state.held, key)}
   defp release(state, key), do: %{state | held: MapSet.delete(state.held, key)}

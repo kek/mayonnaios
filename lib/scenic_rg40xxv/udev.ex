@@ -44,8 +44,13 @@ defmodule ScenicRg40xxv.Udev do
 
   require Logger
 
-  @udevd "/sbin/udevd"
-  @udevadm "/bin/udevadm"
+  # Searched rather than hardcoded. eudev puts udevd in /sbin and udevadm in
+  # /usr/bin on this image, which is not the pairing you would guess, and /bin
+  # is a real directory here rather than a symlink to /usr/bin -- so a single
+  # wrong guess fails at the trigger step, after the daemon has already
+  # started, and looks like the trigger not working.
+  @udevd_paths ["/sbin/udevd", "/usr/sbin/udevd", "/lib/systemd/systemd-udevd"]
+  @udevadm_paths ["/usr/bin/udevadm", "/bin/udevadm", "/sbin/udevadm"]
 
   @doc """
   Ensure `udevd` is running and the input devices are in its database.
@@ -106,8 +111,12 @@ defmodule ScenicRg40xxv.Udev do
     end
   end
 
-  defp udevd, do: Application.get_env(:scenic_rg40xxv, :udevd_path, @udevd)
-  defp udevadm, do: Application.get_env(:scenic_rg40xxv, :udevadm_path, @udevadm)
+  defp udevd, do: Application.get_env(:scenic_rg40xxv, :udevd_path) || find(@udevd_paths)
+  defp udevadm, do: Application.get_env(:scenic_rg40xxv, :udevadm_path) || find(@udevadm_paths)
+
+  # The first candidate is returned when none exist, so the error names a
+  # plausible path instead of nil.
+  defp find(candidates), do: Enum.find(candidates, &File.exists?/1) || hd(candidates)
 
   defp cmd(exe, args) do
     System.cmd(exe, args, stderr_to_stdout: true)
