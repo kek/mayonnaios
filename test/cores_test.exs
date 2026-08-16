@@ -152,6 +152,25 @@ defmodule ScenicRg40xxv.CoresTest do
     refute by_key["gambatte"].installed
   end
 
+  test "list also reports a core that is present but not catalogued", %{bundles: bundles} do
+    install_retroarch(bundles, "1.22.2", ["2048", "snes9x2010"])
+    Cores.sync()
+
+    by_key = Map.new(Cores.list(), &{&1.key, &1})
+
+    # Neither is in the catalogue, and both work. A UI shown only the
+    # catalogue would say a core someone is already playing games with is not
+    # there, and offer to install it.
+    assert by_key["2048"].available
+    assert by_key["snes9x2010"].available
+    refute by_key["snes9x2010"].installed
+
+    # And no version is claimed, because nothing here read one. The .so does
+    # not carry one and taking the bundle's would be a statement about
+    # something this function did not look at.
+    assert by_key["snes9x2010"].version == nil
+  end
+
   test "installing an uncatalogued core is refused rather than attempted" do
     assert {:error, :unknown_core} = Cores.install("nonesuch")
   end

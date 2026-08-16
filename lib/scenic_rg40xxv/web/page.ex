@@ -172,7 +172,7 @@ defmodule ScenicRg40xxv.Web.Page do
         for (const c of state.cores) {
           const tag = c.available
             ? '<span class="tag on">installed</span>'
-            : '<span class="tag">' + esc(c.version) + '</span>';
+            : '<span class="tag">' + esc(c.version || '') + '</span>';
           const btn = c.available
             ? ''
             : '<button class="primary" data-core="' + esc(c.key) + '">Install</button>';

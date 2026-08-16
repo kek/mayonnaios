@@ -71,24 +71,58 @@ defmodule ScenicRg40xxv.Cores do
   def catalogue, do: Application.get_env(:scenic_rg40xxv, :cores, %{})
 
   @doc """
-  Every catalogued core with whether it is installed, for the UI.
+  What the UI needs to show about cores: everything catalogued, plus anything
+  actually present that is not.
+
+  The two lists are not the same, and the difference is the interesting part.
+  A core can be usable without being catalogued -- the ones the RetroArch
+  bundle ships are exactly that -- and showing only the catalogue would tell
+  someone that a core they can already play games with is not there.
+
+  So `available` is what RetroArch will find, and `installed` is whether this
+  device installed it as its own bundle at the catalogued version. Reporting
+  one of those as the other is how a UI ends up offering "Install" for
+  something that already works.
   """
   def list do
     linked = MapSet.new(links())
 
-    catalogue()
-    |> Enum.map(fn {key, spec} ->
-      %{
-        key: to_string(key),
-        name: spec.name,
-        label: Map.get(spec, :label, spec.name),
-        systems: Map.get(spec, :systems, []),
-        version: spec.version,
-        installed: Bundle.installed?(spec, root()),
-        available: MapSet.member?(linked, so_name(spec.name))
-      }
-    end)
-    |> Enum.sort_by(& &1.label)
+    catalogued =
+      Enum.map(catalogue(), fn {key, spec} ->
+        %{
+          key: to_string(key),
+          name: spec.name,
+          label: Map.get(spec, :label, spec.name),
+          systems: Map.get(spec, :systems, []),
+          version: spec.version,
+          installed: Bundle.installed?(spec, root()),
+          available: MapSet.member?(linked, so_name(spec.name))
+        }
+      end)
+
+    known = MapSet.new(catalogued, &so_name(&1.name))
+
+    uncatalogued =
+      linked
+      |> Enum.reject(&MapSet.member?(known, &1))
+      |> Enum.map(fn so ->
+        name = String.replace_suffix(so, "_libretro.so", "")
+
+        %{
+          key: name,
+          name: name,
+          label: name,
+          systems: [],
+          # Nothing here declares a version. The .so has no version to read and
+          # inventing one -- from the bundle, say -- would be a claim about
+          # something this function did not look at.
+          version: nil,
+          installed: false,
+          available: true
+        }
+      end)
+
+    Enum.sort_by(catalogued ++ uncatalogued, & &1.label)
   end
 
   @doc """
