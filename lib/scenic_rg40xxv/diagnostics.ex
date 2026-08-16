@@ -31,10 +31,23 @@ defmodule ScenicRg40xxv.Diagnostics do
   A switch only sends an event when it *changes*, so a jack already plugged in
   when this starts would read as absent until someone unplugged it. `evtest
   --query` reports the current level, and exits 10 when the switch is set.
+
+  ## The Bluetooth probe is manual, and stays manual for now
+
+  `probe_bluetooth/0` talks to the controller over a raw HCI user channel; see
+  `ScenicRg40xxv.Bluetooth.HCISocket`. It is not in `poll/1` and is not run at
+  startup, for two reasons. The socket takes exclusive ownership of hci0 while
+  it is open, so it is not something to do once a second in the background.
+  And it has never been run on this device: the second `hci_dev_open` since
+  boot is the one unverified step, so the first run should be a person over
+  SSH watching what comes back, not a boot-time call whose failure looks like a
+  broken boot.
   """
 
   use GenServer
   require Logger
+
+  alias ScenicRg40xxv.Bluetooth.HCISocket
 
   @battery "/sys/class/power_supply/axp20x-battery"
   @usb "/sys/class/power_supply/axp20x-usb"
@@ -63,6 +76,9 @@ defmodule ScenicRg40xxv.Diagnostics do
             jack: %{inserted: nil, changes: 0},
             gpu_prev: nil,
             rtl: {:error, "not read"},
+            # Nothing has asked the controller anything yet, which is not the
+            # same as having asked and got nothing. See probe_bluetooth/0.
+            bt_probe: {:error, :not_run},
             ticks: 0
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -71,6 +87,33 @@ defmodule ScenicRg40xxv.Diagnostics do
   The most recent reading of everything, as a struct. Cheap: it is cached.
   """
   def snapshot, do: GenServer.call(__MODULE__, :snapshot)
+
+  @doc """
+  Ask the Bluetooth controller who it is, and remember the answer.
+
+  Run this by hand, over SSH:
+
+      iex> ScenicRg40xxv.Diagnostics.probe_bluetooth()
+      {:ok, %{manufacturer: 93, manufacturer_name: "Realtek", ...}}
+
+  Manufacturer 0x5D coming back is the first proof this project has that the
+  controller answers, rather than that btrtl uploaded firmware to it once at
+  boot -- which is all `rtl_status/0` can tell from the kernel log.
+
+  The result is cached into the snapshot, so the diagnostics panel shows it
+  afterwards. Running it again re-asks; hci0 is held only for the duration of
+  the call, and it is released before this returns.
+
+  It runs inside this GenServer on purpose. Whoever holds the socket owns
+  hci0, so having one process that does it is the difference between "the
+  probe is busy" and two IEx sessions racing for `:eusers`.
+  """
+  def probe_bluetooth(opts \\ []) do
+    # Comfortably longer than the two 2 s HCI commands it may wait on, so a
+    # controller that has stopped answering reports a timeout from the socket
+    # rather than an exit from this call.
+    GenServer.call(__MODULE__, {:probe_bluetooth, opts}, 30_000)
+  end
 
   @impl GenServer
   def init(_opts) do
@@ -93,6 +136,15 @@ defmodule ScenicRg40xxv.Diagnostics do
 
   @impl GenServer
   def handle_call(:snapshot, _from, state), do: {:reply, state, state}
+
+  def handle_call({:probe_bluetooth, opts}, _from, state) do
+    result = HCISocket.probe(opts)
+    Logger.info("[diagnostics] bluetooth probe: #{inspect(result)}")
+
+    # Reported through the snapshot as well as returned, so the panel stops
+    # saying "not run" the moment somebody has run it.
+    {:reply, result, %{state | bt_probe: result, bluetooth: read_bluetooth(state.rtl, result)}}
+  end
 
   @impl GenServer
   def handle_info(:poll, state), do: {:noreply, poll(%{state | ticks: state.ticks + 1})}
@@ -134,7 +186,7 @@ defmodule ScenicRg40xxv.Diagnostics do
       | battery: read_battery(),
         thermal: read_thermal(),
         rtc: read_rtc(),
-        bluetooth: read_bluetooth(state.rtl),
+        bluetooth: read_bluetooth(state.rtl, state.bt_probe),
         audio: audio,
         gpu: gpu,
         gpu_prev: gpu_prev
@@ -247,7 +299,7 @@ defmodule ScenicRg40xxv.Diagnostics do
     }
   end
 
-  defp read_bluetooth(rtl) do
+  defp read_bluetooth(rtl, probe) do
     # An hci0 directory is not evidence of a working controller: it appears
     # before setup runs, and stays after setup fails.
     #
@@ -257,12 +309,17 @@ defmodule ScenicRg40xxv.Diagnostics do
     # for it reports "no address" on a perfectly healthy controller. That
     # mistake was made here and cost an evening; the note is the fix.
     #
-    # What actually distinguishes them is btrtl's own account of setup, which
-    # only exists in the kernel log. See rtl_status/0.
+    # Of the three cheap readings, only :rtl says anything about setup, and
+    # even that is btrtl's account of what happened once at boot -- a chip
+    # that answered then and has been wedged ever since reads identically.
+    # :probe is the one that cannot be faked by history, because it is a
+    # round trip made now. It stays {:error, :not_run} until somebody calls
+    # probe_bluetooth/0; "nobody asked" is deliberately not shown as a pass.
     %{
       hci0: File.dir?("/sys/class/bluetooth/hci0"),
       config_firmware: File.exists?(@bt_config),
-      rtl: rtl
+      rtl: rtl,
+      probe: probe
     }
   end
 

@@ -1,48 +1,174 @@
 defmodule ScenicRg40xxv.Scene.Home do
   @moduledoc """
-  Proof that Scenic renders on the RG40XXV panel.
+  The launcher menu: what can be run, and which entry is selected.
 
-  Deliberately uses primitives that would each fail differently: filled rects
-  exercise the framebuffer blit, the arc exercises path rasterisation, and the
-  text exercises freetype. A blank screen means the driver never attached; a
-  screen with shapes but no text means freetype is missing from the system.
+  ## What used to be here
+
+  This scene was a page of demo shapes -- a circle, a square, a triangle, an
+  arc and two lines of text -- chosen so each would fail differently: filled
+  rects proved the framebuffer blit, the arc proved path rasterisation, the
+  text proved freetype was in the image. All three are verified on hardware
+  now, and the menu still exercises every one of them (rects for the rows and
+  the highlight, text for the names). The shapes were retired rather than
+  quietly deleted; there is nothing left to learn from them.
+
+  ## Where the selection comes from
+
+  This scene renders the cursor, it does not own it. `ScenicRg40xxv.Launcher`
+  owns `event0` and therefore the D-pad, and it passes the selected index in
+  as the scene's start argument. That has to be the direction of travel:
+  `Scenic.ViewPort.set_root/3` terminates this process and starts a new one on
+  every repaint, so anything this scene remembered would be lost the moment a
+  program exited.
+
+  The list itself is read here from `ScenicRg40xxv.Programs`, the same
+  deterministic source the Launcher indexes into, so the row highlighted on
+  screen is the row A will start.
   """
+
   use Scenic.Scene
 
   alias Scenic.Graph
+  alias ScenicRg40xxv.Programs
   import Scenic.Primitives
 
   @width 640
   @height 480
 
-  @graph Graph.build(font: :roboto, font_size: 22)
-         |> rect({@width, @height}, fill: {:color, {12, 14, 22}})
-         |> text("Scenic on Nerves",
-           font_size: 40,
-           fill: {:color, {235, 238, 245}},
-           translate: {40, 90}
-         )
-         |> text("Anbernic RG40XXV  ·  Allwinner H700  ·  640x480",
-           fill: {:color, {130, 150, 190}},
-           translate: {40, 126}
-         )
-         |> rect({250, 6}, fill: {:color, {90, 170, 255}}, translate: {40, 148})
-         |> text("cairo-fb  ->  /dev/fb0",
-           font_size: 20,
-           fill: {:color, {150, 220, 170}},
-           translate: {40, 200}
-         )
-         # Filled shapes: exercise the rasteriser rather than just blits.
-         |> circle(46, fill: {:color, {225, 90, 110}}, translate: {110, 330})
-         |> rect({92, 92}, fill: {:color, {245, 190, 80}}, translate: {200, 284})
-         |> triangle({{0, 92}, {46, 0}, {92, 92}},
-           fill: {:color, {110, 200, 255}},
-           translate: {330, 284}
-         )
-         |> arc({46, 4.2}, stroke: {6, {:color, {180, 140, 255}}}, translate: {510, 330})
+  # Same palette as ScenicRg40xxv.Scene.Diagnostics, so the two screens read
+  # as one device rather than two programs that happen to share a panel.
+  @bg {12, 14, 22}
+  @title {235, 238, 245}
+  @head {90, 170, 255}
+  @label {150, 165, 195}
+  @wait {235, 190, 90}
+  @dim {110, 125, 155}
+  @row_bg {26, 34, 52}
+
+  # 34 px of pitch at font_size 20 leaves the rows legible at arm's length on
+  # a 640x480 panel held in two hands.
+  @top 64
+  @pitch 34
+  @visible 10
 
   @impl Scenic.Scene
-  def init(scene, _param, _opts) do
-    {:ok, push_graph(scene, @graph)}
+  def init(scene, param, _opts) do
+    # The boot root comes from `default_scene:` in config, which Scenic starts
+    # with a nil param -- only the Launcher's own set_root/3 passes the map.
+    selected =
+      case param do
+        %{selected: i} when is_integer(i) -> i
+        _ -> 0
+      end
+
+    {:ok, push_graph(scene, graph(Programs.list(), selected))}
+  end
+
+  @doc """
+  Build the menu graph for `programs` with row `selected` highlighted.
+
+  Public because it is the tested surface: it needs no viewport, no driver
+  and no framebuffer, so the host test can assert that a menu builds for an
+  empty list, one entry, and a selection at the last index -- the three
+  shapes that would otherwise only be found by looking at the device.
+  """
+  @spec graph([Programs.program()], integer()) :: Scenic.Graph.t()
+  def graph(programs, selected \\ 0)
+
+  def graph([], _selected) do
+    base()
+    |> text("No programs configured.", font_size: 20, fill: {:color, @title}, translate: {20, 90})
+    |> text("Set config :scenic_rg40xxv, :programs in config/target.exs.",
+      font_size: 14,
+      fill: {:color, @label},
+      translate: {20, 116}
+    )
+    |> hint()
+  end
+
+  def graph(programs, selected) do
+    count = length(programs)
+    selected = Integer.mod(selected, count)
+
+    # Window the rows when the list outgrows the panel. Without this a twelfth
+    # entry would be selected off-screen and nothing would look wrong.
+    start = min(max(0, selected - @visible + 1), max(0, count - @visible))
+    rows = Enum.slice(programs, start, @visible)
+
+    # Compare indices, not entries: two entries with the same name and path is
+    # a silly config but a legal one, and comparing maps would highlight both.
+    {graph, _y} =
+      rows
+      |> Enum.with_index(start)
+      |> Enum.reduce({base(), @top}, fn {program, index}, {g, y} ->
+        {row(g, program, y, index == selected), y + @pitch}
+      end)
+
+    graph
+    |> position(start, count)
+    |> hint()
+  end
+
+  defp base do
+    Graph.build(font: :roboto, font_size: 20)
+    |> rect({@width, @height}, fill: {:color, @bg})
+    |> text("RG40XXV", font_size: 20, fill: {:color, @title}, translate: {20, 28})
+    |> rect({@width - 40, 2}, fill: {:color, @head}, translate: {20, 38})
+  end
+
+  defp row(graph, program, y, selected?) do
+    graph
+    |> highlight(y, selected?)
+    |> text(program.name,
+      fill: {:color, name_colour(program, selected?)},
+      translate: {36, y + 21}
+    )
+    |> missing(program, y)
+  end
+
+  # One filled rect plus a 4 px accent bar. A filled row alone is hard to see
+  # on a dim panel in daylight; the bar survives it.
+  defp highlight(graph, _y, false), do: graph
+
+  defp highlight(graph, y, true) do
+    graph
+    |> rect({@width - 40, @pitch - 4}, fill: {:color, @row_bg}, translate: {20, y})
+    |> rect({4, @pitch - 4}, fill: {:color, @head}, translate: {20, y})
+  end
+
+  defp missing(graph, %{installed?: true}, _y), do: graph
+
+  defp missing(graph, _program, y) do
+    # Amber, and the word rather than an icon: this is the panel telling
+    # whoever holds the device that the firmware and the config disagree.
+    text(graph, "not installed", font_size: 14, fill: {:color, @wait}, translate: {470, y + 21})
+  end
+
+  defp name_colour(%{installed?: false}, _selected?), do: @dim
+  defp name_colour(_program, true), do: @title
+  defp name_colour(_program, false), do: @label
+
+  # Only when the list is windowed, and then only as a count: the point is to
+  # say that rows exist above or below, not to draw a scrollbar.
+  defp position(graph, _start, count) when count <= @visible, do: graph
+
+  defp position(graph, start, count) do
+    text(graph, "#{start + 1}-#{min(start + @visible, count)} of #{count}",
+      font_size: 14,
+      fill: {:color, @dim},
+      translate: {520, 28}
+    )
+  end
+
+  defp hint(graph) do
+    # Buttons as printed on the shell. The device tree labels X and Y the
+    # other way round; pressing them settled it.
+    text(
+      graph,
+      "D-pad move   A launch   Start stop   X diagnostics   Y audio   Select+Menu off",
+      font_size: 13,
+      fill: {:color, @dim},
+      translate: {20, @height - 16}
+    )
   end
 end

@@ -49,10 +49,18 @@ defmodule ScenicRg40xxv.Scene.Diagnostics do
 
   # The scene must survive the collector not running -- on the host it never
   # does, and a diagnostics screen that crashes is worse than no diagnostics.
+  #
+  # The exit clause is not decoration. Diagnostics.snapshot/0 is a call, and
+  # the collector now has one handler that can block it for seconds: the
+  # Bluetooth probe waits on HCI commands. A call that times out exits, and
+  # exits are not rescued -- without this the panel would die exactly when
+  # somebody was using it to watch a probe.
   defp snapshot do
     if Process.whereis(Diagnostics), do: Diagnostics.snapshot(), else: nil
   rescue
     _ -> nil
+  catch
+    :exit, _ -> nil
   end
 
   # -- rendering -------------------------------------------------------------
@@ -150,7 +158,7 @@ defmodule ScenicRg40xxv.Scene.Diagnostics do
   # Busy percentages from panfrost fdinfo. This is the honest answer to "is
   # the GPU doing anything", and unlike temperature it responds instantly.
   defp gpu_rows(%{client: nil}) do
-    [{:row, "client", "none", @dim}, {:row, "• press A", "run kmscube", @wait}]
+    [{:row, "client", "none", @dim}, {:row, "• press A", "launch a program", @wait}]
   end
 
   defp gpu_rows(%{client: name, engines: engines}) do
@@ -207,7 +215,27 @@ defmodule ScenicRg40xxv.Scene.Diagnostics do
       {:row, "config blob", yn(bt[:config_firmware]),
        if(bt[:config_firmware], do: @pass, else: @fail)},
       {:row, "firmware", firmware, colour}
-    ]
+    ] ++ probe_rows(bt[:probe])
+  end
+
+  # The only row here that reflects the controller answering rather than the
+  # kernel log remembering. Amber until somebody runs it: not run is not the
+  # same as not working, and this panel's whole point is keeping those apart.
+  #
+  # One row, not two. There is no button bound to the probe -- it is
+  # `Diagnostics.probe_bluetooth()` over SSH, because it takes hci0 away from
+  # the kernel while it runs -- and a second row explaining that pushes the
+  # headphone-jack rows into the hint line at the bottom of a 480px panel.
+  defp probe_rows(probe) do
+    {value, colour} =
+      case probe do
+        {:ok, v} -> {"#{v.manufacturer_name} #{v.core_spec}", @pass}
+        {:error, :not_run} -> {"not run", @wait}
+        {:error, reason} -> {inspect(reason), @fail}
+        _ -> {"unknown", @wait}
+      end
+
+    [{:row, "probe", value, colour}]
   end
 
   defp audio_rows(a) do
@@ -268,7 +296,7 @@ defmodule ScenicRg40xxv.Scene.Diagnostics do
   defp hints do
     # X and Y as printed on the shell -- the device tree labels them the
     # other way round, and the buttons settled it.
-    "X diagnostics/home   A cube   Start stop   Select+Menu power off"
+    "X diagnostics/home   A launch   Start stop   Select+Menu power off"
   end
 
   # -- formatting ------------------------------------------------------------

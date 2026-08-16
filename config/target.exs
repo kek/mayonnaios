@@ -149,6 +149,24 @@ config :scenic_rg40xxv, :viewport,
     ]
   ]
 
+# What the launcher menu offers. The D-pad moves the cursor, A starts the
+# highlighted entry.
+#
+# Paths are absolute because `Port.open({:spawn_executable, ...})` does not go
+# through a shell and does not search $PATH. A bare "kmscube" would not fail
+# on screen as "not installed" -- it would look launchable, and then die with
+# :enoent at the moment the button was pressed.
+#
+# Only kmscube is listed, because only kmscube is known to exist in this image
+# and to hold the display until it is stopped. A second entry such as
+# `kmscube -M smooth` is plausible and untested; an entry that exits instantly
+# with a usage message would look exactly like a working launcher.
+#
+#     %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]}
+config :scenic_rg40xxv, :programs, [
+  %{name: "Spinning cube (kmscube)", path: "/usr/bin/kmscube"}
+]
+
 # Scenic validates driver options strictly and raises on an unknown key. An
 # `opts:` key here (a reasonable guess, and wrong) took the whole application
 # down at boot, so StartupGuard never validated and U-Boot reverted to the
