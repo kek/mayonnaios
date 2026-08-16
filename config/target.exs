@@ -179,9 +179,21 @@ config :scenic_rg40xxv, :programs, [
   # other way to: linuxraw sees only console keycodes, there is no plain evdev
   # driver, and this kernel has no joydev. The Launcher starts udevd and
   # replays the input uevents before launching anything with this flag.
+  #
+  # --appendconfig layers the bundle's directory paths over the player's own
+  # config rather than replacing it. RetroArch writes settings back to its main
+  # config, and the bundle is replaced wholesale on upgrade, so the two must
+  # not be the same file: settings live in /root/.config/retroarch and survive,
+  # while these paths follow whichever bundle is installed. The build sets
+  # --prefix=/ so the compiled-in defaults point at /usr/share/retroarch, which
+  # does not exist here -- the rootfs is read-only and the bundle is not in it.
   %{
     name: "RetroArch",
     path: "/root/bundles/retroarch/current/bin/retroarch",
+    args: [
+      "--appendconfig",
+      "/root/bundles/retroarch/current/share/retroarch/retroarch.cfg"
+    ],
     needs_udev: true
   }
 ]
@@ -209,8 +221,8 @@ config :scenic_rg40xxv, :bundles, %{
     name: "retroarch",
     version: "1.22.2",
     url:
-      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-2/retroarch-1.22.2-aarch64.tar.gz",
-    sha256: "0cc2dd25fca7f8b53187a98c26f3aa3270c7b4a694c7e51d379990a4b6b7b3e9"
+      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-3/retroarch-1.22.2-aarch64.tar.gz",
+    sha256: "f88e257d4d881096cbd663e7194d0df17ed21b35db1f742b9c9f822342607482"
   }
 }
 
