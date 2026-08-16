@@ -83,30 +83,50 @@ defmodule ScenicRg40xxv.Bluetooth.HCISocketTest do
   end
 
   describe "local_version/1" do
-    test "decodes this board's actual RTL8821CS reply" do
-      # These are not invented. btrtl reads the same fields over the same
-      # command during setup and logs them, and this device logged:
+    test "decodes what this board actually returned over the user channel" do
+      # Captured, not constructed. probe_bluetooth/0 on the device returned:
       #
-      #   Bluetooth: hci0: RTL: examining hci_ver=08 hci_rev=000c
-      #                         lmp_ver=08 lmp_subver=8821
+      #   manufacturer: 93, hci_version: 8, lmp_version: 8,
+      #   hci_revision: 30136, lmp_subversion: 61592
       #
-      # so hci_version 8, hci_revision 0x000C, lmp_version 8, lmp_subversion
-      # 0x8821. All the 16-bit fields are little-endian on the wire.
-      #
-      # Manufacturer is the one value here not taken from that line -- btrtl
-      # does not log it. 0x005D is Realtek in the SIG's assigned company
-      # identifiers, and confirming it is precisely what probe_bluetooth/0 is
-      # for on real hardware.
-      params = <<0x08, 0x0C, 0x00, 0x08, 0x5D, 0x00, 0x21, 0x88>>
+      # These bytes are that reply re-encoded little-endian.
+      params = <<0x08, 0xB8, 0x75, 0x08, 0x5D, 0x00, 0x98, 0xF0>>
 
       assert {:ok, version} = HCISocket.local_version(params)
       assert version.manufacturer == 0x005D
       assert version.manufacturer_name == "Realtek"
       assert version.hci_version == 8
       assert version.core_spec == "4.2"
-      assert version.hci_revision == 0x000C
+      assert version.hci_revision == 0x75B8
       assert version.lmp_version == 8
-      assert version.lmp_subversion == 0x8821
+      assert version.lmp_subversion == 0xF098
+    end
+
+    test "the revision fields are the running firmware, not the ROM" do
+      # Worth pinning, because these two readings disagree and both are right.
+      #
+      # btrtl logs, before it uploads anything:
+      #   RTL: examining hci_ver=08 hci_rev=000c lmp_ver=08 lmp_subver=8821
+      #
+      # A probe afterwards reports hci_revision 0x75B8 and lmp_subversion
+      # 0xF098. Concatenated that is 0x75B8F098 -- exactly the value btrtl
+      # then logged as "RTL: fw version 0x75b8f098".
+      #
+      # So the controller reports its ROM identity until it is patched and its
+      # firmware version after. Reading 0x000C/0x8821 from a live probe would
+      # mean the firmware had NOT taken, which is the failure this board spent
+      # a day on. That makes the difference between these two numbers the
+      # cheapest available proof that Bluetooth firmware is actually running.
+      rom = <<0x08, 0x0C, 0x00, 0x08, 0x5D, 0x00, 0x21, 0x88>>
+      patched = <<0x08, 0xB8, 0x75, 0x08, 0x5D, 0x00, 0x98, 0xF0>>
+
+      assert {:ok, %{hci_revision: 0x000C, lmp_subversion: 0x8821}} =
+               HCISocket.local_version(rom)
+
+      assert {:ok, %{hci_revision: hci_rev, lmp_subversion: lmp_sub}} =
+               HCISocket.local_version(patched)
+
+      assert Bitwise.bsl(hci_rev, 16) + lmp_sub == 0x75B8F098
     end
 
     test "does not confuse the byte order of the two-byte fields" do
@@ -137,17 +157,17 @@ defmodule ScenicRg40xxv.Bluetooth.HCISocketTest do
       # framing and the parse disagree even though each is individually
       # self-consistent.
       #
-      # The version payload carries this board's real values (hci_rev 0x000C,
-      # lmp_subver 0x8821, from btrtl's own log line). The HCI framing around
-      # it is constructed from the spec, not captured -- nothing has yet
-      # recorded what hci0 actually puts on a user channel, which is the whole
-      # point of probe_bluetooth/0 and the reason this test cannot stand in
-      # for running it.
+      # The version payload is what the controller actually returned to
+      # probe_bluetooth/0 on this board: Realtek, hci_revision 0x75B8,
+      # lmp_subversion 0xF098. The HCI framing around it is still constructed
+      # from the spec rather than captured off the wire -- the probe returns
+      # decoded values, not the raw packets -- so this proves the two halves
+      # agree, not that the framing matches the controller byte for byte.
       reset_reply = <<0x04, 0x0E, 0x04, 0x01, 0x03, 0x0C, 0x00>>
 
       version_reply =
-        <<0x04, 0x0E, 0x0C, 0x01, 0x01, 0x10, 0x00, 0x08, 0x0C, 0x00, 0x08, 0x5D, 0x00, 0x21,
-          0x88>>
+        <<0x04, 0x0E, 0x0C, 0x01, 0x01, 0x10, 0x00, 0x08, 0xB8, 0x75, 0x08, 0x5D, 0x00, 0x98,
+          0xF0>>
 
       assert {:ok, reset_params} = HCISocket.command_complete(reset_reply, 0x0C03)
       assert HCISocket.status(reset_params) == {:ok, <<>>}
