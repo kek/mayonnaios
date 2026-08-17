@@ -55,6 +55,14 @@ defmodule MayonnaiOS.Application do
         # that fails to start. Needs nothing but sysfs.
         MayonnaiOS.Heartbeat,
 
+        # Something on the panel as soon as there is a panel to put it on. It
+        # polls for /dev/fb0 in its own process rather than blocking the
+        # supervisor, because the framebuffer does not exist until the panel
+        # module binds -- about two and a half seconds after the BEAM starts.
+        # So placing it early costs nothing, and waiting for it would cost
+        # everything after it.
+        MayonnaiOS.Splash,
+
         # The way back in when WiFi does not come up. Nothing populates USB
         # configfs at boot, so without this usb0 never appears.
         MayonnaiOS.USBGadget,
