@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Programs do
+defmodule MayonnaiOS.Programs do
   @moduledoc """
   The list of external programs the launcher offers, read from config.
 
@@ -45,7 +45,7 @@ defmodule ScenicRg40xxv.Programs do
   """
   @spec list([map() | keyword()] | nil) :: [program()]
   def list(configured \\ nil) do
-    entries = configured || Application.get_env(:scenic_rg40xxv, :programs, [])
+    entries = configured || Application.get_env(:mayonnaios, :programs, [])
     Enum.map(entries, &normalize/1)
   end
 
@@ -79,7 +79,7 @@ defmodule ScenicRg40xxv.Programs do
       name: Map.get(entry, :name) || Path.basename(path),
       path: path,
       args: Map.get(entry, :args, []),
-      # Programs that read input through udev; see ScenicRg40xxv.Udev. Carried
+      # Programs that read input through udev; see MayonnaiOS.Udev. Carried
       # through explicitly because this function rebuilds the map rather than
       # merging into it, so anything not named here is dropped -- and a flag
       # that silently vanishes between config and launcher would look exactly

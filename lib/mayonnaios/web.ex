@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Web do
+defmodule MayonnaiOS.Web do
   @moduledoc """
   The upload UI: a page you open from a phone on the same WiFi.
 
@@ -35,7 +35,7 @@ defmodule ScenicRg40xxv.Web do
   same network can upload a ROM, delete one, or install a core. That is the
   same trust model as a printer's web page, and for a handheld on a home
   network it is a reasonable default -- but it *is* a decision, and it is
-  written down here rather than left to be discovered. `ScenicRg40xxv.Library`
+  written down here rather than left to be discovered. `MayonnaiOS.Library`
   is what stops it from being worse than that: the writable area is one
   directory per configured system, filenames that could escape it are rejected
   rather than repaired, and extensions are checked against the system.
@@ -50,7 +50,7 @@ defmodule ScenicRg40xxv.Web do
 
   use Plug.Router
 
-  alias ScenicRg40xxv.{Cores, Library}
+  alias MayonnaiOS.{Cores, Library}
 
   plug(:match)
   # No Plug.Parsers. See the moduledoc: bodies are streamed, never parsed
@@ -61,7 +61,7 @@ defmodule ScenicRg40xxv.Web do
   @doc """
   The port to listen on. 80 so the address is just the hostname.
   """
-  def port, do: Application.get_env(:scenic_rg40xxv, :web_port, 80)
+  def port, do: Application.get_env(:mayonnaios, :web_port, 80)
 
   @doc """
   Child spec for the supervision tree.
@@ -76,7 +76,7 @@ defmodule ScenicRg40xxv.Web do
   get "/" do
     conn
     |> put_resp_content_type("text/html")
-    |> send_resp(200, ScenicRg40xxv.Web.Page.render())
+    |> send_resp(200, MayonnaiOS.Web.Page.render())
   end
 
   get "/api/library" do

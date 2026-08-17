@@ -1,7 +1,7 @@
-defmodule ScenicRg40xxv.LibraryTest do
+defmodule MayonnaiOS.LibraryTest do
   use ExUnit.Case, async: false
 
-  alias ScenicRg40xxv.Library
+  alias MayonnaiOS.Library
 
   # These tests are about one thing: what a filename from an HTTP request is
   # allowed to become. Everything else here is bookkeeping. `/root` is the
@@ -17,12 +17,12 @@ defmodule ScenicRg40xxv.LibraryTest do
     root = Path.join(System.tmp_dir!(), "library-test-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
 
-    prev_root = Application.get_env(:scenic_rg40xxv, :rom_root)
-    prev_systems = Application.get_env(:scenic_rg40xxv, :systems)
-    prev_max = Application.get_env(:scenic_rg40xxv, :max_upload_bytes)
+    prev_root = Application.get_env(:mayonnaios, :rom_root)
+    prev_systems = Application.get_env(:mayonnaios, :systems)
+    prev_max = Application.get_env(:mayonnaios, :max_upload_bytes)
 
-    Application.put_env(:scenic_rg40xxv, :rom_root, root)
-    Application.put_env(:scenic_rg40xxv, :systems, @systems)
+    Application.put_env(:mayonnaios, :rom_root, root)
+    Application.put_env(:mayonnaios, :systems, @systems)
 
     on_exit(fn ->
       File.rm_rf(root)
@@ -34,8 +34,8 @@ defmodule ScenicRg40xxv.LibraryTest do
     %{root: root}
   end
 
-  defp restore(key, nil), do: Application.delete_env(:scenic_rg40xxv, key)
-  defp restore(key, value), do: Application.put_env(:scenic_rg40xxv, key, value)
+  defp restore(key, nil), do: Application.delete_env(:mayonnaios, key)
+  defp restore(key, value), do: Application.put_env(:mayonnaios, key, value)
 
   # A reader in the shape Plug.Conn.read_body/2 has: {:more, chunk, rest} until
   # the last one, which is {:ok, chunk, rest}. The state is the list of chunks
@@ -128,7 +128,7 @@ defmodule ScenicRg40xxv.LibraryTest do
     end
 
     test "refuses a body over the ceiling and leaves nothing behind", %{root: root} do
-      Application.put_env(:scenic_rg40xxv, :max_upload_bytes, 4)
+      Application.put_env(:mayonnaios, :max_upload_bytes, 4)
 
       assert {:error, :too_large, _} =
                Library.receive_upload("snes", "game.sfc", ["aaa", "bbb"], reader())

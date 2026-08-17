@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv do
+defmodule MayonnaiOS do
   @moduledoc """
   Entry points for driving the UI by hand.
 
@@ -15,7 +15,7 @@ defmodule ScenicRg40xxv do
     # Scenic.start_link/1 takes a *list* of viewport configs, not one config.
     # Passing the config bare fails with a Protocol.UndefinedError on Tuple,
     # which does not obviously point at the arity.
-    Scenic.start_link([Application.get_env(:scenic_rg40xxv, :viewport)])
+    Scenic.start_link([Application.get_env(:mayonnaios, :viewport)])
   end
 
   @doc """

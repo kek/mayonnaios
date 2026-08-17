@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Scene.Diagnostics do
+defmodule MayonnaiOS.Scene.Diagnostics do
   @moduledoc """
   The verification plan, on the panel, updating once a second.
 
@@ -20,7 +20,7 @@ defmodule ScenicRg40xxv.Scene.Diagnostics do
   use Scenic.Scene
 
   alias Scenic.Graph
-  alias ScenicRg40xxv.{Audio, Diagnostics}
+  alias MayonnaiOS.{Audio, Diagnostics}
   import Scenic.Primitives
 
   @width 640

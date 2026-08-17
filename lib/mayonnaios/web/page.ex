@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Web.Page do
+defmodule MayonnaiOS.Web.Page do
   @moduledoc """
   The one page, as one string.
 

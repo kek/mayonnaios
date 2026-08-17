@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Library do
+defmodule MayonnaiOS.Library do
   @moduledoc """
   The game library on the writable partition: what systems exist, what is in
   them, and how a file gets in.
@@ -33,7 +33,7 @@ defmodule ScenicRg40xxv.Library do
 
   Configured, not inferred:
 
-      config :scenic_rg40xxv, :systems, [
+      config :mayonnaios, :systems, [
         %{key: "snes", name: "Super Nintendo", extensions: [".sfc", ".smc", ".zip"]}
       ]
 
@@ -49,7 +49,7 @@ defmodule ScenicRg40xxv.Library do
   @doc """
   Where content is kept. Configurable so tests do not touch a real partition.
   """
-  def root, do: Application.get_env(:scenic_rg40xxv, :rom_root, "/root/roms")
+  def root, do: Application.get_env(:mayonnaios, :rom_root, "/root/roms")
 
   @doc """
   The largest upload accepted, in bytes.
@@ -59,13 +59,13 @@ defmodule ScenicRg40xxv.Library do
   the bundles and the saves, and the failure appears everywhere except where
   it was caused.
   """
-  def max_bytes, do: Application.get_env(:scenic_rg40xxv, :max_upload_bytes, 1_073_741_824)
+  def max_bytes, do: Application.get_env(:mayonnaios, :max_upload_bytes, 1_073_741_824)
 
   @doc """
   The configured systems.
   """
   @spec systems() :: [system()]
-  def systems, do: Application.get_env(:scenic_rg40xxv, :systems, [])
+  def systems, do: Application.get_env(:mayonnaios, :systems, [])
 
   @doc """
   Look a system up by key. `nil` if it is not one we know about.

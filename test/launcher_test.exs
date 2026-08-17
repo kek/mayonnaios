@@ -1,8 +1,8 @@
-defmodule ScenicRg40xxv.LauncherTest do
+defmodule MayonnaiOS.LauncherTest do
   use ExUnit.Case, async: false
 
-  alias ScenicRg40xxv.{Launcher, Programs}
-  alias ScenicRg40xxv.Scene.Home
+  alias MayonnaiOS.{Launcher, Programs}
+  alias MayonnaiOS.Scene.Home
 
   # No viewport, no driver, no framebuffer. Everything here runs on the host,
   # because everything here is arithmetic and graph building -- the parts of
@@ -125,8 +125,8 @@ defmodule ScenicRg40xxv.LauncherTest do
       # /dev/input here, so it starts with no device and the synthetic events
       # below stand in for the pad.
       programs = [%{path: "/a"}, %{path: "/b"}, %{path: "/c"}]
-      Application.put_env(:scenic_rg40xxv, :programs, programs)
-      on_exit(fn -> Application.delete_env(:scenic_rg40xxv, :programs) end)
+      Application.put_env(:mayonnaios, :programs, programs)
+      on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
 
       start_supervised!({Launcher, device: "/nonexistent/event0"})
       :ok

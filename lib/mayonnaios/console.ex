@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Console do
+defmodule MayonnaiOS.Console do
   @moduledoc """
   Hands the panel between the kernel console and the UI.
 

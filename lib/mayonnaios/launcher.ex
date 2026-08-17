@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Launcher do
+defmodule MayonnaiOS.Launcher do
   @moduledoc """
   Runs an external program on a button press and stops it on another.
 
@@ -49,13 +49,13 @@ defmodule ScenicRg40xxv.Launcher do
   and this is a handheld that gets carried in a pocket.
 
   This process owns `event0`, so everything on the gamepad is bound here even
-  when it belongs to something else. `ScenicRg40xxv.Diagnostics` owns the
+  when it belongs to something else. `MayonnaiOS.Diagnostics` owns the
   other two input devices for the same reason in reverse.
 
   ## Where the menu lives, and why the cursor is here
 
-  The list of programs comes from `ScenicRg40xxv.Programs`, which reads
-  `config :scenic_rg40xxv, :programs`. The *cursor* -- which entry is
+  The list of programs comes from `MayonnaiOS.Programs`, which reads
+  `config :mayonnaios, :programs`. The *cursor* -- which entry is
   selected -- is state in this process rather than in the scene, for two
   reasons that are both about how this device is put together.
 
@@ -76,7 +76,7 @@ defmodule ScenicRg40xxv.Launcher do
   use GenServer
   require Logger
 
-  alias ScenicRg40xxv.Programs
+  alias MayonnaiOS.Programs
 
   @device "/dev/input/event0"
 
@@ -99,7 +99,7 @@ defmodule ScenicRg40xxv.Launcher do
   # Y (:btn_x) is deliberately unbound. It played the audio test while audio
   # was the open question on this board; that is answered, and a key on a
   # handheld that makes a noise when pressed by accident is not worth keeping
-  # for a check that belongs in IEx. `ScenicRg40xxv.Audio.run/0` still does it.
+  # for a check that belongs in IEx. `MayonnaiOS.Audio.run/0` still does it.
   @diagnostics_button :btn_y
 
   # Menu, doing double duty: alone it is the way back to the home screen,
@@ -127,7 +127,7 @@ defmodule ScenicRg40xxv.Launcher do
   @doc """
   The OS pid of the running program, or `nil`.
 
-  `ScenicRg40xxv.Diagnostics` uses this to read GPU busy time out of that
+  `MayonnaiOS.Diagnostics` uses this to read GPU busy time out of that
   process's `fdinfo`. Scanning every process for a panfrost fd would cost
   thousands of procfs reads a second on this SoC, and it is unnecessary:
   Scenic renders on the CPU through cairo, so the program launched here is
@@ -375,7 +375,7 @@ defmodule ScenicRg40xxv.Launcher do
   end
 
   defp start_program(nil, state) do
-    Logger.warning("[launcher] no programs configured (config :scenic_rg40xxv, :programs)")
+    Logger.warning("[launcher] no programs configured (config :mayonnaios, :programs)")
     state
   end
 
@@ -397,7 +397,7 @@ defmodule ScenicRg40xxv.Launcher do
     # the benefit of one kind of program, and because a launcher that silently
     # starts services is harder to reason about than one that is told to.
     if Map.get(program, :needs_udev, false) do
-      case ScenicRg40xxv.Udev.ensure_started() do
+      case MayonnaiOS.Udev.ensure_started() do
         :ok -> :ok
         {:error, reason} -> Logger.warning("[launcher] udev unavailable: #{inspect(reason)}")
       end
@@ -455,7 +455,7 @@ defmodule ScenicRg40xxv.Launcher do
   # the GPU temperature climb means being on diagnostics before and after.
   defp repaint(%{scene: scene} = state), do: show(scene, state)
 
-  defp show(:diagnostics, _state), do: set_root(ScenicRg40xxv.Scene.Diagnostics, nil)
+  defp show(:diagnostics, _state), do: set_root(MayonnaiOS.Scene.Diagnostics, nil)
 
   # The cursor travels as the scene's start argument. Deliberately only the
   # index: the scene calls `Programs.list/0` itself, so no list is copied into
@@ -473,6 +473,6 @@ defmodule ScenicRg40xxv.Launcher do
   end
 
   defp default_scene do
-    get_in(Application.get_env(:scenic_rg40xxv, :viewport), [:default_scene])
+    get_in(Application.get_env(:mayonnaios, :viewport), [:default_scene])
   end
 end

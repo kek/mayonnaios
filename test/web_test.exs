@@ -1,9 +1,9 @@
-defmodule ScenicRg40xxv.WebTest do
+defmodule MayonnaiOS.WebTest do
   use ExUnit.Case, async: false
   import Plug.Test
   import Plug.Conn
 
-  alias ScenicRg40xxv.Web
+  alias MayonnaiOS.Web
 
   # There is no authentication on this endpoint, so what stops it from being a
   # remote write primitive is entirely the filename check underneath. These
@@ -21,27 +21,27 @@ defmodule ScenicRg40xxv.WebTest do
     File.mkdir_p!(roms)
 
     prev = %{
-      rom_root: Application.get_env(:scenic_rg40xxv, :rom_root),
-      systems: Application.get_env(:scenic_rg40xxv, :systems),
-      cores: Application.get_env(:scenic_rg40xxv, :cores),
-      core_dir: Application.get_env(:scenic_rg40xxv, :core_dir),
-      core_root: Application.get_env(:scenic_rg40xxv, :core_root),
-      bundle_root: Application.get_env(:scenic_rg40xxv, :bundle_root)
+      rom_root: Application.get_env(:mayonnaios, :rom_root),
+      systems: Application.get_env(:mayonnaios, :systems),
+      cores: Application.get_env(:mayonnaios, :cores),
+      core_dir: Application.get_env(:mayonnaios, :core_dir),
+      core_root: Application.get_env(:mayonnaios, :core_root),
+      bundle_root: Application.get_env(:mayonnaios, :bundle_root)
     }
 
-    Application.put_env(:scenic_rg40xxv, :rom_root, roms)
-    Application.put_env(:scenic_rg40xxv, :systems, @systems)
-    Application.put_env(:scenic_rg40xxv, :cores, %{})
-    Application.put_env(:scenic_rg40xxv, :core_dir, Path.join(base, "active"))
-    Application.put_env(:scenic_rg40xxv, :core_root, Path.join(base, "cores"))
-    Application.put_env(:scenic_rg40xxv, :bundle_root, Path.join(base, "bundles"))
+    Application.put_env(:mayonnaios, :rom_root, roms)
+    Application.put_env(:mayonnaios, :systems, @systems)
+    Application.put_env(:mayonnaios, :cores, %{})
+    Application.put_env(:mayonnaios, :core_dir, Path.join(base, "active"))
+    Application.put_env(:mayonnaios, :core_root, Path.join(base, "cores"))
+    Application.put_env(:mayonnaios, :bundle_root, Path.join(base, "bundles"))
 
     on_exit(fn ->
       File.rm_rf(base)
 
       Enum.each(prev, fn
-        {k, nil} -> Application.delete_env(:scenic_rg40xxv, k)
-        {k, v} -> Application.put_env(:scenic_rg40xxv, k, v)
+        {k, nil} -> Application.delete_env(:mayonnaios, k)
+        {k, v} -> Application.put_env(:mayonnaios, k, v)
       end)
     end)
 
@@ -121,8 +121,8 @@ defmodule ScenicRg40xxv.WebTest do
     end
 
     test "refuses a body over the ceiling" do
-      prev = Application.get_env(:scenic_rg40xxv, :max_upload_bytes)
-      Application.put_env(:scenic_rg40xxv, :max_upload_bytes, 4)
+      prev = Application.get_env(:mayonnaios, :max_upload_bytes)
+      Application.put_env(:mayonnaios, :max_upload_bytes, 4)
       on_exit(fn -> restore(:max_upload_bytes, prev) end)
 
       conn = conn(:put, "/api/roms/snes/game.sfc", "far too much") |> call()
@@ -165,6 +165,6 @@ defmodule ScenicRg40xxv.WebTest do
     assert conn.status == 404
   end
 
-  defp restore(key, nil), do: Application.delete_env(:scenic_rg40xxv, key)
-  defp restore(key, value), do: Application.put_env(:scenic_rg40xxv, key, value)
+  defp restore(key, nil), do: Application.delete_env(:mayonnaios, key)
+  defp restore(key, value), do: Application.put_env(:mayonnaios, key, value)
 end

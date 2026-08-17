@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.USBGadget do
+defmodule MayonnaiOS.USBGadget do
   @moduledoc """
   Brings up a CDC-ECM USB gadget on the type-C port so the device is reachable
   over the cable as `usb0`.
@@ -130,7 +130,7 @@ defmodule ScenicRg40xxv.USBGadget do
       {:write, "bcdUSB", "0x0200"},
       {:mkdir, "strings/0x409"},
       {:write, "strings/0x409/manufacturer", "Nerves"},
-      {:write, "strings/0x409/product", "scenic_rg40xxv"},
+      {:write, "strings/0x409/product", "mayonnaios"},
       {:write, "strings/0x409/serialnumber", serial_number()},
       {:mkdir, "functions/ecm.usb0"},
       {:write, "functions/ecm.usb0/dev_addr", dev_addr},

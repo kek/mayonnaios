@@ -1,7 +1,7 @@
-defmodule ScenicRg40xxv.BundleTest do
+defmodule MayonnaiOS.BundleTest do
   use ExUnit.Case, async: true
 
-  alias ScenicRg40xxv.Bundle
+  alias MayonnaiOS.Bundle
 
   # The download is the thin part and needs a network; everything that decides
   # whether a bundle is safe to run happens after it, so that is what is

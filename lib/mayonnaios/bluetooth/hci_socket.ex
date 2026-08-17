@@ -1,10 +1,10 @@
-defmodule ScenicRg40xxv.Bluetooth.HCISocket do
+defmodule MayonnaiOS.Bluetooth.HCISocket do
   @moduledoc """
   Raw HCI over an `AF_BLUETOOTH` user channel, in pure Elixir.
 
   Everything this project knows about the RTL8821CS Bluetooth side so far comes
   from `dmesg`: btrtl logs `RTL: fw version 0x75b8f098` once during boot, and
-  `ScenicRg40xxv.Diagnostics.rtl_status/0` scrapes that line. It proves firmware
+  `MayonnaiOS.Diagnostics.rtl_status/0` scrapes that line. It proves firmware
   was uploaded at 1.8 s. It does not prove the controller is answering *now* --
   a wedged chip, a dead H5 link and a healthy controller all leave the same log
   behind, and there is no BlueZ in the image to ask (no `hciconfig`, no

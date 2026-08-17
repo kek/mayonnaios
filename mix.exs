@@ -1,7 +1,7 @@
-defmodule ScenicRg40xxv.MixProject do
+defmodule MayonnaiOS.MixProject do
   use Mix.Project
 
-  @app :scenic_rg40xxv
+  @app :mayonnaios
   @version "0.1.0"
   @all_targets [
     :rg40xxv,
@@ -35,7 +35,7 @@ defmodule ScenicRg40xxv.MixProject do
   def application do
     [
       extra_applications: [:logger, :runtime_tools],
-      mod: {ScenicRg40xxv.Application, []}
+      mod: {MayonnaiOS.Application, []}
     ]
   end
 

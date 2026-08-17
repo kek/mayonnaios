@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Cores do
+defmodule MayonnaiOS.Cores do
   @moduledoc """
   Libretro cores: a catalogue, an installer, and the directory RetroArch is
   pointed at.
@@ -43,7 +43,7 @@ defmodule ScenicRg40xxv.Cores do
   everything else and published as their own small tarballs, and installed
   here by the mechanism already proven for RetroArch itself: fetch, verify the
   SHA-256 *before* unpacking, install to a versioned directory, move a
-  symlink. `ScenicRg40xxv.Bundle` does all of that; this module only decides
+  symlink. `MayonnaiOS.Bundle` does all of that; this module only decides
   where and what.
 
   The catalogue lives in config, with the firmware, for the same reason the
@@ -53,22 +53,22 @@ defmodule ScenicRg40xxv.Cores do
 
   require Logger
 
-  alias ScenicRg40xxv.Bundle
+  alias MayonnaiOS.Bundle
 
   @doc """
   Where core bundles are installed, one versioned directory per core.
   """
-  def root, do: Application.get_env(:scenic_rg40xxv, :core_root, "/root/cores")
+  def root, do: Application.get_env(:mayonnaios, :core_root, "/root/cores")
 
   @doc """
   The flat directory RetroArch's `libretro_directory` points at.
   """
-  def dir, do: Application.get_env(:scenic_rg40xxv, :core_dir, "/root/retroarch/cores")
+  def dir, do: Application.get_env(:mayonnaios, :core_dir, "/root/retroarch/cores")
 
   @doc """
   The core catalogue, keyed by core name.
   """
-  def catalogue, do: Application.get_env(:scenic_rg40xxv, :cores, %{})
+  def catalogue, do: Application.get_env(:mayonnaios, :cores, %{})
 
   @doc """
   What the UI needs to show about cores: everything catalogued, plus anything
@@ -249,7 +249,7 @@ defmodule ScenicRg40xxv.Cores do
     def start_link(_opts), do: Task.start_link(__MODULE__, :run, [])
 
     def run do
-      ScenicRg40xxv.Cores.sync()
+      MayonnaiOS.Cores.sync()
     rescue
       e -> Logger.warning("[cores] could not sync: #{Exception.message(e)}")
     end

@@ -19,7 +19,7 @@ config :nerves, :firmware, rootfs_overlay: "rootfs_overlay"
 config :nerves, source_date_epoch: "1786664592"
 
 # Scenic resolves fonts and images through this compiled module.
-config :scenic, :assets, module: ScenicRg40xxv.Assets
+config :scenic, :assets, module: MayonnaiOS.Assets
 
 if Mix.target() == :host do
   import_config "host.exs"

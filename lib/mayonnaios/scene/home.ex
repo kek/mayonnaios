@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Scene.Home do
+defmodule MayonnaiOS.Scene.Home do
   @moduledoc """
   The launcher menu: what can be run, and which entry is selected.
 
@@ -14,14 +14,14 @@ defmodule ScenicRg40xxv.Scene.Home do
 
   ## Where the selection comes from
 
-  This scene renders the cursor, it does not own it. `ScenicRg40xxv.Launcher`
+  This scene renders the cursor, it does not own it. `MayonnaiOS.Launcher`
   owns `event0` and therefore the D-pad, and it passes the selected index in
   as the scene's start argument. That has to be the direction of travel:
   `Scenic.ViewPort.set_root/3` terminates this process and starts a new one on
   every repaint, so anything this scene remembered would be lost the moment a
   program exited.
 
-  The list itself is read here from `ScenicRg40xxv.Programs`, the same
+  The list itself is read here from `MayonnaiOS.Programs`, the same
   deterministic source the Launcher indexes into, so the row highlighted on
   screen is the row A will start.
   """
@@ -29,13 +29,13 @@ defmodule ScenicRg40xxv.Scene.Home do
   use Scenic.Scene
 
   alias Scenic.Graph
-  alias ScenicRg40xxv.Programs
+  alias MayonnaiOS.Programs
   import Scenic.Primitives
 
   @width 640
   @height 480
 
-  # Same palette as ScenicRg40xxv.Scene.Diagnostics, so the two screens read
+  # Same palette as MayonnaiOS.Scene.Diagnostics, so the two screens read
   # as one device rather than two programs that happen to share a panel.
   @bg {12, 14, 22}
   @title {235, 238, 245}
@@ -78,7 +78,7 @@ defmodule ScenicRg40xxv.Scene.Home do
   def graph([], _selected) do
     base()
     |> text("No programs configured.", font_size: 20, fill: {:color, @title}, translate: {20, 90})
-    |> text("Set config :scenic_rg40xxv, :programs in config/target.exs.",
+    |> text("Set config :mayonnaios, :programs in config/target.exs.",
       font_size: 14,
       fill: {:color, @label},
       translate: {20, 116}

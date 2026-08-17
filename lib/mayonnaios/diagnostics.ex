@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Diagnostics do
+defmodule MayonnaiOS.Diagnostics do
   @moduledoc """
   Live readings for the hardware that cannot be verified from a desk.
 
@@ -9,13 +9,13 @@ defmodule ScenicRg40xxv.Diagnostics do
   the charger, press a volume button, plug in headphones.
 
   This process exists for the second kind. It keeps a current picture of the
-  board so `ScenicRg40xxv.Scene.Diagnostics` can put it on the panel, and the
+  board so `MayonnaiOS.Scene.Diagnostics` can put it on the panel, and the
   check becomes "press the button and watch the number change" rather than a
   session over the network.
 
   ## Why it owns two input devices
 
-  The gamepad is `event0` and `ScenicRg40xxv.Launcher` has it. `InputEvent`
+  The gamepad is `event0` and `MayonnaiOS.Launcher` has it. `InputEvent`
   delivers to whichever process opened the device, so the two devices nobody
   else uses are opened here:
 
@@ -35,7 +35,7 @@ defmodule ScenicRg40xxv.Diagnostics do
   ## The Bluetooth probe is manual, and stays manual for now
 
   `probe_bluetooth/0` talks to the controller over a raw HCI user channel; see
-  `ScenicRg40xxv.Bluetooth.HCISocket`. It is not in `poll/1` and is not run at
+  `MayonnaiOS.Bluetooth.HCISocket`. It is not in `poll/1` and is not run at
   startup, for two reasons. The socket takes exclusive ownership of hci0 while
   it is open, so it is not something to do once a second in the background.
   And it has never been run on this device: the second `hci_dev_open` since
@@ -47,7 +47,7 @@ defmodule ScenicRg40xxv.Diagnostics do
   use GenServer
   require Logger
 
-  alias ScenicRg40xxv.Bluetooth.HCISocket
+  alias MayonnaiOS.Bluetooth.HCISocket
 
   @battery "/sys/class/power_supply/axp20x-battery"
   @usb "/sys/class/power_supply/axp20x-usb"
@@ -93,7 +93,7 @@ defmodule ScenicRg40xxv.Diagnostics do
 
   Run this by hand, over SSH:
 
-      iex> ScenicRg40xxv.Diagnostics.probe_bluetooth()
+      iex> MayonnaiOS.Diagnostics.probe_bluetooth()
       {:ok, %{manufacturer: 93, manufacturer_name: "Realtek", ...}}
 
   Manufacturer 0x5D coming back is the first proof this project has that the
@@ -237,7 +237,7 @@ defmodule ScenicRg40xxv.Diagnostics do
   end
 
   defp launcher_pid do
-    ScenicRg40xxv.Launcher.os_pid()
+    MayonnaiOS.Launcher.os_pid()
   rescue
     _ -> nil
   catch

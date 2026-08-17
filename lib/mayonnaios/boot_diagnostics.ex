@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.BootDiagnostics do
+defmodule MayonnaiOS.BootDiagnostics do
   @moduledoc """
   Writes a boot report into unallocated space on the MicroSD card so it can be
   read back from a host with `dd`.
@@ -18,7 +18,7 @@ defmodule ScenicRg40xxv.BootDiagnostics do
   On by default. It writes to the card on every boot, so it is switchable
   without editing the supervision tree:
 
-      config :scenic_rg40xxv, boot_diagnostics: false
+      config :mayonnaios, boot_diagnostics: false
 
   Card layout in 512-byte blocks (see `fwup_include/fwup-common.conf`):
 
@@ -188,7 +188,7 @@ defmodule ScenicRg40xxv.BootDiagnostics do
   end
 
   # The active trigger is the one in brackets, e.g. "none timer [heartbeat]".
-  # Confirms whether ScenicRg40xxv.Heartbeat actually took effect.
+  # Confirms whether MayonnaiOS.Heartbeat actually took effect.
   defp led_triggers() do
     case File.ls("/sys/class/leds") do
       {:ok, []} ->

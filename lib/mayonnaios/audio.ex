@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Audio do
+defmodule MayonnaiOS.Audio do
   @moduledoc """
   The mixer, and the test tone that settled whether audio works at all.
 
@@ -40,7 +40,7 @@ defmodule ScenicRg40xxv.Audio do
   closed, and leaving a key on the pad that makes noise is not what the key
   is for. Call it from IEx when the mixer needs checking again:
 
-      iex> ScenicRg40xxv.Audio.run()
+      iex> MayonnaiOS.Audio.run()
   """
 
   require Logger
@@ -64,7 +64,7 @@ defmodule ScenicRg40xxv.Audio do
   @doc """
   Whether the audio test has been switched on. False unless configured.
   """
-  def enabled?, do: Application.get_env(:scenic_rg40xxv, :audio_test, false)
+  def enabled?, do: Application.get_env(:mayonnaios, :audio_test, false)
 
   @doc """
   Open the mixer, then play a short test. Refuses unless `enabled?/0`.
@@ -78,7 +78,7 @@ defmodule ScenicRg40xxv.Audio do
         play()
       end
     else
-      Logger.info("[audio] test is disabled; set config :scenic_rg40xxv, audio_test: true")
+      Logger.info("[audio] test is disabled; set config :mayonnaios, audio_test: true")
       {:error, :disabled}
     end
   end
@@ -151,7 +151,7 @@ defmodule ScenicRg40xxv.Audio do
     def start_link(_opts), do: Task.start_link(__MODULE__, :run, [])
 
     def run do
-      case ScenicRg40xxv.Audio.mute() do
+      case MayonnaiOS.Audio.mute() do
         :ok -> Logger.info("[audio] mixer muted at 0%")
         other -> Logger.warning("[audio] could not set the mixer: #{inspect(other)}")
       end

@@ -1,7 +1,7 @@
-defmodule ScenicRg40xxv.CoresTest do
+defmodule MayonnaiOS.CoresTest do
   use ExUnit.Case, async: false
 
-  alias ScenicRg40xxv.Cores
+  alias MayonnaiOS.Cores
 
   # The interesting behaviour is `sync/0`, and specifically that it *clears*
   # before it links. A core that was uninstalled, or that went away with a
@@ -17,23 +17,23 @@ defmodule ScenicRg40xxv.CoresTest do
     File.mkdir_p!(core_dir)
 
     prev = %{
-      bundle_root: Application.get_env(:scenic_rg40xxv, :bundle_root),
-      core_root: Application.get_env(:scenic_rg40xxv, :core_root),
-      core_dir: Application.get_env(:scenic_rg40xxv, :core_dir),
-      cores: Application.get_env(:scenic_rg40xxv, :cores)
+      bundle_root: Application.get_env(:mayonnaios, :bundle_root),
+      core_root: Application.get_env(:mayonnaios, :core_root),
+      core_dir: Application.get_env(:mayonnaios, :core_dir),
+      cores: Application.get_env(:mayonnaios, :cores)
     }
 
-    Application.put_env(:scenic_rg40xxv, :bundle_root, bundles)
-    Application.put_env(:scenic_rg40xxv, :core_root, core_root)
-    Application.put_env(:scenic_rg40xxv, :core_dir, core_dir)
-    Application.put_env(:scenic_rg40xxv, :cores, %{})
+    Application.put_env(:mayonnaios, :bundle_root, bundles)
+    Application.put_env(:mayonnaios, :core_root, core_root)
+    Application.put_env(:mayonnaios, :core_dir, core_dir)
+    Application.put_env(:mayonnaios, :cores, %{})
 
     on_exit(fn ->
       File.rm_rf(base)
 
       Enum.each(prev, fn
-        {k, nil} -> Application.delete_env(:scenic_rg40xxv, k)
-        {k, v} -> Application.put_env(:scenic_rg40xxv, k, v)
+        {k, nil} -> Application.delete_env(:mayonnaios, k)
+        {k, v} -> Application.put_env(:mayonnaios, k, v)
       end)
     end)
 
@@ -79,7 +79,7 @@ defmodule ScenicRg40xxv.CoresTest do
     install_retroarch(bundles, "1.22.2", ["2048"])
     install_core(core_root, "gambatte", "0.5.0")
 
-    Application.put_env(:scenic_rg40xxv, :cores, %{
+    Application.put_env(:mayonnaios, :cores, %{
       gambatte: %{name: "gambatte", version: "0.5.0", url: "x", sha256: "y"}
     })
 
@@ -101,7 +101,7 @@ defmodule ScenicRg40xxv.CoresTest do
     install_retroarch(bundles, "1.22.2", ["2048"])
     install_core(core_root, "snes9x2010", "1.22.2")
 
-    Application.put_env(:scenic_rg40xxv, :cores, %{
+    Application.put_env(:mayonnaios, :cores, %{
       snes9x2010: %{name: "snes9x2010", version: "1.22.2", url: "x", sha256: "y"}
     })
 
@@ -134,7 +134,7 @@ defmodule ScenicRg40xxv.CoresTest do
   test "list reports installed and available separately", %{bundles: bundles} do
     install_retroarch(bundles, "1.22.2", ["2048"])
 
-    Application.put_env(:scenic_rg40xxv, :cores, %{
+    Application.put_env(:mayonnaios, :cores, %{
       "2048": %{name: "2048", version: "9.9", url: "x", sha256: "y", label: "2048"},
       gambatte: %{name: "gambatte", version: "0.5.0", url: "x", sha256: "y", label: "Game Boy"}
     })

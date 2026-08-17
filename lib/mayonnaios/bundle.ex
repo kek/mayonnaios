@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Bundle do
+defmodule MayonnaiOS.Bundle do
   @moduledoc """
   Installs content onto the writable partition, out of band from firmware.
 
@@ -46,7 +46,7 @@ defmodule ScenicRg40xxv.Bundle do
 
   Versions are kept in separate directories and switched by moving a symlink,
   so an install never overwrites the running copy and a failed one leaves the
-  previous version intact. `ScenicRg40xxv.Programs` re-stats `installed?` on
+  previous version intact. `MayonnaiOS.Programs` re-stats `installed?` on
   every call, so a program under `current/` appears in the menu as soon as it
   lands, with no restart.
   """
@@ -59,18 +59,18 @@ defmodule ScenicRg40xxv.Bundle do
   Where bundles are installed. Configurable so tests do not touch a real
   partition; the default is on the f2fs application partition.
   """
-  def root, do: Application.get_env(:scenic_rg40xxv, :bundle_root, "/root/bundles")
+  def root, do: Application.get_env(:mayonnaios, :bundle_root, "/root/bundles")
 
   @doc """
   A configured bundle spec by key, or `nil`.
 
-      iex> ScenicRg40xxv.Bundle.install(ScenicRg40xxv.Bundle.spec(:retroarch))
+      iex> MayonnaiOS.Bundle.install(MayonnaiOS.Bundle.spec(:retroarch))
 
   The specs live in config rather than here because the SHA-256 in them is
   what decides whether a downloaded tarball is used at all, and a checksum
   belongs with the firmware it is trusted by.
   """
-  def spec(key), do: Application.get_env(:scenic_rg40xxv, :bundles, %{})[key]
+  def spec(key), do: Application.get_env(:mayonnaios, :bundles, %{})[key]
 
   @doc """
   The directory a bundle's `current` symlink points into, or `nil`.

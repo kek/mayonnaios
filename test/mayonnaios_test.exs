@@ -1,7 +1,7 @@
-defmodule ScenicRg40xxvTest do
+defmodule MayonnaiOSTest do
   use ExUnit.Case
 
-  alias ScenicRg40xxv.Console
+  alias MayonnaiOS.Console
 
   describe "Console on a machine with no framebuffer console" do
     # The host has no /sys/class/vtconsole. These run there, so they pin the
@@ -27,7 +27,7 @@ defmodule ScenicRg40xxvTest do
     test "matches the panel geometry" do
       # 640x480 is not a preference. The framebuffer is fixed at that size with
       # a 2560-byte stride, and a mismatch here draws off the end of it.
-      config = Application.get_env(:scenic_rg40xxv, :viewport)
+      config = Application.get_env(:mayonnaios, :viewport)
 
       if config do
         assert config[:size] == {640, 480}

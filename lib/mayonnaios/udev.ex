@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Udev do
+defmodule MayonnaiOS.Udev do
   @moduledoc """
   Starts `udevd` on demand, for programs that are not Elixir.
 
@@ -111,8 +111,8 @@ defmodule ScenicRg40xxv.Udev do
     end
   end
 
-  defp udevd, do: Application.get_env(:scenic_rg40xxv, :udevd_path) || find(@udevd_paths)
-  defp udevadm, do: Application.get_env(:scenic_rg40xxv, :udevadm_path) || find(@udevadm_paths)
+  defp udevd, do: Application.get_env(:mayonnaios, :udevd_path) || find(@udevd_paths)
+  defp udevadm, do: Application.get_env(:mayonnaios, :udevadm_path) || find(@udevadm_paths)
 
   # The first candidate is returned when none exist, so the error names a
   # plausible path instead of nil.

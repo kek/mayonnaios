@@ -1,7 +1,7 @@
-defmodule ScenicRg40xxv.Bluetooth.HCISocketTest do
+defmodule MayonnaiOS.Bluetooth.HCISocketTest do
   use ExUnit.Case, async: true
 
-  alias ScenicRg40xxv.Bluetooth.HCISocket
+  alias MayonnaiOS.Bluetooth.HCISocket
 
   # There is no AF_BLUETOOTH on this machine, so nothing here opens a socket.
   # What can be tested from a desk is the part that would be wrong silently:

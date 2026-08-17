@@ -1,4 +1,4 @@
-defmodule ScenicRg40xxv.Heartbeat do
+defmodule MayonnaiOS.Heartbeat do
   @moduledoc """
   Sets every LED to the kernel's heartbeat trigger so the device visibly shows
   that it is alive.

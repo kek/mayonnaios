@@ -137,11 +137,11 @@ config :mdns_lite,
 # Scenic.Driver.Local picks its renderer from MIX_TARGET -- under Nerves that
 # is cairo-fb, drawing on the CPU into /dev/fb0. No GPU is involved, which is
 # why this path works before Mesa exists.
-config :scenic_rg40xxv, :viewport,
+config :mayonnaios, :viewport,
   name: :main_viewport,
   size: {640, 480},
   theme: :dark,
-  default_scene: ScenicRg40xxv.Scene.Home,
+  default_scene: MayonnaiOS.Scene.Home,
   drivers: [
     [
       module: Scenic.Driver.Local,
@@ -163,10 +163,10 @@ config :scenic_rg40xxv, :viewport,
 # with a usage message would look exactly like a working launcher.
 #
 #     %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]}
-config :scenic_rg40xxv, :programs, [
+config :mayonnaios, :programs, [
   %{name: "Spinning cube (kmscube)", path: "/usr/bin/kmscube"},
 
-  # Not in the firmware. This path only exists once ScenicRg40xxv.Bundle has
+  # Not in the firmware. This path only exists once MayonnaiOS.Bundle has
   # installed RetroArch onto the writable partition, and until then Programs
   # renders it as a greyed, unlaunchable row -- which is the honest state and
   # better than hiding it, since "the menu is empty" gives nobody anything to
@@ -198,10 +198,10 @@ config :scenic_rg40xxv, :programs, [
   }
 ]
 
-# Where ScenicRg40xxv.Bundle installs content. On the f2fs application
+# Where MayonnaiOS.Bundle installs content. On the f2fs application
 # partition, which has 13.4 GB free and -- verified on the device, not assumed
 # -- is mounted nodev but not noexec, so binaries there can actually run.
-config :scenic_rg40xxv, bundle_root: "/root/bundles"
+config :mayonnaios, bundle_root: "/root/bundles"
 
 # Bundles this device knows how to install, by name.
 #
@@ -212,7 +212,7 @@ config :scenic_rg40xxv, bundle_root: "/root/bundles"
 #
 # Installing is deliberately not automatic. It happens when asked:
 #
-#     iex> ScenicRg40xxv.Bundle.install(ScenicRg40xxv.Bundle.spec(:retroarch))
+#     iex> MayonnaiOS.Bundle.install(MayonnaiOS.Bundle.spec(:retroarch))
 #
 # Built by github.com/kek/retroarch-rg40xxv against this system's own staging
 # sysroot, so the sonames match what the rootfs ships.
@@ -224,7 +224,7 @@ config :scenic_rg40xxv, bundle_root: "/root/bundles"
 # rebuild would delete the directory the running RetroArch was launched from.
 # The -N suffix counts rebuilds of the same upstream release, which is what
 # every one of these has been so far.
-config :scenic_rg40xxv, :bundles, %{
+config :mayonnaios, :bundles, %{
   retroarch: %{
     name: "retroarch",
     version: "1.22.2-5",
@@ -243,9 +243,9 @@ config :scenic_rg40xxv, :bundles, %{
 #
 # Extensions are the accept-list. `.zip` is in each of them because RetroArch
 # reads zipped ROMs directly and phones like to hand over archives.
-config :scenic_rg40xxv, rom_root: "/root/roms"
+config :mayonnaios, rom_root: "/root/roms"
 
-config :scenic_rg40xxv, :systems, [
+config :mayonnaios, :systems, [
   %{
     key: "snes",
     name: "Super Nintendo",
@@ -257,17 +257,17 @@ config :scenic_rg40xxv, :systems, [
 # never ends: without a ceiling one client can fill the partition that holds
 # the bundles and the saves, and the failure then shows up everywhere except
 # where it was caused.
-config :scenic_rg40xxv, max_upload_bytes: 1_073_741_824
+config :mayonnaios, max_upload_bytes: 1_073_741_824
 
 # Cores.
 #
 # `core_dir` is what RetroArch's `libretro_directory` points at, and it lives
 # outside every bundle on purpose: a core installed into the RetroArch
 # bundle's own lib/libretro belongs to that version of the bundle and vanishes
-# at the next upgrade. `ScenicRg40xxv.Cores.sync/0` fills this directory with
+# at the next upgrade. `MayonnaiOS.Cores.sync/0` fills this directory with
 # symlinks at boot, from both the RetroArch bundle and the installed cores.
-config :scenic_rg40xxv, core_root: "/root/cores"
-config :scenic_rg40xxv, core_dir: "/root/retroarch/cores"
+config :mayonnaios, core_root: "/root/cores"
+config :mayonnaios, core_dir: "/root/retroarch/cores"
 
 # The catalogue the upload page offers to install. Same trust model as the
 # bundles above: the SHA-256 is here in the firmware, and it is what decides
@@ -289,7 +289,7 @@ config :scenic_rg40xxv, core_dir: "/root/retroarch/cores"
 # Only the published bytes are the ones a device will ever fetch, so a
 # checksum taken from a local build would have failed verification on every
 # device while being perfectly correct about a file nobody downloads.
-config :scenic_rg40xxv, :cores, %{
+config :mayonnaios, :cores, %{
   snes9x2010: %{
     name: "snes9x2010",
     label: "Super Nintendo — Snes9x 2010",
@@ -314,9 +314,9 @@ config :scenic_rg40xxv, :cores, %{
 #
 #     http://nerves-5322903c.local/
 #
-# No authentication and no TLS; see the moduledoc on ScenicRg40xxv.Web for
+# No authentication and no TLS; see the moduledoc on MayonnaiOS.Web for
 # what that means and when it should change.
-config :scenic_rg40xxv, web_port: 80
+config :mayonnaios, web_port: 80
 
 # Scenic validates driver options strictly and raises on an unknown key. An
 # `opts:` key here (a reasonable guess, and wrong) took the whole application
@@ -325,9 +325,9 @@ config :scenic_rg40xxv, web_port: 80
 # it. The valid keys are: name, limit_ms, layer, opacity, debug, debugger,
 # debug_fps, antialias, calibration, position, window, cursor, key_map,
 # on_close, input_blacklist.
-config :scenic_rg40xxv, autostart_ui: true
+config :mayonnaios, autostart_ui: true
 
-# Audio works, so `ScenicRg40xxv.Audio.run/0` is allowed to make a sound.
+# Audio works, so `MayonnaiOS.Audio.run/0` is allowed to make a sound.
 #
 # It stayed off until the speaker had been heard, because the answer was
 # worth having in the right order: the mixer powers on muted, so playing
@@ -340,9 +340,9 @@ config :scenic_rg40xxv, autostart_ui: true
 # not worth keeping for a check that belongs in IEx.
 #
 # This flag only gates the tone. The mixer itself is taken to 0% and muted at
-# boot by `ScenicRg40xxv.Audio.Startup` either way -- volume is something the
+# boot by `MayonnaiOS.Audio.Startup` either way -- volume is something the
 # player asks for, not something the device assumes.
-config :scenic_rg40xxv, audio_test: true
+config :mayonnaios, audio_test: true
 
 # Import target specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
