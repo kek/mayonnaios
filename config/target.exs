@@ -230,7 +230,7 @@ config :scenic_rg40xxv, :bundles, %{
     version: "1.22.2-5",
     url:
       "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-5/retroarch-1.22.2-aarch64.tar.gz",
-    sha256: "51f9641dd967508806c501686ab035f8ed040a5dc9c18d45e9d2284504a20a12"
+    sha256: "170fb96020d67a0cff05b988721939aee94b35b845874b3d21fae427ad691b3c"
   }
 }
 
@@ -280,9 +280,15 @@ config :scenic_rg40xxv, core_dir: "/root/retroarch/cores"
 # mechanism is exercised by something real before a core that is *only*
 # available this way is added.
 #
-# The checksums are of the tarballs built at 02:45 on 2026-08-17 against the
-# BCF73B5 sysroot. They are real; the URLs assume the release is tagged
-# v1.22.2-5, which is the tag the bundle above also expects.
+# The checksums are of the tarballs published on release v1.22.2-5, downloaded
+# from that release and hashed here -- not of a local build.
+#
+# That distinction matters and cost a correction. The same source built on
+# this laptop and on the CI runner produces tarballs with different SHA-256s:
+# different tar, different timestamps, a compile that is not bit-reproducible.
+# Only the published bytes are the ones a device will ever fetch, so a
+# checksum taken from a local build would have failed verification on every
+# device while being perfectly correct about a file nobody downloads.
 config :scenic_rg40xxv, :cores, %{
   snes9x2010: %{
     name: "snes9x2010",
@@ -291,7 +297,7 @@ config :scenic_rg40xxv, :cores, %{
     version: "1.22.2-5",
     url:
       "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-5/snes9x2010-1.22.2-aarch64.tar.gz",
-    sha256: "8b66fa12aa5777d8477e9c72bf69d00cc297026feafae78decbe7f9aa8cf28c3"
+    sha256: "d7d189fa421cf1221fd3de1986630c98308310435309f5e70448c2931b6a6528"
   },
   "2048": %{
     name: "2048",
@@ -300,7 +306,7 @@ config :scenic_rg40xxv, :cores, %{
     version: "1.22.2-5",
     url:
       "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-5/2048-1.22.2-aarch64.tar.gz",
-    sha256: "592f8fe9b06e420319aa2ea3eabb62f26990f36b33c8ffa15bc40f35d5c63efa"
+    sha256: "3e2d49b55c36a540ccec01e7f63da59d369c0e49a901b82526157777fe2c09b7"
   }
 }
 
