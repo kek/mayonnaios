@@ -55,20 +55,6 @@ your tree does not match any published release and you are in for about three
 and a half hours. That is usually a sign you changed something under
 `nerves_system_rg40xxv` — a comment is enough.
 
-## Using it
-
-The D-pad moves the cursor and **A** launches what is selected. **Menu** is the
-way back: it stops a running program if there is one, and otherwise leaves the
-diagnostics screen, so the same press always means "put me back where I
-started". **X** opens diagnostics — battery, temperatures, WiFi, Bluetooth,
-mixer, and live readouts for the volume keys and the headphone jack, which is
-the quickest way to tell whether a hardware complaint is real. **Select + Menu**
-powers off.
-
-The buttons above are as printed on the shell. This board's device tree
-disagrees with its own silkscreen about A/B and about X/Y, so if you add
-bindings, press the button and check the log rather than trusting the DTS.
-
 ## Putting games on it
 
 Open the device from a phone on the same WiFi:
