@@ -216,13 +216,21 @@ config :scenic_rg40xxv, bundle_root: "/root/bundles"
 #
 # Built by github.com/kek/retroarch-rg40xxv against this system's own staging
 # sysroot, so the sonames match what the rootfs ships.
+#
+# `version` must change whenever the tarball does, and it is the *release*
+# version rather than RetroArch's own for exactly that reason. It names the
+# install directory, and `publish/3` does `File.rm_rf` on that directory
+# before renaming the new one into place -- so reusing a version to ship a
+# rebuild would delete the directory the running RetroArch was launched from.
+# The -N suffix counts rebuilds of the same upstream release, which is what
+# every one of these has been so far.
 config :scenic_rg40xxv, :bundles, %{
   retroarch: %{
     name: "retroarch",
-    version: "1.22.2",
+    version: "1.22.2-5",
     url:
-      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-4/retroarch-1.22.2-aarch64.tar.gz",
-    sha256: "1e50bccfd4ac77f77e2fc6d16ed3e6a3039003bc0e43c21f4aab4a510d2074f7"
+      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-5/retroarch-1.22.2-aarch64.tar.gz",
+    sha256: "51f9641dd967508806c501686ab035f8ed040a5dc9c18d45e9d2284504a20a12"
   }
 }
 
@@ -265,10 +273,36 @@ config :scenic_rg40xxv, core_dir: "/root/retroarch/cores"
 # bundles above: the SHA-256 is here in the firmware, and it is what decides
 # whether the downloaded bytes are unpacked at all.
 #
-# Empty until retroarch-rg40xxv publishes per-core tarballs. Cores that ship
-# inside the RetroArch bundle need no entry -- `sync/0` picks those up from
-# the bundle itself, so they appear in RetroArch without being catalogued.
-config :scenic_rg40xxv, :cores, %{}
+# These two also ship inside the RetroArch bundle, so they are already usable
+# without installing anything -- `sync/0` finds them there and the page shows
+# them as available. The entries exist so a core can be updated on its own,
+# without a 2.4 MB bundle download to replace a 1 MB file, and so the
+# mechanism is exercised by something real before a core that is *only*
+# available this way is added.
+#
+# The checksums are of the tarballs built at 02:45 on 2026-08-17 against the
+# BCF73B5 sysroot. They are real; the URLs assume the release is tagged
+# v1.22.2-5, which is the tag the bundle above also expects.
+config :scenic_rg40xxv, :cores, %{
+  snes9x2010: %{
+    name: "snes9x2010",
+    label: "Super Nintendo — Snes9x 2010",
+    systems: ["snes"],
+    version: "1.22.2-5",
+    url:
+      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-5/snes9x2010-1.22.2-aarch64.tar.gz",
+    sha256: "8b66fa12aa5777d8477e9c72bf69d00cc297026feafae78decbe7f9aa8cf28c3"
+  },
+  "2048": %{
+    name: "2048",
+    label: "2048",
+    systems: [],
+    version: "1.22.2-5",
+    url:
+      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-5/2048-1.22.2-aarch64.tar.gz",
+    sha256: "592f8fe9b06e420319aa2ea3eabb62f26990f36b33c8ffa15bc40f35d5c63efa"
+  }
+}
 
 # The upload page. Port 80 so the address is just the hostname:
 #
