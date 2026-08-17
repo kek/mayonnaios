@@ -1,18 +1,13 @@
 # MayonnaiOS
 
-Firmware for the Anbernic RG40XXV handheld, written in Elixir on
-[Nerves](https://nerves-project.org/).
-
-What muOS and ROCKNIX do with shell scripts, this does with a BEAM supervision
-tree. There is no init system, no shell on the console and no package manager:
-PID 1 is `erlinit`, and the supervision tree *is* the process model of the
-machine. An emulator that dies becomes a restart strategy rather than a black
-screen.
+Firmware for the Anbernic RG40XXV handheld: a launcher, a diagnostics screen and
+RetroArch, written in Elixir on [Nerves](https://nerves-project.org/). Games and
+emulator cores are installed onto the device after the fact, so adding a core is
+not a reflash.
 
 Board support lives in a separate repository,
-[`nerves_system_rg40xxv`](https://github.com/kek/nerves_system_rg40xxv). This
-one is the application: the launcher, the diagnostics, and the mechanism that
-gets emulators and games onto the device.
+[`nerves_system_rg40xxv`](https://github.com/kek/nerves_system_rg40xxv). This one
+is the application.
 
 ## Supported
 
@@ -26,7 +21,7 @@ Hardware:
 - Four thermal zones
 - RTL8821CS WiFi and Bluetooth
 - USB gadget, for SSH when WiFi is down
-- Both SD card slots, the second with exFAT for muOS game cards
+- Both SD card slots, Linux and FAT support
 
 Software:
 
@@ -36,121 +31,96 @@ Software:
 - Checksum-verified bundle install, with versioned directories and rollback
 - A web UI for uploading games from a phone
 
-## How it is put together
+## Building and flashing
 
-### Firmware is not content
-
-The rootfs is a read-only squashfs, written whole on every update, in an A/B
-pair. Emulators and games do not belong in it: a core update should not reflash
-an operating system.
-
-So RetroArch, its cores and your ROMs live on the writable f2fs partition at
-`/root`, and `MayonnaiOS.Bundle` puts them there — fetch, **verify the SHA-256
-before unpacking**, install into a versioned directory, move a `current`
-symlink. Versioned directories mean an install never overwrites the running copy
-and a rollback is a symlink move.
-
-The checksums live in `config/target.exs`, in the firmware. A checksum served
-from beside the file it describes is not evidence about anything.
-
-### Cores belong to the application, not to the bundle
-
-RetroArch reads cores from exactly one `libretro_directory`, and pointing that
-inside the RetroArch bundle makes every core the property of that bundle
-version — install one, upgrade RetroArch, and it is gone.
-
-So `/root/retroarch/cores` sits outside every bundle, and `MayonnaiOS.Cores`
-rebuilds it from symlinks at each boot: from the cores RetroArch ships and from
-any installed separately. It clears before it links, so a core that vanished
-upstream cannot survive as a dangling symlink that RetroArch offers and then
-fails to load.
-
-### The supervision tree, in order
-
-The order is deliberate and it is about diagnosing a boot that fails. Each entry
-is a way of finding out what happened when the one after it never runs.
-
-    Heartbeat        earliest sign of life; needs nothing but sysfs
-    USBGadget        the way back in when WiFi does not come up
-    Audio.Startup    mixer to 0% and muted, so the device starts silent
-    Diagnostics      battery, thermal, RTC, Bluetooth, mixer; owns the volume
-                     keys and the headphone-jack switch
-    Cores.Startup    relinks the core directory
-    Web              the upload page
-    Launcher         owns event0 and runs external programs
-    BootDiagnostics  last: it reports on a boot that has already happened
-
-## Getting started
-
-The WiFi credentials come from the environment. They are deliberately in no
-file, so firmware built without them fails rather than producing an image that
-cannot be reached — this device has no accessible serial console, and
-unreachable firmware means reflashing the card by hand.
+The WiFi credentials come from the environment, so that firmware without them
+fails the build rather than producing an image you cannot reach. Set them, pick
+the target, and build:
 
     export RG40XXV_WIFI_SSID="your-ssid"
     export RG40XXV_WIFI_PSK="your-psk"
-
     export MIX_TARGET=rg40xxv
+
     mix deps.get
     mix firmware
 
-Then burn a card:
+`mix burn` writes an SD card, which is what you want the first time. After that
+`mix upload nerves.local` pushes an update over the network to a device that is
+already running, which takes seconds rather than a card shuffle. Firmware is
+written to whichever of the two slots is not in use, so a bad update reverts on
+the next boot instead of leaving you with a brick.
 
-    mix burn
+If `mix deps.get` starts compiling Buildroot instead of downloading a system,
+your tree does not match any published release and you are in for about three
+and a half hours. That is usually a sign you changed something under
+`nerves_system_rg40xxv` — a comment is enough.
 
-or push to a device that is already running:
+## Using it
 
-    mix upload nerves-<serial>.local
+The D-pad moves the cursor and **A** launches what is selected. **Menu** is the
+way back: it stops a running program if there is one, and otherwise leaves the
+diagnostics screen, so the same press always means "put me back where I
+started". **X** opens diagnostics — battery, temperatures, WiFi, Bluetooth,
+mixer, and live readouts for the volume keys and the headphone jack, which is
+the quickest way to tell whether a hardware complaint is real. **Select + Menu**
+powers off.
 
-`mix deps.get` downloads the system from its GitHub releases. If no release
-matches the tree's checksum it falls back to building Buildroot from source,
-which takes about three and a half hours — so a build that looks hung probably
-is not.
+The buttons above are as printed on the shell. This board's device tree
+disagrees with its own silkscreen about A/B and about X/Y, so if you add
+bindings, press the button and check the log rather than trusting the DTS.
 
-### On the host
+## Putting games on it
+
+Open the device from a phone on the same WiFi:
+
+    http://nerves.local/
+
+Pick a file and it uploads, with a progress bar. The same page lists the
+emulator cores RetroArch can see and offers to install more. Uploads stream
+straight to disk, so a several-hundred-megabyte disc image is fine.
+
+There is no authentication — anything on your network can upload a ROM, delete
+one or install a core. That is the same trust model as a printer's web page, and
+it is a deliberate choice for a device on a home network rather than an
+oversight.
+
+`scp` works too, if you would rather:
+
+    scp game.sfc nerves.local:/root/roms/snes/
+
+Use plain `scp` and not `scp -O`, which forces a legacy protocol that needs an
+`scp` binary the device does not have.
+
+## Poking at a running device
+
+SSH gives you an IEx prompt rather than a shell, so the device is inspectable
+the way any BEAM node is:
+
+    $ ssh nerves.local
+
+    iex> MayonnaiOS.Bundle.install(MayonnaiOS.Bundle.spec(:retroarch))
+    iex> MayonnaiOS.Cores.install(:snes9x2010)
+    iex> MayonnaiOS.Library.index()
+    iex> MayonnaiOS.Audio.run()
+
+`Bundle.install/1` fetches, checks the SHA-256 before unpacking anything, and
+installs into a versioned directory with a `current` symlink — so an install
+never overwrites the copy that is running, and undoing one is a symlink move.
+`Cores.sync/0` rebuilds the directory RetroArch reads, and runs at every boot.
+
+Logs are in `RingLogger`: `RingLogger.next` for what has happened since you last
+looked, `RingLogger.attach` to follow along.
+
+## Working on it
 
 Without `MIX_TARGET`, everything builds for your laptop, which is where the
 tests run:
 
     mix test
 
-98 tests, no hardware required.
-
-## Using the device
-
-### Buttons
-
-As printed on the shell, not as the device tree labels them. This board's device
-tree is wrong about A/B *and* about X/Y, so these were established by pressing
-them.
-
-    D-pad up/down   move the cursor
-    A               launch the selected program
-    Menu            back to the home screen
-    X               diagnostics readout
-    Select + Menu   power off
-
-Menu is the one way out: it stops a running program if there is one and
-otherwise leaves diagnostics, so the same press always means "put me back where
-I started". The power-off chord is tested first, so a bare Menu can never shut
-the device down.
-
-### Getting games onto it
-
-Open the device's hostname from a phone on the same WiFi:
-
-    http://nerves.local/
-
-Pick a file and it uploads. The page also lists the cores RetroArch can see and
-offers to install catalogued ones.
-
-There is **no authentication**. Anything on the same network can upload a ROM,
-delete one, or install a core — the same trust model as a printer's web page,
-which is defensible on a home network and is a decision rather than an
-oversight. What keeps it from being worse is `MayonnaiOS.Library`: uploads land
-only in configured system directories, and filenames that could escape them are
-*rejected* rather than repaired, because a repair silently accepts a request
-that was trying to escape.
+No hardware required. The web UI runs on the host too — point `:rom_root` and
+the other paths at a scratch directory and start `MayonnaiOS.Web` under a
+supervisor.
 
 ## The three repositories
 
