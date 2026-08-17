@@ -14,23 +14,27 @@ Board support lives in a separate repository,
 one is the application: the launcher, the diagnostics, and the mechanism that
 gets emulators and games onto the device.
 
-## Status
+## Supported
 
-| | |
-|---|---|
-| Display | 640×480 panel, Scenic through `cairo-fb` |
-| GPU | Mali-G31 MC1 via Panfrost, GLES 3.1, Mesa 26.1.2 |
-| Emulation | RetroArch 1.22.2 running a SNES game at 60.10 fps |
-| Gamepad | evdev on `event0`, autoconfig accepted by RetroArch |
-| Audio | speaker confirmed; boots muted at 0% by design |
-| Battery | charge and discharge, both directions |
-| Thermal | four zones |
-| WiFi | RTL8821CS |
-| Bluetooth | controller init, firmware `0x75b8f098` |
-| USB gadget | SSH over `usb0` |
-| Second SD slot | a 125 GB card enumerates as `mmcblk2` |
-| exFAT | a real muOS-formatted card mounts and reads |
-| Upload UI | serving on port 80 |
+Hardware:
+
+- 640×480 panel
+- Mali-G31 MC1 GPU, via Panfrost and Mesa
+- Gamepad, volume keys and headphone-jack detection, through evdev
+- Audio out, speaker and headphones
+- Battery, charge and discharge
+- Four thermal zones
+- RTL8821CS WiFi and Bluetooth
+- USB gadget, for SSH when WiFi is down
+- Both SD card slots, the second with exFAT for muOS game cards
+
+Software:
+
+- Scenic UI: a launcher and a diagnostics readout, drawn on the CPU into
+  `/dev/fb0`
+- RetroArch, with cores installed and upgraded independently of the firmware
+- Checksum-verified bundle install, with versioned directories and rollback
+- A web UI for uploading games from a phone
 
 ## How it is put together
 
