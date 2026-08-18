@@ -19,6 +19,30 @@ defmodule MayonnaiOS do
   end
 
   @doc """
+  Remount the root scene, so an edited scene module shows up on screen.
+
+      iex> recompile()
+      iex> MayonnaiOS.reload_ui()
+
+  `recompile/0` on its own changes nothing visible: a scene is a process
+  holding an already-built `%Scenic.Graph{}`, so new code does not repaint an
+  existing graph. `Scenic.ViewPort.set_root/3` stops the scene and starts a
+  fresh one, which is what picks up the edit.
+
+  Defaults to whatever `:default_scene` the viewport config names, so it keeps
+  working when that changes.
+  """
+  def reload_ui(scene \\ nil, args \\ 0) do
+    config = Application.get_env(:mayonnaios, :viewport, [])
+    scene = scene || Keyword.fetch!(config, :default_scene)
+    name = Keyword.get(config, :name, :main_viewport)
+
+    with {:ok, viewport} <- Scenic.ViewPort.info(name) do
+      Scenic.ViewPort.set_root(viewport, scene, args)
+    end
+  end
+
+  @doc """
   Facts about the framebuffer, for checking the panel before blaming Scenic.
   """
   def fb_info do
