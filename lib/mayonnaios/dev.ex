@@ -30,6 +30,11 @@ defmodule MayonnaiOS.Dev do
       1
       iex> MayonnaiOS.Dev.a()
 
+  `start/0` also starts `MayonnaiOS.Keyboard`, so the window responds to the
+  keyboard directly -- arrows to move, `z` to launch, `enter` for Menu. These
+  functions remain useful for scripting a sequence and for asserting on
+  `selected/0` without a window in focus.
+
   ## The names here are the ones on the plastic
 
   Linux's `BTN_A` is south and `BTN_B` is east, this board follows the Nintendo
@@ -66,6 +71,12 @@ defmodule MayonnaiOS.Dev do
 
     if is_nil(Process.whereis(Launcher)) do
       {:ok, _} = Launcher.start_link([])
+    end
+
+    # The keyboard bridge, so the window is usable with hands as well as with
+    # function calls. Started after the Launcher, because it sends to it.
+    if is_nil(Process.whereis(MayonnaiOS.Keyboard)) do
+      {:ok, _} = MayonnaiOS.Keyboard.start_link([])
     end
 
     selected()
