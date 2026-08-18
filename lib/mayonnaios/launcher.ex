@@ -465,11 +465,28 @@ defmodule MayonnaiOS.Launcher do
 
   defp set_root(nil, _param), do: :ok
 
+  # Repainting must never take the Launcher down when there is no UI running.
+  # Scenic.ViewPort.info/1 is a bare GenServer.call, so on a missing viewport
+  # it *exits* rather than returning an error -- the `case` this used to do
+  # could not catch that, and the clause that looked like it handled it was
+  # unreachable. It went unnoticed because the host had no :viewport config,
+  # so default_scene/0 returned nil and this function short-circuited above
+  # before ever asking Scenic anything.
+  #
+  # That matters beyond the tests: Scenic is deliberately not started at boot
+  # (see MayonnaiOS), so on a device where start_ui/0 has not been called yet,
+  # one button press would have crashed the process that owns the buttons.
   defp set_root(scene, param) do
-    case Scenic.ViewPort.info(:main_viewport) do
-      {:ok, vp} -> Scenic.ViewPort.set_root(vp, scene, param)
+    with pid when is_pid(pid) <- Process.whereis(viewport_name()),
+         {:ok, vp} <- Scenic.ViewPort.info(pid) do
+      Scenic.ViewPort.set_root(vp, scene, param)
+    else
       _ -> :ok
     end
+  end
+
+  defp viewport_name do
+    get_in(Application.get_env(:mayonnaios, :viewport), [:name]) || :main_viewport
   end
 
   defp default_scene do
