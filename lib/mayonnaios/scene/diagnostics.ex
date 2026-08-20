@@ -78,7 +78,6 @@ defmodule MayonnaiOS.Scene.Diagnostics do
     base()
     |> column(20, left_rows(s))
     |> column(330, right_rows(s))
-    |> text(hints(), font_size: 13, fill: {:color, @dim}, translate: {20, @height - 16})
   end
 
   defp base do
@@ -293,12 +292,6 @@ defmodule MayonnaiOS.Scene.Diagnostics do
       {:row, "• plug/unplug", "#{j[:changes]} changes",
        if(j[:changes] > 0, do: @pass, else: @wait)}
     ]
-  end
-
-  defp hints do
-    # X and Y as printed on the shell -- the device tree labels them the
-    # other way round, and the buttons settled it.
-    "X diagnostics/home   A launch   Start stop   Select+Menu power off"
   end
 
   # -- formatting ------------------------------------------------------------

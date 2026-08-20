@@ -83,7 +83,6 @@ defmodule MayonnaiOS.Scene.Home do
       fill: {:color, @label},
       translate: {20, 116}
     )
-    |> hint()
   end
 
   def graph(programs, selected) do
@@ -106,7 +105,6 @@ defmodule MayonnaiOS.Scene.Home do
 
     graph
     |> position(start, count)
-    |> hint()
   end
 
   defp base do
@@ -157,18 +155,6 @@ defmodule MayonnaiOS.Scene.Home do
       font_size: 14,
       fill: {:color, @dim},
       translate: {520, 28}
-    )
-  end
-
-  defp hint(graph) do
-    # Buttons as printed on the shell. The device tree labels X and Y the
-    # other way round; pressing them settled it.
-    text(
-      graph,
-      "D-pad move   A launch   Start stop   X diagnostics   Y audio   Select+Menu off",
-      font_size: 13,
-      fill: {:color, @dim},
-      translate: {20, @height - 16}
     )
   end
 end
