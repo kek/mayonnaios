@@ -255,7 +255,19 @@ config :mayonnaios, :games_card,
   options: "rw,nosuid,nodev,noexec",
   sync: false
 
-config :mayonnaios, rom_root: "/root/roms"
+# Where games live, read in order. The first is written: uploads land on the
+# internal card because the games card can be out, and an upload that goes
+# nowhere is worse than one that goes somewhere always present.
+#
+# Both are called ROMS. The games card arrived pre-formatted with ROMS/ from
+# the stock OS, and one layout across both cards is easier to hold in the head
+# than a translation between two -- so the internal directory was renamed to
+# match the card rather than the other way round.
+config :mayonnaios,
+  rom_roots: [
+    "/root/ROMS",
+    "/root/mnt/games/ROMS"
+  ]
 
 config :mayonnaios, :systems, [
   %{

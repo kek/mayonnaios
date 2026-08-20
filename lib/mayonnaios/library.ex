@@ -47,9 +47,32 @@ defmodule MayonnaiOS.Library do
   @type system :: %{key: String.t(), name: String.t(), extensions: [String.t()]}
 
   @doc """
-  Where content is kept. Configurable so tests do not touch a real partition.
+  Where uploads are written: the first configured root.
+
+  Always the internal card. The games card can be absent, and an upload that
+  lands nowhere because a card is out is worse than one that lands on the
+  partition that is always there.
   """
-  def root, do: Application.get_env(:mayonnaios, :rom_root, "/root/roms")
+  def root, do: hd(roots())
+
+  @doc """
+  Every root to read content from, in order of precedence.
+
+  Two, normally: `/root/ROMS` on the internal card and `ROMS` on the games
+  card. Both are read; only the first is written. Same directory name in both,
+  which is why the internal one is capitalised -- the games card came
+  pre-formatted with `ROMS`, and one layout is easier to hold in the head than
+  a translation.
+
+  Configurable as a list so tests do not touch a real partition, and so a
+  second card or a network share is a config change rather than a code change.
+  """
+  def roots do
+    case Application.get_env(:mayonnaios, :rom_roots) do
+      [_ | _] = roots -> roots
+      _ -> [Application.get_env(:mayonnaios, :rom_root, "/root/ROMS")]
+    end
+  end
 
   @doc """
   The largest upload accepted, in bytes.
@@ -91,30 +114,64 @@ defmodule MayonnaiOS.Library do
     end
   end
 
+  # Merged across every root, in root order. A name present in more than one
+  # root is reported once, from the first root that has it -- the same
+  # precedence `find/2` uses, so what the UI lists and what a delete removes
+  # cannot disagree.
   def entries(sys) do
-    dir = dir(sys)
+    dirs(sys)
+    |> Enum.flat_map(fn dir ->
+      case File.ls(dir) do
+        {:ok, names} -> Enum.map(names, &{&1, Path.join(dir, &1)})
+        {:error, _} -> []
+      end
+    end)
+    |> Enum.reject(fn {name, _} -> String.starts_with?(name, ".") end)
+    |> Enum.flat_map(fn {name, path} ->
+      case File.stat(path) do
+        {:ok, %{type: :regular, size: size}} -> [%{name: name, size: size}]
+        _ -> []
+      end
+    end)
+    |> Enum.uniq_by(& &1.name)
+    |> Enum.sort_by(& &1.name)
+  end
 
-    case File.ls(dir) do
-      {:ok, names} ->
-        names
-        |> Enum.reject(&String.starts_with?(&1, "."))
-        |> Enum.sort()
-        |> Enum.flat_map(fn name ->
-          case File.stat(Path.join(dir, name)) do
-            {:ok, %{type: :regular, size: size}} -> [%{name: name, size: size}]
-            _ -> []
-          end
-        end)
+  @doc """
+  The writable directory for a system, under the first root.
+  """
+  def dir(%{key: key}), do: Path.join(root(), key)
 
-      {:error, _} ->
-        []
+  @doc """
+  Every directory a system's content could be in, in root order.
+  """
+  def dirs(%{key: key}), do: Enum.map(roots(), &Path.join(&1, key))
+
+  def dirs(key) when is_binary(key) do
+    case system(key) do
+      nil -> []
+      sys -> dirs(sys)
     end
   end
 
   @doc """
-  The directory for a system.
+  Where a named file actually is, searching the roots in order.
+
+  Needed because reads span roots while writes do not: `path/2` says where a
+  file *would* be written, and this says where an existing one *is*.
   """
-  def dir(%{key: key}), do: Path.join(root(), key)
+  @spec find(String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, :unknown_system | :bad_name | :bad_extension | :enoent}
+  def find(system_key, name) do
+    with {:ok, sys} <- fetch_system(system_key),
+         {:ok, name} <- safe_name(name),
+         :ok <- check_extension(sys, name) do
+      case Enum.find(dirs(sys), &File.regular?(Path.join(&1, name))) do
+        nil -> {:error, :enoent}
+        dir -> {:ok, Path.join(dir, name)}
+      end
+    end
+  end
 
   @doc """
   The absolute path a name would take inside a system, or an error.
@@ -264,7 +321,9 @@ defmodule MayonnaiOS.Library do
   """
   @spec delete(String.t(), String.t()) :: :ok | {:error, term()}
   def delete(system_key, name) do
-    with {:ok, dest} <- path(system_key, name) do
+    # find/2 rather than path/2: a file on the games card is deletable too, and
+    # path/2 would only ever name the internal root.
+    with {:ok, dest} <- find(system_key, name) do
       case File.rm(dest) do
         :ok ->
           Logger.info("[library] deleted #{name}")
