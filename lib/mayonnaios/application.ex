@@ -78,6 +78,11 @@ defmodule MayonnaiOS.Application do
         # Launcher, so the readout has data the moment the scene is opened.
         MayonnaiOS.Diagnostics,
 
+        # Mounts the games card. Before Cores and the web server, because both
+        # report on what is available and the card is part of the answer.
+        # Tolerates no card, an unknown filesystem, and an existing mount.
+        MayonnaiOS.GamesCard,
+
         # Relinks /root/retroarch/cores from the RetroArch bundle and the
         # installed core bundles. Before the web server, so the first page
         # load reports what is really there.

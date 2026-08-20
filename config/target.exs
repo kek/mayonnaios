@@ -164,8 +164,6 @@ config :mayonnaios, :viewport,
 #
 #     %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]}
 config :mayonnaios, :programs, [
-  %{name: "Spinning cube (kmscube)", path: "/usr/bin/kmscube"},
-
   # Not in the firmware. This path only exists once MayonnaiOS.Bundle has
   # installed RetroArch onto the writable partition, and until then Programs
   # renders it as a greyed, unlaunchable row -- which is the honest state and
@@ -195,7 +193,9 @@ config :mayonnaios, :programs, [
       "/root/bundles/retroarch/current/share/retroarch/retroarch.cfg"
     ],
     needs_udev: true
-  }
+  },
+  %{name: "Spinning cube (kmscube)", path: "/usr/bin/kmscube"},
+  %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]}
 ]
 
 # Where MayonnaiOS.Bundle installs content. On the f2fs application
@@ -243,6 +243,18 @@ config :mayonnaios, :bundles, %{
 #
 # Extensions are the accept-list. `.zip` is in each of them because RetroArch
 # reads zipped ROMs directly and phones like to hand over archives.
+# The card in the second SD slot. mmcblk2, not mmcblk1 -- the first slot is
+# the OS card and mmcblk1 is the SDIO WiFi, so the obvious guess gets the
+# radio. Read-write, because adding and deleting games in place is the point
+# of a games card; see MayonnaiOS.GamesCard for what that costs on a
+# journal-less filesystem in a device that is switched off by pulling power.
+config :mayonnaios, :games_card,
+  device: "/dev/mmcblk2p1",
+  mount_point: "/root/mnt/games",
+  filesystems: ["exfat", "vfat"],
+  options: "rw,nosuid,nodev,noexec",
+  sync: false
+
 config :mayonnaios, rom_root: "/root/roms"
 
 config :mayonnaios, :systems, [
