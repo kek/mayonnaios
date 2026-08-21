@@ -372,6 +372,33 @@ a scratch directory and start `MayonnaiOS.Web` under a supervisor.
 
 ## Not done yet
 
+**The analog stick.** The shell has one and nothing in this firmware can see
+it. Linux is not being told it exists: the `adc-joystick` driver is not built
+(`CONFIG_JOYSTICK_ADC`), there is no joystick node in the device tree, and no
+ADC driver for the H700 for such a node to read. Confirmed on the device
+rather than inferred: `InputEvent.enumerate/0` shows three input devices —
+fifteen gamepad keys, two volume keys, the headphone switch — and no `ev_abs`
+anywhere. No amount of work in this repository changes that; it is a device
+tree node and two kernel options in
+[`nerves_system_rg40xxv`](https://github.com/kek/nerves_system_rg40xxv).
+
+The reason it was missed is legible in the device tree itself. This board's
+DTS extends mainline's `sun50i-h700-anbernic-rg35xx-plus.dts`, and the RG35XX
+Plus has no stick — so the inherited description is complete and correct for
+a device that is not quite this one. Everything the two boards share came
+across; the one control they do not share is the one that is missing.
+
+Once it is there, the work on this side is small and known. The Bluetooth
+report descriptor gains X and Y axes fed by `ABS_X` and `ABS_Y`, taking the
+report from three bytes back to five, and whichever input device the driver
+creates has to be read alongside `event0` — `MayonnaiOS.Launcher` owns that
+one today and would own the stick's too, forwarding both to the app.
+
+Worth being precise about why those axes are correct when the ones removed in
+the commit before this were a bug: the axes that had to go were the *D-pad*
+reported a second time, so one press moved a character and a mouse cursor at
+once. A stick reporting stick positions is not that.
+
 **Pairing devices *to* the handheld.** The controller app is this device
 advertising itself to a host — the peripheral role. Scanning for headphones or
 another gamepad and pairing them to this device is the central role, and none

@@ -29,7 +29,16 @@ defmodule MayonnaiOS.Controller.Report do
       Buttons 1..10   A B X Y L1 R1 L2 R2 Select Start
 
   A hat switch is what a D-pad is, and it is the only thing the D-pad is
-  reported as. There are no analog sticks on this shell and none are declared.
+  reported as.
+
+  No axes are declared, and that is a statement about the kernel rather than
+  about the hardware. This shell *does* have an analog stick -- unlike the
+  RG35XX Plus whose device tree this board's was extended from -- but nothing
+  in this firmware can see it: no `adc-joystick` driver, no joystick node, so
+  no `ev_abs` on any input device. `InputEvent.enumerate/0` on the device
+  shows `event0` offering fifteen keys and nothing else. Declaring axes that
+  no input can ever move would put a dead stick in front of every host. The
+  README's roadmap has what enabling it would take.
 
   ## The D-pad used to be declared twice, and that was the bug
 
@@ -110,14 +119,25 @@ defmodule MayonnaiOS.Controller.Report do
 
   ## What is verified and what is not
 
-  Every atom the launcher binds is verified against the hardware: A, B, X, Y,
-  Select and D-pad up/down were read off the device, in some cases against
-  what the device tree claimed. The rest -- D-pad left/right, the four
-  shoulder buttons, Start -- follow from the same evdev tables but have not
-  been pressed on this board while anything was watching. They are here
-  because the cost of a wrong guess is one unmapped button rather than a
-  crash, and because `MayonnaiOS.Controller` logs keys that reach it without a
-  mapping, so the correction is a log line away rather than a mystery.
+  The kernel's own capability list settles most of it. `event0` declares
+  exactly fifteen keys:
+
+      btn_a btn_b btn_x btn_y btn_tl btn_tr btn_tl2 btn_tr2
+      btn_select btn_start btn_mode
+      btn_dpad_up btn_dpad_down btn_dpad_left btn_dpad_right
+
+  Every one of them appears in the tables below or is deliberately left out,
+  and nothing is declared that this module does not know about -- so there is
+  no button on this shell that silently reaches a host as nothing.
+
+  What that list cannot settle is which piece of plastic emits which code.
+  A, B, X, Y and Select were checked by pressing them and watching, and two
+  of those four turned out to contradict the device tree. The shoulders are
+  not checked: `btn_tl2` is assumed to be L2 rather than, say, the pair being
+  swapped the way X and Y were. The cost of that being wrong is a shoulder
+  button in the wrong place rather than a crash, and
+  `MayonnaiOS.Controller.Pad` logs any key that arrives without a mapping, so
+  a correction is a log line away rather than a mystery.
   """
 
   @typedoc "Which way the D-pad is held."
