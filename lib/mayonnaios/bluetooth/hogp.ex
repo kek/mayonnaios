@@ -87,11 +87,15 @@ defmodule MayonnaiOS.Bluetooth.HOGP do
   # See the moduledoc. Source 0x02 is the USB Implementer's Forum's numbering.
   @pnp <<0x02, 0x1209::16-little, 0x4D4F::16-little, 0x0100::16-little>>
 
-  @report_id 1
+  # Zero, and that is a value rather than a placeholder: the Report Reference
+  # descriptor uses 0 to mean "the report map declares no report IDs, and this
+  # is the only report of its type". `MayonnaiOS.Controller.Report` has the
+  # account of why declaring an ID cost more than it bought.
+  @report_id 0
   @input_report 0x01
 
-  @doc "The report ID the report reference descriptor and the descriptor agree on."
-  @spec report_id() :: pos_integer()
+  @doc "The report ID the report reference descriptor and the report map agree on."
+  @spec report_id() :: non_neg_integer()
   def report_id, do: @report_id
 
   @doc """
@@ -159,10 +163,11 @@ defmodule MayonnaiOS.Bluetooth.HOGP do
           read: :encrypted,
           descriptors: [
             {@cccd, [read: :encrypted, write: :encrypted]},
-            # Which report in the descriptor this characteristic carries, and
-            # in which direction. Report ID 1, Input. A host that finds a
-            # report characteristic with no reference descriptor cannot match
-            # it to the report map and ignores it.
+            # Which report in the map this characteristic carries, and in
+            # which direction. Report ID 0 -- the map declares none -- and
+            # Input. A host that finds a report characteristic with no
+            # reference descriptor cannot match it to the report map and
+            # ignores it.
             {@report_reference, [value: <<@report_id, @input_report>>, read: :encrypted]}
           ]}
        ]}
@@ -181,6 +186,18 @@ defmodule MayonnaiOS.Bluetooth.HOGP do
     value = GATT.find_handle(db, @report)
     %{value: value, cccd: GATT.cccd_handle(db, value)}
   end
+
+  @doc """
+  The handle the report descriptor is read from.
+
+  Worth having a name for, because a host reading it is the single most
+  useful thing that happens on a connection: it is proof that pairing
+  succeeded, that the encrypted read went through, and -- when a descriptor
+  has just changed -- that the host is looking at the new one rather than a
+  copy it cached at some earlier pairing.
+  """
+  @spec report_map_handle(GATT.t()) :: non_neg_integer() | nil
+  def report_map_handle(db), do: GATT.find_handle(db, @report_map)
 
   @doc "The same, for the battery level."
   @spec battery_handles(GATT.t()) :: %{value: non_neg_integer(), cccd: non_neg_integer() | nil}

@@ -15,6 +15,16 @@ defmodule MayonnaiOS.Controller.ReportTest do
       assert <<0x05, 0x01, 0x09, 0x05, 0xA1, 0x01, _rest::binary>> = Report.descriptor()
     end
 
+    test "does not declare any axes, which is what stopped the cursor moving" do
+      # Usage (X) and Usage (Y) on the Generic Desktop page. Their presence is
+      # what let Steam take the D-pad for a stick and drive the mouse with it
+      # while the game was reading the hat; see the moduledoc.
+      refute contains?(Report.descriptor(), <<0x09, 0x30>>)
+      refute contains?(Report.descriptor(), <<0x09, 0x31>>)
+      # And no Pointer collection to put them in.
+      refute contains?(Report.descriptor(), <<0x09, 0x01, 0xA1, 0x00>>)
+    end
+
     test "opens and closes the same number of collections" do
       bytes = :binary.bin_to_list(Report.descriptor())
 
@@ -25,11 +35,19 @@ defmodule MayonnaiOS.Controller.ReportTest do
       closes = Enum.count(chunks(bytes), &match?({0xC0, _}, &1))
 
       assert opens == closes
-      assert opens == 2
+      # One: the Game Pad application collection. The physical collection that
+      # used to wrap the axes went with them.
+      assert opens == 1
     end
 
-    test "the report ID is 1, and the Report Reference descriptor has to agree" do
-      assert contains?(Report.descriptor(), <<0x85, 0x01>>)
+    test "declares no report ID at all" do
+      # Walked as items rather than searched for as bytes: 0x85 is a perfectly
+      # ordinary data byte and a byte search would find one in the physical
+      # maximum. With one report an ID buys nothing and splits hosts into two
+      # camps about whether the first byte is the ID or the hat.
+      tags = Report.descriptor() |> :binary.bin_to_list() |> chunks() |> Enum.map(&elem(&1, 0))
+
+      refute 0x85 in tags
     end
 
     test "declares exactly the ten buttons the shell has" do
@@ -68,22 +86,22 @@ defmodule MayonnaiOS.Controller.ReportTest do
   end
 
   describe "encode/1" do
-    test "nothing pressed is centred axes, a null hat and no buttons" do
-      assert Report.encode(Report.released()) == <<0, 0, 15, 0, 0>>
+    test "nothing pressed is a null hat and no buttons" do
+      assert Report.encode(Report.released()) == <<15, 0, 0>>
     end
 
-    test "is five bytes whatever is held" do
-      assert byte_size(Report.encode(all_pressed())) == 5
+    test "is three bytes whatever is held" do
+      assert byte_size(Report.encode(all_pressed())) == 3
     end
 
-    test "button 1 is the low bit of byte 3, and it is the A button" do
+    test "button 1 is the low bit of byte 1, and it is the A button" do
       # :btn_b is the button silkscreened A on this board.
-      assert <<_, _, _, 0x01, 0x00>> = press(:btn_b)
+      assert <<_, 0x01, 0x00>> = press(:btn_b)
     end
 
-    test "button 9 is the low bit of byte 4, and button 10 the one above it" do
-      assert <<_, _, _, 0x00, 0x01>> = press(:btn_select)
-      assert <<_, _, _, 0x00, 0x02>> = press(:btn_start)
+    test "button 9 is the low bit of byte 2, and button 10 the one above it" do
+      assert <<_, 0x00, 0x01>> = press(:btn_select)
+      assert <<_, 0x00, 0x02>> = press(:btn_start)
     end
 
     test "buttons accumulate rather than replace" do
@@ -94,7 +112,7 @@ defmodule MayonnaiOS.Controller.ReportTest do
         ])
 
       # Buttons 1 and 2.
-      assert <<_, _, _, 0x03, 0x00>> = Report.encode(state)
+      assert <<_, 0x03, 0x00>> = Report.encode(state)
     end
 
     test "a release clears just that button" do
@@ -105,29 +123,29 @@ defmodule MayonnaiOS.Controller.ReportTest do
           {:ev_key, :btn_b, 0}
         ])
 
-      assert <<_, _, _, 0x02, 0x00>> = Report.encode(state)
+      assert <<_, 0x02, 0x00>> = Report.encode(state)
     end
 
     test "an auto-repeat is a press, not a release" do
       state = Report.apply_events(Report.released(), [{:ev_key, :btn_b, 2}])
-      assert <<_, _, _, 0x01, 0x00>> = Report.encode(state)
+      assert <<_, 0x01, 0x00>> = Report.encode(state)
     end
 
-    test "the D-pad drives the hat and the axes together" do
-      assert <<0::signed-8, -127::signed-8, 0, 0, 0>> = press(:btn_dpad_up)
-      assert <<0::signed-8, 127::signed-8, 4, 0, 0>> = press(:btn_dpad_down)
-      assert <<-127::signed-8, 0::signed-8, 6, 0, 0>> = press(:btn_dpad_left)
-      assert <<127::signed-8, 0::signed-8, 2, 0, 0>> = press(:btn_dpad_right)
+    test "the D-pad is the hat, clockwise from north" do
+      assert <<0, 0, 0>> = press(:btn_dpad_up)
+      assert <<4, 0, 0>> = press(:btn_dpad_down)
+      assert <<6, 0, 0>> = press(:btn_dpad_left)
+      assert <<2, 0, 0>> = press(:btn_dpad_right)
     end
 
-    test "a diagonal is one hat value and both axes" do
+    test "a diagonal is one hat value" do
       state =
         Report.apply_events(Report.released(), [
           {:ev_key, :btn_dpad_down, 1},
           {:ev_key, :btn_dpad_right, 1}
         ])
 
-      assert <<127::signed-8, 127::signed-8, 3, 0, 0>> = Report.encode(state)
+      assert <<3, 0, 0>> = Report.encode(state)
     end
 
     test "opposite directions cancel instead of failing to decode" do
@@ -138,7 +156,7 @@ defmodule MayonnaiOS.Controller.ReportTest do
           {:ev_key, :btn_dpad_down, 1}
         ])
 
-      assert Report.encode(state) == <<0, 0, 15, 0, 0>>
+      assert Report.encode(state) == <<15, 0, 0>>
     end
   end
 

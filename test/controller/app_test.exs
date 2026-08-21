@@ -169,7 +169,7 @@ defmodule MayonnaiOS.Controller.AppTest do
     test "a press produces one report" do
       Pad.input([{:ev_key, :btn_b, 1}])
 
-      assert_receive {:report, <<_, _, _, 0x01, 0x00>>}
+      assert_receive {:report, <<_, 0x01, 0x00>>}
     end
 
     test "and a release produces another" do
@@ -177,7 +177,7 @@ defmodule MayonnaiOS.Controller.AppTest do
       assert_receive {:report, _}
 
       Pad.input([{:ev_key, :btn_b, 0}])
-      assert_receive {:report, <<_, _, _, 0x00, 0x00>>}
+      assert_receive {:report, <<_, 0x00, 0x00>>}
     end
 
     test "an event that changes nothing sends nothing" do
@@ -203,7 +203,7 @@ defmodule MayonnaiOS.Controller.AppTest do
         {:ev_key, :btn_b, 1}
       ])
 
-      assert_receive {:report, <<127::signed-8, 127::signed-8, 3, 0x01, 0x00>>}
+      assert_receive {:report, <<3, 0x01, 0x00>>}
       refute_receive {:report, _}, 50
     end
 

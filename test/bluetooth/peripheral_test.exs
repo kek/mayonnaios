@@ -179,6 +179,16 @@ defmodule MayonnaiOS.Bluetooth.PeripheralTest do
       assert status.paired
     end
 
+    test "reading the report map is noticed, so a re-pair can be told from a cached one" do
+      refute Peripheral.status().report_map_read
+
+      handle = GATT.find_handle(HOGP.build("Test Controller"), 0x2A4B)
+      att(<<0x0A, handle::16-little>>)
+      assert <<0x0B, _first::binary>> = expect_pdu(0x0004)
+
+      assert Peripheral.status().report_map_read
+    end
+
     test "the report map is readable once encrypted, in blob-sized pieces" do
       db = HOGP.build("Test Controller")
       handle = GATT.find_handle(db, 0x2A4B)
@@ -206,6 +216,51 @@ defmodule MayonnaiOS.Bluetooth.PeripheralTest do
       assert byte_size(value) > 27
     end
 
+    test "a rejected connection parameter request is answered with one Apple allows" do
+      # A Mac refuses the first request outright: it asks for a 7.5 ms floor
+      # where 15 ms is the minimum allowed, and the connection then stays on
+      # whatever interval the host picked, which is felt as late buttons.
+      signalling(<<0x13, 1, 2::16-little, 1::16-little>>)
+
+      assert <<0x12, _id, 8::16-little, min::16-little, max::16-little, 0::16-little,
+               _timeout::16-little>> = expect_pdu(0x0005)
+
+      # 15 ms to 30 ms: at the floor, and a ceiling a clear 15 ms above it.
+      assert min == 12
+      assert max == 24
+      assert max >= min + 12
+    end
+
+    test "and a second rejection is left alone rather than asked again" do
+      signalling(<<0x13, 1, 2::16-little, 1::16-little>>)
+      assert <<0x12, _id, _::binary>> = expect_pdu(0x0005)
+
+      signalling(<<0x13, 2, 2::16-little, 1::16-little>>)
+
+      refute_receive {:acl, _}, 50
+    end
+
+    test "an accepted request is not followed by another" do
+      signalling(<<0x13, 1, 2::16-little, 0::16-little>>)
+
+      refute_receive {:acl, _}, 50
+    end
+
+    test "the interval the central chose is reported, in milliseconds" do
+      # 24 units of 1.25 ms, from the connection complete event in connect/0.
+      assert Peripheral.status().interval_ms == 30.0
+
+      send(
+        Peripheral,
+        {:hci,
+         {:event, :le_connection_update_complete,
+          %{status: 0, handle: @handle, interval: 12, latency: 0, supervision_timeout: 500}}}
+      )
+
+      sync()
+      assert Peripheral.status().interval_ms == 15.0
+    end
+
     test "subscribing turns reports on" do
       subscribe()
 
@@ -216,9 +271,9 @@ defmodule MayonnaiOS.Bluetooth.PeripheralTest do
       subscribe()
       report_handle = HOGP.report_handles(HOGP.build("Test Controller")).value
 
-      Peripheral.report(<<0x00, 0x00, 15, 0x01, 0x00>>)
+      Peripheral.report(<<15, 0x01, 0x00>>)
 
-      assert <<0x1B, handle::16-little, 0x00, 0x00, 15, 0x01, 0x00>> = expect_pdu(0x0004)
+      assert <<0x1B, handle::16-little, 15, 0x01, 0x00>> = expect_pdu(0x0004)
       assert handle == report_handle
       assert Peripheral.status().sent == 1
     end
@@ -407,6 +462,7 @@ defmodule MayonnaiOS.Bluetooth.PeripheralTest do
 
   defp att(payload), do: incoming(L2CAP.cid_att(), payload)
   defp smp(payload), do: incoming(L2CAP.cid_smp(), payload)
+  defp signalling(payload), do: incoming(L2CAP.cid_signalling(), payload)
 
   defp incoming(cid, payload) do
     send(Peripheral, {:hci, {:acl, @handle, :start, L2CAP.encode(cid, payload)}})

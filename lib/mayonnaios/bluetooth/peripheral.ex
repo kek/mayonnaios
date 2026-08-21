@@ -55,6 +55,7 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
             db: nil,
             report_handle: nil,
             report_cccd: nil,
+            report_map_handle: nil,
             battery_handle: nil,
             battery_cccd: nil,
             advertising?: false,
@@ -115,6 +116,7 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
       db: db,
       report_handle: report.value,
       report_cccd: report.cccd,
+      report_map_handle: HOGP.report_map_handle(db),
       battery_handle: battery.value,
       battery_cccd: battery.cccd
     }
@@ -159,6 +161,11 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
        peer: connection && HCI.address(elem(connection.peer, 1)),
        encrypted: connection != nil and state.db.encrypted,
        subscribed: GATT.subscribed?(state.db, state.report_cccd),
+       report_map_read: connection != nil and connection.report_map_read,
+       # The latency budget, and the first number to look at when presses feel
+       # late: nothing this device does can beat the interval the central
+       # chose. Units on the wire are 1.25 ms.
+       interval_ms: connection && connection.interval * 1.25,
        paired: connection != nil and SMP.state(connection.smp) == :paired,
        mtu: state.db.mtu,
        bonds: length(safe_bonds()),
@@ -204,6 +211,15 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
     }
 
     {:noreply, advertise(state)}
+  end
+
+  def handle_info(
+        {:hci, {:event, :le_connection_update_complete, %{status: 0} = event}},
+        %{connection: connection} = state
+      )
+      when connection != nil do
+    Logger.info("[peripheral] connection interval now #{event.interval * 1.25} ms")
+    {:noreply, put_in(state.connection.interval, event.interval)}
   end
 
   def handle_info({:hci, {:event, :le_long_term_key_request, event}}, state) do
@@ -265,7 +281,9 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
       peer: peer,
       l2cap: L2CAP.new(),
       smp: SMP.new(local: {0x00, state.address}, peer: peer),
-      interval: event.interval
+      interval: event.interval,
+      report_map_read: false,
+      parameters_retried: false
     }
 
     state = %{
@@ -379,12 +397,34 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
 
   defp att(state, payload) do
     request = ATT.decode(payload)
+    state = note_report_map_read(state, request)
     {response, db, events} = GATT.request(state.db, request)
     state = %{state | db: db}
 
     state = Enum.reduce(events, state, &gatt_event/2)
 
     if response, do: send_pdu(state, L2CAP.cid_att(), response), else: state
+  end
+
+  # A host reads the report map once per pairing and caches it against the
+  # bond. So this is the line that says a descriptor change has actually
+  # landed: without it, a firmware that changed the button layout and a host
+  # still parsing the old one look exactly the same from here.
+  defp note_report_map_read(state, request) do
+    handle =
+      case request do
+        {:read, handle} -> handle
+        {:read_blob, handle, _offset} -> handle
+        _other -> nil
+      end
+
+    if (is_integer(handle) and handle == state.report_map_handle and
+          state.connection) && not state.connection.report_map_read do
+      Logger.info("[peripheral] host read the report map")
+      put_in(state.connection.report_map_read, true)
+    else
+      state
+    end
   end
 
   defp gatt_event({:subscription, handle, notify?, _indicate?}, state) do
@@ -431,9 +471,12 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
 
   defp signalling(state, payload) do
     case L2CAP.decode_signalling(payload) do
-      {:connection_parameter_update_response, _id, result} ->
-        Logger.info("[peripheral] connection parameter update #{result}")
+      {:connection_parameter_update_response, _id, :accepted} ->
+        Logger.info("[peripheral] connection parameter update accepted")
         state
+
+      {:connection_parameter_update_response, _id, :rejected} ->
+        request_apple_parameters(state)
 
       {:unhandled, code, id} ->
         Logger.debug("[peripheral] signalling 0x#{Integer.to_string(code, 16)} rejected")
@@ -443,6 +486,40 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
         Logger.warning("[peripheral] signalling: #{inspect(reason)}")
         state
     end
+  end
+
+  # Apple publishes rules a connection parameter request must satisfy or be
+  # refused outright, and the first request this device sends breaks two of
+  # them: it asks for a 7.5 ms floor where the minimum allowed is 15 ms, and
+  # for a 15 ms ceiling where the ceiling must be at least the floor plus
+  # 15 ms. A Mac therefore says no and the connection stays on whatever
+  # interval it picked when it connected, which is the slowest thing in the
+  # chain and is felt as buttons that need holding.
+  #
+  # So the refusal is answered rather than logged and forgotten: ask again
+  # for 15 ms to 30 ms, which satisfies the rules. Hosts that accepted the
+  # first request never reach this, and keep the shorter interval -- there is
+  # no reason to give up 7.5 ms on a machine that was happy to grant it.
+  #
+  # Once, and only once. A host that refuses both has decided, and a request
+  # per refusal is a loop.
+  defp request_apple_parameters(%{connection: %{parameters_retried: true}} = state) do
+    Logger.info("[peripheral] connection parameter update rejected twice; leaving it alone")
+    state
+  end
+
+  defp request_apple_parameters(state) do
+    Logger.info("[peripheral] parameter update rejected; asking again for 15-30 ms")
+
+    request =
+      L2CAP.connection_parameter_update_request(state.signalling_id,
+        min_interval: 12,
+        max_interval: 24
+      )
+
+    state = send_pdu(state, L2CAP.cid_signalling(), request)
+    state = put_in(state.connection.parameters_retried, true)
+    %{state | signalling_id: state.signalling_id + 1}
   end
 
   defp log_unknown_channel(state, cid, payload) do

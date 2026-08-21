@@ -136,6 +136,10 @@ defmodule MayonnaiOS.Scene.Controller do
       {"Advertising", status.advertising or status.connected},
       {"Host connected", status.connected},
       {"Paired and encrypted", status.encrypted},
+      # A host reads the report map once per pairing and then caches it. So
+      # this row is also how you tell that a firmware whose buttons moved is
+      # actually being read as the new layout rather than the old one.
+      {"Report map read", status.report_map_read},
       {"Reports subscribed", status.subscribed}
     ]
     |> Enum.map(fn {label, done} ->
@@ -148,11 +152,21 @@ defmodule MayonnaiOS.Scene.Controller do
       {status.name, "name", @label},
       {status.address || "unknown", "address", @label},
       {"#{status.mtu}", "att mtu", @label},
+      {interval(status), "interval", interval_colour(status)},
       {"#{status.bonds}", "paired hosts", @label},
       {"#{status.sent}", "reports sent", if(status.sent > 0, do: @pass, else: @dim)},
       {dropped(status.dropped), "dropped", dropped_colour(status.dropped)}
     ]
   end
+
+  # The connection interval, which is the floor on how late a button press can
+  # be. Amber past 20 ms because that is where a press starts being felt as
+  # late rather than measured as late.
+  defp interval(%{interval_ms: nil}), do: "-"
+  defp interval(%{interval_ms: ms}), do: "#{round(ms)} ms"
+
+  defp interval_colour(%{interval_ms: ms}) when is_number(ms) and ms > 20, do: @wait
+  defp interval_colour(_status), do: @label
 
   defp dropped(counts) do
     total = counts |> Map.values() |> Enum.sum()

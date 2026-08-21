@@ -1,6 +1,6 @@
 defmodule MayonnaiOS.Controller.Report do
   @moduledoc """
-  The gamepad as a host sees it: a HID report descriptor and the five bytes
+  The gamepad as a host sees it: a HID report descriptor and the three bytes
   that go with it.
 
   This module is the whole of the "what kind of controller is this" question,
@@ -25,35 +25,68 @@ defmodule MayonnaiOS.Controller.Report do
 
   ## What is declared
 
-      X, Y            two signed axes, -127..127, driven by the D-pad
-      Hat switch      the same D-pad again, 8 directions plus a null state
+      Hat switch      the D-pad, 8 directions plus a null state
       Buttons 1..10   A B X Y L1 R1 L2 R2 Select Start
 
-  The D-pad appears twice on purpose. A hat switch is the correct way to
-  describe a D-pad and is what Steam Input and Windows' own mapper prefer, but
-  plenty of games only ever look at X/Y, and a controller whose stick never
-  moves is indistinguishable from a broken one in those games. Sending both
-  costs two bytes per report and removes a whole class of "it pairs but
-  nothing moves".
+  A hat switch is what a D-pad is, and it is the only thing the D-pad is
+  reported as. There are no analog sticks on this shell and none are declared.
 
-  There are no analog sticks on this shell, so none are declared. Declaring
-  axes that never leave centre would show up in Steam's controller test as two
-  dead sticks, which reads as a fault.
+  ## The D-pad used to be declared twice, and that was the bug
+
+  An earlier version of this descriptor also declared X and Y axes driven by
+  the D-pad, on the reasoning that plenty of games only ever look at a stick
+  and a controller with no axes at all would do nothing in them.
+
+  What happened on a Mac, through Steam: the character moved correctly in four
+  directions *and* the mouse pointer moved at the same time. One press, two
+  consumers. Steam's own layer had taken the axes for a stick and bound that
+  stick to the pointer -- with the two axes swapped, so up and down slid the
+  cursor left and right -- while the game read the hat and did the right
+  thing. In a menu, where nothing was reading the hat, all that was left was a
+  wandering cursor.
+
+  The reasoning was wrong in a way worth writing down, because it is
+  tempting. Declaring one physical control twice does not give a host two
+  chances to get it right; it gives two *different* pieces of software one
+  each, and they do not agree. And the games the duplication was meant to
+  rescue were never rescued by it: a game that reads a stick reads it through
+  a mapping, and an unrecognised controller has no mapping whether or not it
+  reports axes.
+
+  ## Changing this descriptor means re-pairing
+
+  A host reads the report map exactly once, when it pairs, and caches it
+  against the device forever after. Editing anything in `descriptor/0` and
+  reflashing therefore changes nothing at all on a host that has already
+  paired: it goes on parsing new reports against the old layout, which is
+  worse than no change, because the bytes have moved underneath it.
+
+  Both ends have to forget each other. On the device that is
+  `MayonnaiOS.Controller.unpair/0`; on the host it is removing the device in
+  its Bluetooth settings.
+
+  ## There is no report ID, and that is the point
+
+  This device has exactly one input report, so it declares no Report ID item
+  at all and `MayonnaiOS.Bluetooth.HOGP` puts 0 in the Report Reference
+  descriptor, which is what 0 there means.
+
+  An earlier version declared Report ID 1. Everything that read the report
+  through a HID *parser* was fine with that -- a browser's gamepad API showed
+  every button correctly -- while Steam listed the controller and received
+  nothing from it at all. That split is the signature of a report ID: a
+  parser asks the operating system for element values and never sees the ID,
+  while software reading raw reports has to know whether the first byte is an
+  ID or data, and the two conventions differ by exactly one byte.
+
+  With no ID declared there is no convention to get wrong. Every consumer
+  sees three bytes of report, and the first one is the hat.
 
   ## Report layout
 
-  Five bytes, and the report ID is *not* among them. Over BLE the report ID
-  lives in the Report Reference descriptor attached to the report
-  characteristic, so the value sent in a notification is the report body
-  alone. (Over USB or Bluetooth Classic the same descriptor would need the ID
-  prefixed to every report. Same descriptor, different framing -- worth
-  knowing before this is reused.)
-
-      byte 0   X, signed
-      byte 1   Y, signed
-      byte 2   bits 0-3 hat, bits 4-7 padding
-      byte 3   buttons 1-8, one bit each, button 1 in bit 0
-      byte 4   bits 0-1 buttons 9-10, bits 2-7 padding
+      byte 0   bits 0-3 hat, bits 4-7 padding
+      byte 1   buttons 1-8, one bit each, button 1 in bit 0
+      byte 2   bits 0-1 buttons 9-10, bits 2-7 padding
 
   HID packs fields least-significant-bit first, in declaration order, which is
   why the hat lands in the low nibble and the padding item after it is not
@@ -148,12 +181,6 @@ defmodule MayonnaiOS.Controller.Report do
     [:left, :up] => 7
   }
 
-  # Full deflection for the synthetic axes. 127 rather than 128 so that the
-  # value is symmetric about zero within the declared -127..127 range; a stick
-  # that reads -128 one way and +127 the other is a classic source of drift
-  # in games that scale by the maximum.
-  @axis 127
-
   @doc """
   The HID report descriptor, as bytes.
 
@@ -172,41 +199,9 @@ defmodule MayonnaiOS.Controller.Report do
       # Collection (Application)
       0xA1,
       0x01,
-      # Report ID (1)
-      0x85,
-      0x01,
-      # Usage Page (Generic Desktop)
-      0x05,
-      0x01,
-      # Usage (Pointer)
-      0x09,
-      0x01,
-      # Collection (Physical)
-      0xA1,
-      0x00,
-      # Usage (X)
-      0x09,
-      0x30,
-      # Usage (Y)
-      0x09,
-      0x31,
-      # Logical Minimum (-127)
-      0x15,
-      0x81,
-      # Logical Maximum (127)
-      0x25,
-      0x7F,
-      # Report Size (8)
-      0x75,
-      0x08,
-      # Report Count (2)
-      0x95,
-      0x02,
-      # Input (Data, Variable, Absolute)
-      0x81,
-      0x02,
-      # End Collection
-      0xC0,
+      # No Report ID item. See the moduledoc: this device has one report, and
+      # declaring an ID for it only creates a question every host answers
+      # differently.
       # Usage Page (Generic Desktop)
       0x05,
       0x01,
@@ -350,18 +345,15 @@ defmodule MayonnaiOS.Controller.Report do
   def known?(key), do: Map.has_key?(@buttons, key) or Map.has_key?(@directions, key)
 
   @doc """
-  Pack the state into the five bytes the descriptor promises.
+  Pack the state into the three bytes the descriptor promises.
 
       iex> alias MayonnaiOS.Controller.Report
       iex> Report.encode(Report.released())
-      <<0, 0, 15, 0, 0>>
+      <<15, 0, 0>>
   """
   @spec encode(t()) :: binary()
   def encode(%__MODULE__{} = state) do
-    {x, y} = axes(state.directions)
-    <<low::8, high::8>> = buttons(state.buttons)
-
-    <<x::signed-8, y::signed-8, hat(state.directions)::8, low::8, high::8>>
+    <<hat(state.directions)::8, buttons(state.buttons)::binary>>
   end
 
   @doc """
@@ -375,28 +367,6 @@ defmodule MayonnaiOS.Controller.Report do
   @spec hat(MapSet.t(direction())) :: 0..15
   def hat(directions) do
     Map.get(@hat, directions |> cancel() |> Enum.sort(), @hat_null)
-  end
-
-  @doc "The two synthetic axis bytes for a set of directions."
-  @spec axes(MapSet.t(direction())) :: {integer(), integer()}
-  def axes(directions) do
-    held = cancel(directions)
-
-    x =
-      cond do
-        MapSet.member?(held, :left) -> -@axis
-        MapSet.member?(held, :right) -> @axis
-        true -> 0
-      end
-
-    y =
-      cond do
-        MapSet.member?(held, :up) -> -@axis
-        MapSet.member?(held, :down) -> @axis
-        true -> 0
-      end
-
-    {x, y}
   end
 
   # Up with down, or left with right, is not a direction. Drop both.

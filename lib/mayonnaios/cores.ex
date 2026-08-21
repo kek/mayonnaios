@@ -36,9 +36,8 @@ defmodule MayonnaiOS.Cores do
   from one the player set, and is written into the main config on exit. A
   setting therefore outlives the bundle that introduced it. Those two together
   produced both failures this arrangement has had: first cores read out of a
-  stale bundle for a week, then -- once the directory that bundle named was
-  gone -- no cores at all, from a value no file in any repository still
-  contained.
+  stale bundle, then -- once the directory that bundle named was gone -- no
+  cores at all, from a value no file in any repository still contained.
 
   Which is why `clear_stale_directory/0` exists. Removing the setting from the
   bundle does not remove it from a device that already ran an older one, so the

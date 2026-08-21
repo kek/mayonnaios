@@ -168,10 +168,78 @@ controller, so the buttons want mapping once, per game or globally.
 pairs without a code — see below for why there is no code — and shows up in
 `joy.cpl` as a 10-button gamepad with a hat switch.
 
-The D-pad is reported twice, as a hat switch and as the X/Y axes. A hat is
-the correct description of a D-pad and is what Steam Input and Windows'
-own mapper prefer, but plenty of games only read the axes, and a stick that
-never moves is indistinguishable from a broken one.
+The D-pad is a hat switch and nothing else. It was briefly also reported as
+a pair of X/Y axes, so that games which only read a stick would work; on a
+Mac that made Steam take the axes for a stick and drive the mouse pointer
+with them, so a D-pad press moved the character *and* the cursor at once.
+One control declared twice gets consumed twice.
+
+**Changing the report descriptor means re-pairing.** A host reads it once,
+when it pairs, and caches it forever after — so a firmware update that
+changes the button layout does nothing at all until the device is removed on
+the host and `MayonnaiOS.Controller.unpair()` has run here. Reports parsed
+against a stale descriptor are worse than no change: the bytes have moved
+underneath the host.
+
+### When a game does not see it
+
+Pairing and connecting are one thing; a game deciding this is a controller
+is another, and the second is entirely up to the host.
+
+On macOS, check first that Steam has **Input Monitoring** permission, in
+System Settings → Privacy & Security. Enumerating HID devices needs no
+permission on macOS but *receiving input from them* does, so an application
+without it shows the controller in its device list and then behaves as
+though every button were stuck up. Steam has to be quit completely and
+reopened after the permission is granted. This looks exactly like a broken
+controller and is not one — the browser gamepad testers work throughout,
+because the browser has the permission.
+
+Steam also has a switch for generic gamepads in its controller settings, and
+it is not on by default. Without it an unrecognised pad reaches Steam's desktop
+layout — which is what moves the mouse and types arrow keys — rather than
+the game. With it on, the pad can be given a layout like any other
+controller.
+
+A game that uses SDL, which is most of them, needs more than that. SDL's
+controller API matches a device against a database keyed by its USB vendor
+and product numbers, and this device's are not in it — so SDL sees a
+joystick rather than a game controller, and a game that only asks for game
+controllers sees nothing at all.
+
+### On macOS, Steam Input cannot bridge that gap
+
+This one is worth knowing before spending an evening on it. If the pad
+drives Steam's Big Picture interface but no game responds, nothing is
+broken and no amount of Steam configuration will change it.
+
+Steam Input feeds a game by emulating a controller the game already
+understands — an Xbox pad through a driver on Windows, a virtual device
+through uinput on Linux. macOS offers Steam neither, so for a game that does
+not integrate the Steam Input API directly, Steam's only outputs are
+keyboard and mouse. Turning "Enable Steam Input" on for such a game changes
+nothing, because there is no virtual controller for it to switch on.
+
+Two things work, and both are configured on the Mac rather than here:
+
+- Bind the pad to the game's *keyboard* controls in its Steam controller
+  configuration. Keyboard emulation is the output path macOS does allow.
+- Give the game an SDL mapping. `gamepadtool` generates the whole
+  `SDL_GAMECONTROLLERCONFIG` line by asking you to press each button; it
+  goes in the game's launch options, and the game's own SDL then sees a
+  proper gamepad with Steam uninvolved. The same line submitted to SDL's
+  community database fixes it everywhere, permanently, for anyone.
+
+Claiming a well-known controller's vendor and product numbers would also
+work, and for the same reason — it makes SDL recognise the device without
+Steam in the middle. `MayonnaiOS.Bluetooth.HOGP` deliberately does not.
+Where the impersonated controller has a driver rather than just a database
+entry, as Xbox and PlayStation pads do, the host stops reading this
+device's descriptor altogether and parses its reports against that
+controller's fixed layout — so the whole report format would have to be
+reproduced, and a mistake in it produces scrambled buttons that the host is
+certain are correct. An SDL mapping reaches the same place without any of
+that, and without a device that lies about what it is.
 
 Pairing is *Just Works*: no passkey, no confirmation, exactly like every
 commercial BLE gamepad. That means no protection against someone active on
@@ -301,6 +369,34 @@ the same scene code draws straight into `/dev/fb0` instead; the backend follows
 
 The web UI runs on the host as well — point `:rom_roots` and the other paths at
 a scratch directory and start `MayonnaiOS.Web` under a supervisor.
+
+## Not done yet
+
+**Pairing devices *to* the handheld.** The controller app is this device
+advertising itself to a host — the peripheral role. Scanning for headphones or
+another gamepad and pairing them to this device is the central role, and none
+of it is here.
+
+It is a separate app rather than a setting on the existing one, because very
+little is shared. Scanning, connecting and pairing all run the other way
+round: `MayonnaiOS.Bluetooth.SMP` answers a pairing today and would need the
+initiator half of one, and `MayonnaiOS.Bluetooth.GATT` is a server where a
+central needs a client. What does carry over unchanged is everything below
+that — `Bluetooth.Host`, the HCI codec, L2CAP framing, and the pairing
+arithmetic, which is role-independent.
+
+Discovery itself is cheap: LE scanning is three HCI commands and an event, and
+BR/EDR inquiry is much the same, so a list of what is nearby is a small piece
+of work. The expensive part is what happens *after* pairing, because a bonded
+device does nothing until there is a profile to use it with. Audio means A2DP,
+which is SDP, AVDTP and an SBC encoder. A paired gamepad means a HID host and
+then some way to present it to Linux as an input device, since RetroArch reads
+evdev and nothing in this VM can hand it a device node without the kernel's
+help.
+
+So the honest first version of that app is discover, pair, and say what a
+device claims to be — with the profiles as separate work after it, and worth
+deciding one at a time whether each is worth having.
 
 ## The three repositories
 
