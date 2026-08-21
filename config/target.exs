@@ -295,8 +295,14 @@ config :mayonnaios, max_upload_bytes: 1_073_741_824
 # choosing. Nothing is copied there: MayonnaiOS.Cores fills it with symlinks
 # pointing at the real files, in the bundle and in core_root. So the default
 # location is what RetroArch looks in, the actual .so files stay where their
-# installer put them, and there is no directory setting to get discarded or
-# reverted.
+# installer put them, and no RetroArch setting has to name it.
+#
+# It has to be actively kept that way, which is what Cores.clear_stale_directory/0
+# is for. RetroArch takes libretro_directory verbatim -- unlike the save
+# directories it does not check that it exists -- and it persists a value
+# supplied by --appendconfig into its own config as though the player had set
+# it. A stale value therefore outlives the bundle that set it, and presents as
+# a console with no cores and nothing in the log about why.
 #
 # It is under /root, so it survives firmware updates like everything else on
 # the app data partition. Cores.sync/0 removes only *.so when it rebuilds, so

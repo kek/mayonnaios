@@ -174,4 +174,95 @@ defmodule MayonnaiOS.CoresTest do
   test "installing an uncatalogued core is refused rather than attempted" do
     assert {:error, :unknown_core} = Cores.install("nonesuch")
   end
+
+  # RetroArch does not validate `libretro_directory` the way it validates the
+  # save directories -- it takes the value verbatim -- and it persists whatever
+  # `--appendconfig` supplied as though the player had set it. So a value
+  # naming a directory nothing fills survives the bundle that introduced it,
+  # and shows up as a console with no cores and no warning about why. These
+  # tests are about taking it back out.
+  describe "clear_stale_directory/0" do
+    setup %{core_dir: core_dir} do
+      cfg = Path.join(Path.dirname(core_dir), "retroarch.cfg")
+      prev = Application.get_env(:mayonnaios, :retroarch_config)
+      Application.put_env(:mayonnaios, :retroarch_config, cfg)
+
+      on_exit(fn ->
+        if prev,
+          do: Application.put_env(:mayonnaios, :retroarch_config, prev),
+          else: Application.delete_env(:mayonnaios, :retroarch_config)
+      end)
+
+      %{cfg: cfg}
+    end
+
+    test "removes a value naming somewhere else, and leaves the rest alone", %{cfg: cfg} do
+      File.write!(cfg, """
+      video_driver = "gl"
+      libretro_directory = "/root/retroarch/cores"
+      menu_driver = "rgui"
+      """)
+
+      assert {:ok, {:cleared, ["/root/retroarch/cores"]}} = Cores.clear_stale_directory()
+
+      after_ = File.read!(cfg)
+      refute after_ =~ "libretro_directory"
+      assert after_ =~ ~s(video_driver = "gl")
+      assert after_ =~ ~s(menu_driver = "rgui")
+    end
+
+    test "leaves a value that already names the core directory", %{cfg: cfg, core_dir: dir} do
+      # RetroArch writes this itself once nothing overrides the default.
+      # Removing it every boot would be churn, and would make the file
+      # disagree with the program for no reason.
+      File.write!(cfg, ~s(libretro_directory = "#{dir}"\n))
+
+      assert {:ok, :unchanged} = Cores.clear_stale_directory()
+      assert File.read!(cfg) =~ "libretro_directory"
+    end
+
+    test "compares expanded paths, because RetroArch saves ~ for the home dir",
+         %{cfg: cfg} do
+      # The saved form of the default is never string-equal to the absolute
+      # path this module uses, so a naive comparison would strip a correct
+      # value on every boot.
+      home = System.user_home!()
+      Application.put_env(:mayonnaios, :core_dir, Path.join(home, ".config/retroarch/cores"))
+      File.write!(cfg, ~s(libretro_directory = "~/.config/retroarch/cores"\n))
+
+      assert {:ok, :unchanged} = Cores.clear_stale_directory()
+    end
+
+    test "no config at all is not a failure", %{cfg: cfg} do
+      refute File.exists?(cfg)
+      # A freshly flashed device: RetroArch has never run, so there is nothing
+      # to correct and nothing wrong.
+      assert {:ok, :no_config} = Cores.clear_stale_directory()
+    end
+
+    test "an unquoted value is recognised too", %{cfg: cfg} do
+      File.write!(cfg, "libretro_directory = /somewhere/else\n")
+      assert {:ok, {:cleared, ["/somewhere/else"]}} = Cores.clear_stale_directory()
+    end
+
+    test "a key that merely contains the name is left alone", %{cfg: cfg} do
+      # `content_show_contentless_cores`, `core_updater_buildbot_cores_url` and
+      # friends are all in that file. Matching loosely would corrupt it.
+      contents = """
+      core_assets_directory = "~/.config/retroarch/downloads"
+      libretro_info_path = "~/bundles/retroarch/current/share/retroarch/info"
+      libretro_log_level = "1"
+      """
+
+      File.write!(cfg, contents)
+      assert {:ok, :unchanged} = Cores.clear_stale_directory()
+      assert File.read!(cfg) == contents
+    end
+
+    test "the rewrite leaves no temporary file behind", %{cfg: cfg} do
+      File.write!(cfg, ~s(libretro_directory = "/gone"\n))
+      assert {:ok, {:cleared, _}} = Cores.clear_stale_directory()
+      refute File.exists?(cfg <> ".mayonnaios")
+    end
+  end
 end

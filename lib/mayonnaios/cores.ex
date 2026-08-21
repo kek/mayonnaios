@@ -15,19 +15,38 @@ defmodule MayonnaiOS.Cores do
   A core added by hand to `.../current/lib/libretro` had exactly that
   property, which is how this came up.
 
-  So the flat directory `/root/retroarch/cores` is the one RetroArch is told
-  about, it is RetroArch's own default core directory, and it holds symlinks.
+  So RetroArch is told nothing at all, and the directory it reads is its own
+  default: `platform_unix.c` joins `cores` onto `$XDG_CONFIG_HOME/retroarch`,
+  or onto `$HOME/.config/retroarch` when that is unset. This module fills that
+  directory with symlinks.
 
-  Using the default rather than a directory of our own is deliberate. Any
-  `libretro_directory` we set has to survive RetroArch validating it, being
-  persisted into the main config on exit, and the bundle that carries the
-  setting being replaced on upgrade -- three chances to end up describing a
-  location the program is not using, and two of them have already cost real
-  time. The default needs no setting at all, so there is nothing to revert.
+  ## Why nothing is configured, and why that needs enforcing
+
+  Not naming a directory is deliberate, for two reasons that are narrower and
+  worse than "one place is tidier than two".
+
+  `libretro_directory` is **not validated on load**. `savefile_directory` and
+  `savestate_directory` are -- a value naming a directory that does not exist
+  is dropped with a warning -- but the core directory is taken verbatim. Point
+  it somewhere absent and RetroArch shows an empty core list and says nothing
+  about why.
+
+  And `--appendconfig` is merged into the same config handle *before* the
+  settings are read from it, so a value the bundle appends is indistinguishable
+  from one the player set, and is written into the main config on exit. A
+  setting therefore outlives the bundle that introduced it. Those two together
+  produced both failures this arrangement has had: first cores read out of a
+  stale bundle for a week, then -- once the directory that bundle named was
+  gone -- no cores at all, from a value no file in any repository still
+  contained.
+
+  Which is why `clear_stale_directory/0` exists. Removing the setting from the
+  bundle does not remove it from a device that already ran an older one, so the
+  invariant has to be asserted on the device rather than merely shipped.
 
   What stays ours is the *contents*: the real `.so` files live in the bundle
-  and in `core_root`, and only symlinks go here. `sync/0` rebuilds
-  it from the two places cores actually come from:
+  and in `core_root`, and only symlinks go into the core directory. `sync/0`
+  rebuilds it from the two places cores actually come from:
 
     * whatever the installed RetroArch bundle ships in `lib/libretro`
     * each core bundle under `/root/cores/<name>/current/`
@@ -65,13 +84,22 @@ defmodule MayonnaiOS.Cores do
 
   alias MayonnaiOS.Bundle
 
+  # RetroArch's own config, the file it writes its settings back into on exit.
+  # Overridable so the tests can point somewhere writable; the device never
+  # needs to.
+  @retroarch_config "/root/.config/retroarch/retroarch.cfg"
+
   @doc """
   Where core bundles are installed, one versioned directory per core.
   """
   def root, do: Application.get_env(:mayonnaios, :core_root, "/root/cores")
 
   @doc """
-  The flat directory RetroArch's `libretro_directory` points at.
+  The flat directory RetroArch reads cores from.
+
+  RetroArch's own default, not a choice -- which is why nothing sets
+  `libretro_directory` and why `clear_stale_directory/0` takes anything that
+  does back out.
   """
   def dir, do: Application.get_env(:mayonnaios, :core_dir, "/root/.config/retroarch/cores")
 
@@ -79,6 +107,92 @@ defmodule MayonnaiOS.Cores do
   The core catalogue, keyed by core name.
   """
   def catalogue, do: Application.get_env(:mayonnaios, :cores, %{})
+
+  @doc """
+  RetroArch's own config file -- the one it writes its settings back into.
+
+  Not a directory this application owns, which is exactly why it is named in
+  one place.
+  """
+  def retroarch_config do
+    Application.get_env(:mayonnaios, :retroarch_config, @retroarch_config)
+  end
+
+  @doc """
+  Remove `libretro_directory` from RetroArch's main config unless it already
+  names `dir/0`.
+
+  Necessary rather than tidy. RetroArch persists its settings on exit and
+  cannot tell an appended value from one the player chose, so a device that
+  ever ran a bundle naming a core directory keeps that value after the bundle
+  stops naming one. Shipping the fix does not undo it on the device that needs
+  it; this does. The moduledoc has the full account.
+
+  Conservative in both directions. A value that already names `dir/0` is left
+  alone: RetroArch wrote it itself, from the default, and it is correct. A
+  missing or unreadable config is not a failure either -- it means RetroArch
+  has not run yet, which is the normal state of a freshly flashed device.
+
+  The rewrite goes through a temporary file and a rename because the file being
+  edited is the player's own settings, six figures of them, and a write torn by
+  a pulled power cable would lose the lot.
+  """
+  def clear_stale_directory(path \\ nil) do
+    path = path || retroarch_config()
+
+    case File.read(path) do
+      {:ok, contents} ->
+        {stale, keep} =
+          contents
+          |> String.split("\n")
+          |> Enum.split_with(&stale_directory?/1)
+
+        if stale == [] do
+          {:ok, :unchanged}
+        else
+          rewrite(path, keep, Enum.map(stale, &configured_directory/1))
+        end
+
+      {:error, :enoent} ->
+        {:ok, :no_config}
+
+      {:error, reason} ->
+        Logger.warning("[cores] could not read #{path}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp rewrite(path, lines, cleared) do
+    tmp = path <> ".mayonnaios"
+
+    with :ok <- File.write(tmp, Enum.join(lines, "\n")),
+         :ok <- File.rename(tmp, path) do
+      Logger.info("[cores] cleared libretro_directory #{inspect(cleared)} from #{path}")
+      {:ok, {:cleared, cleared}}
+    else
+      {:error, reason} ->
+        File.rm(tmp)
+        Logger.warning("[cores] could not rewrite #{path}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp stale_directory?(line) do
+    case configured_directory(line) do
+      nil -> false
+      # Expanded before comparing: RetroArch writes the value back with the
+      # home directory abbreviated to `~`, so the string it saves for the
+      # default is never equal to the absolute path this module uses.
+      value -> Path.expand(value) != Path.expand(dir())
+    end
+  end
+
+  defp configured_directory(line) do
+    case Regex.run(~r/^\s*libretro_directory\s*=\s*"?(.*?)"?\s*$/, line) do
+      [_, value] -> value
+      nil -> nil
+    end
+  end
 
   @doc """
   What the UI needs to show about cores: everything catalogued, plus anything
@@ -242,11 +356,17 @@ defmodule MayonnaiOS.Cores do
 
   defmodule Startup do
     @moduledoc """
-    Relinks the core directory once at boot.
+    Asserts the core arrangement once at boot: RetroArch's config names no core
+    directory, and the default one holds a link per core.
 
     Cheap -- a listing and a handful of symlinks -- and it is the step that
     makes a RetroArch upgrade not lose the installed cores: `current` has
     moved by the time this runs, so the links follow it.
+
+    Boot is the right moment for the config half too. RetroArch is not running
+    then, so there is no writer to race, and the value being removed is one
+    that would otherwise send it looking for cores in a directory nothing
+    fills.
 
     `:transient`, and a failure here must not take the boot down. A device
     with no cores still boots to a menu and still has SSH; one that refuses to
@@ -259,6 +379,7 @@ defmodule MayonnaiOS.Cores do
     def start_link(_opts), do: Task.start_link(__MODULE__, :run, [])
 
     def run do
+      MayonnaiOS.Cores.clear_stale_directory()
       MayonnaiOS.Cores.sync()
     rescue
       e -> Logger.warning("[cores] could not sync: #{Exception.message(e)}")
