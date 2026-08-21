@@ -285,13 +285,24 @@ config :mayonnaios, max_upload_bytes: 1_073_741_824
 
 # Cores.
 #
-# `core_dir` is what RetroArch's `libretro_directory` points at, and it lives
-# outside every bundle on purpose: a core installed into the RetroArch
-# bundle's own lib/libretro belongs to that version of the bundle and vanishes
-# at the next upgrade. `MayonnaiOS.Cores.sync/0` fills this directory with
-# symlinks at boot, from both the RetroArch bundle and the installed cores.
+# Where cores are, in two parts.
+#
+# `core_root` holds installed core bundles: real files, one versioned directory
+# per core, outside every RetroArch bundle so an upgrade cannot lose them.
+#
+# `core_dir` is the directory RetroArch reads, and it is RetroArch's own
+# default -- ~/.config/retroarch/cores -- rather than a location of our
+# choosing. Nothing is copied there: MayonnaiOS.Cores fills it with symlinks
+# pointing at the real files, in the bundle and in core_root. So the default
+# location is what RetroArch looks in, the actual .so files stay where their
+# installer put them, and there is no directory setting to get discarded or
+# reverted.
+#
+# It is under /root, so it survives firmware updates like everything else on
+# the app data partition. Cores.sync/0 removes only *.so when it rebuilds, so
+# RetroArch's own info files and assets in that directory are left alone.
 config :mayonnaios, core_root: "/root/cores"
-config :mayonnaios, core_dir: "/root/retroarch/cores"
+config :mayonnaios, core_dir: "/root/.config/retroarch/cores"
 
 # The catalogue the upload page offers to install. Same trust model as the
 # bundles above: the SHA-256 is here in the firmware, and it is what decides

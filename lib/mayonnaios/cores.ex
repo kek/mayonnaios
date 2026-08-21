@@ -16,7 +16,17 @@ defmodule MayonnaiOS.Cores do
   property, which is how this came up.
 
   So the flat directory `/root/retroarch/cores` is the one RetroArch is told
-  about, it is outside every bundle, and it holds symlinks. `sync/0` rebuilds
+  about, it is RetroArch's own default core directory, and it holds symlinks.
+
+  Using the default rather than a directory of our own is deliberate. Any
+  `libretro_directory` we set has to survive RetroArch validating it, being
+  persisted into the main config on exit, and the bundle that carries the
+  setting being replaced on upgrade -- three chances to end up describing a
+  location the program is not using, and two of them have already cost real
+  time. The default needs no setting at all, so there is nothing to revert.
+
+  What stays ours is the *contents*: the real `.so` files live in the bundle
+  and in `core_root`, and only symlinks go here. `sync/0` rebuilds
   it from the two places cores actually come from:
 
     * whatever the installed RetroArch bundle ships in `lib/libretro`
@@ -63,7 +73,7 @@ defmodule MayonnaiOS.Cores do
   @doc """
   The flat directory RetroArch's `libretro_directory` points at.
   """
-  def dir, do: Application.get_env(:mayonnaios, :core_dir, "/root/retroarch/cores")
+  def dir, do: Application.get_env(:mayonnaios, :core_dir, "/root/.config/retroarch/cores")
 
   @doc """
   The core catalogue, keyed by core name.
