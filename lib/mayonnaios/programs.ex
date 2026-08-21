@@ -32,7 +32,8 @@ defmodule MayonnaiOS.Programs do
 
   @type program :: %{
           name: String.t(),
-          path: String.t(),
+          path: String.t() | nil,
+          app: module() | nil,
           args: [String.t()],
           installed?: boolean()
         }
@@ -74,10 +75,32 @@ defmodule MayonnaiOS.Programs do
 
   defp normalize(entry) when is_list(entry), do: entry |> Map.new() |> normalize()
 
+  # An app is a module in this firmware rather than a binary on the disk:
+  # `MayonnaiOS.Controller` is the one there is. It cannot be missing the way
+  # a path can -- if the module were not in the release, nothing in this
+  # application would have started -- so `installed?` is true and stays true.
+  #
+  # The distinction is worth keeping rather than pretending an app is a
+  # program with an odd path. The launcher runs a program in another OS
+  # process and takes the screen away from it; an app is `start/0` and
+  # `stop/0` on a supervisor in this VM, and the two have nothing in common
+  # but a row on a menu.
+  defp normalize(%{app: module} = entry) when is_atom(module) and not is_nil(module) do
+    %{
+      name: Map.get(entry, :name) || inspect(module),
+      path: nil,
+      app: module,
+      args: [],
+      needs_udev: false,
+      installed?: true
+    }
+  end
+
   defp normalize(%{path: path} = entry) when is_binary(path) do
     %{
       name: Map.get(entry, :name) || Path.basename(path),
       path: path,
+      app: nil,
       args: Map.get(entry, :args, []),
       # Programs that read input through udev; see MayonnaiOS.Udev. Carried
       # through explicitly because this function rebuilds the map rather than
@@ -105,6 +128,7 @@ defmodule MayonnaiOS.Programs do
     %{
       name: "#{inspect(entry)} (no :path)",
       path: nil,
+      app: nil,
       args: [],
       needs_udev: false,
       installed?: false

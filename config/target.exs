@@ -195,8 +195,32 @@ config :mayonnaios, :programs, [
     needs_udev: true
   },
   %{name: "Spinning cube (kmscube)", path: "/usr/bin/kmscube"},
-  %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]}
+  %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]},
+  # An app rather than a program: a module in this firmware, started in this
+  # VM, with no external process and no screen handed over. See
+  # `MayonnaiOS.Programs` for what that distinction costs and buys.
+  #
+  # It takes hci0 for as long as it runs, so it cannot be up at the same time
+  # as anything else that wants the Bluetooth controller. That is why it is
+  # here as a menu entry and not in the boot supervision tree.
+  %{name: "Bluetooth controller", app: MayonnaiOS.Controller}
 ]
+
+# The name a host shows in its pairing list, and the icon it draws next to it
+# comes from the gamepad appearance in the advertisement rather than from this.
+#
+# Kept short on purpose: the name shares a 31-byte scan response with nothing
+# else, but `MayonnaiOS.Bluetooth.Advertising` shortens anything past 29 bytes
+# and a truncated name is what a host caches.
+config :mayonnaios, controller_name: "MayonnaiOS Controller"
+
+# Where the keys of paired hosts are written.
+#
+# On the writable application partition, not the read-only rootfs, and not
+# under /tmp: the whole point of a bond is that it survives a power cut, which
+# on this device is how it is switched off. Losing the file costs one
+# re-pairing per host and nothing else.
+config :mayonnaios, bond_path: "/root/bluetooth/bonds.bin"
 
 # Where MayonnaiOS.Bundle installs content. On the f2fs application
 # partition, which has 13.4 GB free and -- verified on the device, not assumed

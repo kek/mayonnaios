@@ -27,6 +27,8 @@ Software:
 
 - Scenic UI: a launcher and a diagnostics readout, drawn on the CPU into
   `/dev/fb0`
+- A Bluetooth LE gamepad, so the handheld can be the controller for a Steam
+  Deck or a PC — a whole BLE HID stack in Elixir, with no BlueZ in the image
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
 - A web UI for uploading games from a phone
@@ -136,6 +138,100 @@ left in RetroArch's own config by an older bundle — it is taken verbatim, is
 not checked against reality, and survives the bundle that set it.
 `MayonnaiOS.Cores.clear_stale_directory/0` takes it back out, and boot does the
 same.
+
+## Using it as a Bluetooth controller
+
+The handheld can be the gamepad instead of the console. Pick **Bluetooth
+controller** in the launcher and it advertises itself as a BLE HID gamepad;
+pair from a Steam Deck, a Windows machine, a phone or anything else that
+speaks HID over GATT, and every button goes there instead of to the launcher.
+Menu comes back.
+
+The panel shows how far along it is, because the four stages all look
+identical from the other machine — a controller that does nothing:
+
+    Advertising            on the air, nobody has connected
+    Host connected         a host is talking to us, still in the clear
+    Paired and encrypted   the HID service is readable
+    Reports subscribed     the host is receiving button presses
+
+If it stops at *connected*, the pairing was not finished on the host. If it
+stops at *paired*, the host has not decided the device is a gamepad.
+
+### Pairing
+
+**Steam Deck**: Settings → Bluetooth, and it appears as `MayonnaiOS
+Controller` with a gamepad icon. Steam Input treats it as a generic
+controller, so the buttons want mapping once, per game or globally.
+
+**Windows**: Settings → Bluetooth & devices → Add device → Bluetooth. It
+pairs without a code — see below for why there is no code — and shows up in
+`joy.cpl` as a 10-button gamepad with a hat switch.
+
+The D-pad is reported twice, as a hat switch and as the X/Y axes. A hat is
+the correct description of a D-pad and is what Steam Input and Windows'
+own mapper prefer, but plenty of games only read the axes, and a stick that
+never moves is indistinguishable from a broken one.
+
+Pairing is *Just Works*: no passkey, no confirmation, exactly like every
+commercial BLE gamepad. That means no protection against someone active on
+the air at the moment of pairing. It is written down here rather than left
+implicit, because it is a real property of the device and the reason it is
+acceptable is that the link carries button presses.
+
+Once paired the keys are kept, so the next connection needs nothing. To
+undo it, forget the device on the host **and** clear the keys here:
+
+    iex> MayonnaiOS.Controller.unpair()
+
+Doing only one of the two leaves a host that reconnects, cannot decrypt, and
+reports a broken device.
+
+### From IEx
+
+    iex> MayonnaiOS.Controller.start()
+    iex> MayonnaiOS.Controller.status()
+    %{advertising: true, connected: false, encrypted: false, subscribed: false,
+      name: "MayonnaiOS Controller", address: "...", sent: 0,
+      dropped: %{disconnected: 0, unencrypted: 0, unsubscribed: 0, no_credits: 0},
+      ...}
+    iex> MayonnaiOS.Controller.stop()
+
+`sent` climbing while buttons are pressed is the proof that reports are going
+out. The `dropped` counters say why they are not: `unsubscribed` for the first
+second of every connection is normal, `no_credits` is not.
+
+### There is no BlueZ on this device, and none was added
+
+The whole stack is Elixir, on top of the raw HCI user channel that
+`MayonnaiOS.Bluetooth.HCISocket` already used for the diagnostics probe —
+L2CAP, ATT, GATT, the HID profile and the pairing, about fifteen hundred
+lines under `lib/mayonnaios/bluetooth/`. Nothing was added to the Buildroot
+system and no kernel option was changed.
+
+That is not a stunt. `# CONFIG_BT_LE is not set` in this kernel's config
+means the in-kernel Bluetooth stack does no LE at all, so the ordinary route
+— BlueZ over the kernel's own L2CAP sockets — would have needed a BSP change
+and a three-and-a-half hour Buildroot rebuild. A user channel switches the
+kernel stack off for that controller anyway and hands over raw HCI, so what
+the kernel can and cannot do above HCI stops mattering: the controller is a
+Bluetooth 5.0 dual-mode part and speaks LE perfectly well when asked
+directly.
+
+Everything above the socket is a pure function over binaries and is tested
+on a laptop, including the pairing arithmetic — `c1` and `s1` are checked
+against the sample data in the Core specification, which is the only way to
+know the byte order is right. `mix test` covers it with no hardware.
+
+While the app runs it holds hci0, so `MayonnaiOS.Diagnostics.probe_bluetooth/0`
+answers `:eusers` until it is stopped. That is the same device being used for
+something, not a fault.
+
+What is deliberately not implemented is LE Secure Connections; a central that
+asks for it is answered with a pairing response that does not offer it, and
+every host tested falls back to legacy pairing. A host in Secure Connections
+Only mode would answer `Pairing Failed 0x03` instead, and
+`MayonnaiOS.Bluetooth.SMP`'s moduledoc says what adding it would take.
 
 ## Poking at a running device
 

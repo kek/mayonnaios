@@ -26,13 +26,20 @@ defmodule MayonnaiOS.Application do
         [{Scenic, [Application.get_env(:mayonnaios, :viewport)]}]
       else
         []
-      end ++ target_children()
+      end ++ [controller_sessions()] ++ target_children()
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: MayonnaiOS.Supervisor]
     Supervisor.start_link(children, opts)
   end
+
+  # Empty until someone starts the controller app, and on the host as well as
+  # on the device: an empty DynamicSupervisor is one process and no radio, and
+  # having it everywhere means `MayonnaiOS.Controller.start/0` fails on a
+  # laptop with the bind error rather than with "no such supervisor", which is
+  # a much less interesting thing to be told.
+  defp controller_sessions, do: MayonnaiOS.Controller.sessions()
 
   # List all child processes to be supervised
   if Mix.target() == :host do

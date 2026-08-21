@@ -180,7 +180,15 @@ defmodule MayonnaiOS.Launcher do
   end
 
   defp new_state,
-    do: %{port: nil, running: nil, held: MapSet.new(), scene: :home, selected: 0}
+    do: %{
+      port: nil,
+      app: nil,
+      app_error: nil,
+      running: nil,
+      held: MapSet.new(),
+      scene: :home,
+      selected: 0
+    }
 
   @impl GenServer
   def handle_call(:running?, _from, state), do: {:reply, state.port != nil, state}
@@ -199,6 +207,34 @@ defmodule MayonnaiOS.Launcher do
   def handle_call(:selected, _from, state), do: {:reply, state.selected, state}
 
   @impl GenServer
+  # An app has the buttons: the launcher's own bindings are off and every
+  # event is forwarded, Menu included. The app is free to ignore what it does
+  # not want -- `MayonnaiOS.Controller.Report` drops Menu on the floor -- and
+  # the only thing handled here is the way out.
+  #
+  # This is the rule the launcher already applies to an external program:
+  # whatever has the screen has the input, and Menu is the way back. The
+  # difference is only in the plumbing. A program reads evdev for itself
+  # through udev, so the launcher has nothing to forward; an app runs in this
+  # VM and has to be handed the reports, because this process is the one
+  # holding `event0` open and evdev is not a broadcast.
+  #
+  # Whole reports go across rather than single events, so a diagonal or a
+  # button and a direction pressed in the same kernel report reach the app as
+  # one thing and become one HID report.
+  def handle_info({:input_event, _device, events}, %{app: app} = state) when app != nil do
+    state =
+      Enum.reduce(events, state, fn
+        {:ev_key, key, 1}, acc -> hold(acc, key)
+        {:ev_key, key, 0}, acc -> release(acc, key)
+        _, acc -> acc
+      end)
+
+    app.input(events)
+
+    {:noreply, leave_app(state, events)}
+  end
+
   def handle_info({:input_event, _device, events}, state) do
     state =
       Enum.reduce(events, state, fn
@@ -260,6 +296,31 @@ defmodule MayonnaiOS.Launcher do
 
   defp hold(state, key), do: %{state | held: MapSet.put(state.held, key)}
   defp release(state, key), do: %{state | held: MapSet.delete(state.held, key)}
+
+  # Menu while an app is running. The power-off chord is checked first, for
+  # the same reason it is checked first everywhere else: a bare Menu must
+  # never be able to switch the device off, and someone holding Select while
+  # using the controller is holding Select on purpose.
+  defp leave_app(state, events) do
+    if Enum.any?(events, &match?({:ev_key, @home_button, 1}, &1)) do
+      if MapSet.member?(state.held, @poweroff_modifier) do
+        poweroff()
+        state
+      else
+        state |> stop_app() |> go_home()
+      end
+    else
+      state
+    end
+  end
+
+  defp stop_app(%{app: nil} = state), do: state
+
+  defp stop_app(%{app: app} = state) do
+    app.stop()
+    Logger.info("[launcher] stopped #{name_of(state.running)}")
+    %{state | app: nil, running: nil}
+  end
 
   defp press(state, @launch_button), do: do_launch(state)
   defp press(state, @diagnostics_button), do: toggle_scene(state)
@@ -364,7 +425,7 @@ defmodule MayonnaiOS.Launcher do
   # Three outcomes, logged apart from each other on purpose. "Nothing
   # configured" and "configured but not in the image" are different bugs in
   # different files, and a single "could not launch" would hide which.
-  defp do_launch(%{port: nil} = state) do
+  defp do_launch(%{port: nil, app: nil} = state) do
     programs = Programs.list()
     start_program(Programs.at(programs, state.selected), state)
   end
@@ -381,6 +442,36 @@ defmodule MayonnaiOS.Launcher do
 
   defp start_program(%{installed?: false} = program, state) do
     Logger.warning("[launcher] #{program.path} not installed")
+    state
+  end
+
+  # An app: no port, no external process, no screen to hand over. It starts
+  # here in this VM and the panel switches to whatever scene it names.
+  #
+  # A failure to start is put on the panel rather than only in the log. The
+  # reasons are Bluetooth bind errors -- `:eusers`, `:enodev` -- and they are
+  # exactly the kind of thing that is diagnosable in one glance and
+  # impenetrable without one. The scene is shown either way, and the error
+  # travels to it as the scene's start argument, the same route the home
+  # scene's cursor takes.
+  defp start_program(%{app: module} = program, state) when is_atom(module) and module != nil do
+    Logger.info("[launcher] starting #{program.name}")
+
+    state =
+      case module.start() do
+        {:ok, _pid} ->
+          %{state | app: module, running: program, app_error: nil}
+
+        {:error, {:already_started, _pid}} ->
+          %{state | app: module, running: program, app_error: nil}
+
+        {:error, reason} ->
+          Logger.warning("[launcher] #{program.name} would not start: #{inspect(reason)}")
+          %{state | app: nil, running: nil, app_error: reason}
+      end
+
+    state = %{state | scene: {:app, module}}
+    repaint(state)
     state
   end
 
@@ -456,6 +547,11 @@ defmodule MayonnaiOS.Launcher do
   defp repaint(%{scene: scene} = state), do: show(scene, state)
 
   defp show(:diagnostics, _state), do: set_root(MayonnaiOS.Scene.Diagnostics, nil)
+
+  # An app names its own scene, so the launcher does not have to know about
+  # any of them. The start argument carries why it did not start, which is nil
+  # in the ordinary case.
+  defp show({:app, module}, state), do: set_root(module.scene(), %{error: state.app_error})
 
   # The cursor travels as the scene's start argument. Deliberately only the
   # index: the scene calls `Programs.list/0` itself, so no list is copied into
