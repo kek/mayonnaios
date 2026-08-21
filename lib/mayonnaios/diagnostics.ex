@@ -51,7 +51,11 @@ defmodule MayonnaiOS.Diagnostics do
 
   @battery "/sys/class/power_supply/axp20x-battery"
   @usb "/sys/class/power_supply/axp20x-usb"
+  # Looked up by name at startup, with these as the fallback; see
+  # `MayonnaiOS.Input` for why the numbering is not something to rely on.
+  @volume_name "gpio-keys-volume"
   @volume_device "/dev/input/event1"
+  @jack_name "H616 Audio Codec Headphone Jack"
   @jack_device "/dev/input/event2"
 
   # The blob whose absence stops Bluetooth from initialising. See the long
@@ -117,8 +121,8 @@ defmodule MayonnaiOS.Diagnostics do
 
   @impl GenServer
   def init(_opts) do
-    open(@volume_device)
-    open(@jack_device)
+    open(MayonnaiOS.Input.find(@volume_name, @volume_device))
+    open(MayonnaiOS.Input.find(@jack_name, @jack_device))
 
     # Without this the fdinfo engine counters stay at zero, which would look
     # exactly like a GPU doing nothing.
@@ -149,28 +153,32 @@ defmodule MayonnaiOS.Diagnostics do
   @impl GenServer
   def handle_info(:poll, state), do: {:noreply, poll(%{state | ticks: state.ticks + 1})}
 
-  def handle_info({:input_event, @volume_device, events}, state) do
-    volume =
-      Enum.reduce(events, state.volume, fn
-        {:ev_key, :key_volumeup, 1}, v -> %{v | last: :up, up: v.up + 1}
-        {:ev_key, :key_volumedown, 1}, v -> %{v | last: :down, down: v.down + 1}
-        _, v -> v
+  # One handler for both devices, matching on what the event *is* rather than
+  # on which path it came from.
+  #
+  # These used to be two clauses keyed on "/dev/input/event1" and
+  # "/dev/input/event2". That worked while those numbers were stable, and
+  # /dev/input numbering is probe order rather than a promise -- adding one
+  # device to the board is enough to move it. The two kinds of event here are
+  # disjoint, a volume key and a jack switch, so the path was never carrying
+  # information in the first place.
+  def handle_info({:input_event, _device, events}, state) do
+    state =
+      Enum.reduce(events, state, fn
+        {:ev_key, :key_volumeup, 1}, acc ->
+          %{acc | volume: %{acc.volume | last: :up, up: acc.volume.up + 1}}
+
+        {:ev_key, :key_volumedown, 1}, acc ->
+          %{acc | volume: %{acc.volume | last: :down, down: acc.volume.down + 1}}
+
+        {:ev_sw, :sw_headphone_insert, value}, acc ->
+          %{acc | jack: %{acc.jack | inserted: value == 1, changes: acc.jack.changes + 1}}
+
+        _event, acc ->
+          acc
       end)
 
-    {:noreply, %{state | volume: volume}}
-  end
-
-  def handle_info({:input_event, @jack_device, events}, state) do
-    jack =
-      Enum.reduce(events, state.jack, fn
-        {:ev_sw, :sw_headphone_insert, value}, j ->
-          %{j | inserted: value == 1, changes: j.changes + 1}
-
-        _, j ->
-          j
-      end)
-
-    {:noreply, %{state | jack: jack}}
+    {:noreply, state}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
@@ -406,7 +414,9 @@ defmodule MayonnaiOS.Diagnostics do
 
   # evtest exits 10 when the switch is set, 0 when it is not.
   defp query_jack do
-    case cmd_status("evtest", ["--query", @jack_device, "EV_SW", "SW_HEADPHONE_INSERT"]) do
+    jack = MayonnaiOS.Input.find(@jack_name, @jack_device)
+
+    case cmd_status("evtest", ["--query", jack, "EV_SW", "SW_HEADPHONE_INSERT"]) do
       {:ok, 10} -> true
       {:ok, 0} -> false
       _ -> nil

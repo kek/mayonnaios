@@ -78,6 +78,11 @@ defmodule MayonnaiOS.Launcher do
 
   alias MayonnaiOS.Programs
 
+  # The name the driver gives the gamepad, and the path it has always had.
+  # `MayonnaiOS.Input` prefers the name and falls back to the path, because
+  # /dev/input numbering is probe order and the analog stick adds a fourth
+  # device to the race.
+  @device_name "gpio-keys-gamepad"
   @device "/dev/input/event0"
 
   # See the moduledoc: this is physical A, not the atom's name.
@@ -153,7 +158,7 @@ defmodule MayonnaiOS.Launcher do
 
   @impl GenServer
   def init(opts) do
-    device = Keyword.get(opts, :device, @device)
+    device = Keyword.get(opts, :device, MayonnaiOS.Input.find(@device_name, @device))
 
     case open_device(device) do
       {:ok, _pid} ->
