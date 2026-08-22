@@ -142,7 +142,8 @@ defmodule MayonnaiOS.Application do
         MayonnaiOS.Web,
 
         # A launches the selected program, Menu goes back to the home screen,
-        # X opens the diagnostics readout, Select+Menu powers off.
+        # X opens the diagnostics readout, Select+Start turns the backlight
+        # off until any button is pressed, and Select+Menu powers off.
         MayonnaiOS.Launcher
       ] ++ boot_diagnostics()
     end
