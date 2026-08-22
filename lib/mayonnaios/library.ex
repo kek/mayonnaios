@@ -340,19 +340,17 @@ defmodule MayonnaiOS.Library do
 
   Read from `df`, because there is no statvfs in OTP and busybox's df is in
   the image. Returns `nil` rather than guessing if the output does not parse.
+
+  The `df` call itself is `MayonnaiOS.Files.space/1`, which the file manager
+  needs per-location -- the roots span more than one filesystem. Two parses of
+  the same command's output would be one parse too many, and this is the older
+  of the two callers rather than the more general one.
   """
   def free_bytes do
-    {out, 0} = System.cmd("df", ["-k", root()], stderr_to_stdout: true)
-
-    out
-    |> String.split("\n", trim: true)
-    |> List.last()
-    |> String.split()
-    |> Enum.at(3)
-    |> String.to_integer()
-    |> Kernel.*(1024)
-  rescue
-    _ -> nil
+    case MayonnaiOS.Files.space(root()) do
+      %{free: free} -> free
+      _other -> nil
+    end
   end
 
   defp fetch_system(key) do

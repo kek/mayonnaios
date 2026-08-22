@@ -98,6 +98,57 @@ Unmount before pulling the card out —
 — because exFAT has no journal and this device is switched off by pulling
 power.
 
+## Moving files around on the device
+
+Pick **Files** in the launcher. It opens on a short list of the places worth
+looking at — the ROM roots from `:rom_roots`, the installed bundles, the
+installed cores, and `/root` — and browsing starts inside one of them. It is an
+app rather than a program: a module in this firmware, no external process, no
+screen handed over.
+
+    D-pad up/down     move
+    D-pad left/right  a screen at a time
+    A                 open a directory, or the actions for a file
+    B                 back
+    Y                 the second verb; the bottom line says what it is
+    Menu              leave
+
+Copy, move, rename and delete. Copy and move are a clipboard, because there is
+nothing to type a destination with: pick the file, walk to where it should go,
+press Y and paste it. Renaming is a character picker for the same reason —
+slow, and reachable from the device, which a text field would not have been.
+
+Nothing overwrites. A destination that already exists is refused rather than
+replaced, because on this device the file being replaced is somebody's save.
+
+**Deleting asks, and the answer is not the button that asked.** A opens the
+confirmation and **Y** carries it out; A cancels, as does B and as does any
+direction. There is no undo and no trash on a handheld that is switched off by
+pulling its power, so a second press of the same button would not be a
+confirmation. A directory with anything in it is refused outright.
+
+Free space is shown for the filesystem the current directory is on, not for the
+device: the roots span the writable partition and, with a card in, the games
+card, and one number would be wrong for whichever it was not measuring. `/` is
+a full read-only squashfs and is not reachable from the app at all.
+
+Every copy is fsynced before it counts as done — there is no `sync` on this
+device, and an unsynced write survives exactly as long as the page cache. Bytes
+go to a `.part` file beside the destination, get fsynced, and are then renamed
+into place, so an interrupted copy leaves a `.part` rather than a ROM that
+looks complete and fails three hours into a game.
+
+Paths are built from a root key and checked names; nothing takes a path.
+`MayonnaiOS.Files` rejects a name rather than cleaning it, the same line
+`MayonnaiOS.Library` takes for uploads, and its moduledoc has the one honest
+caveat: symlinks already in the tree are followed for reading, because
+`bundles/retroarch/current` is one and the core directory is nothing but them.
+Deleting a link removes the link and never its target.
+
+None of this has been run on the handheld yet — it is 74 host tests and a
+target compile, and the panel layout in particular has been checked only as a
+graph, not with eyes on the glass.
+
 ## Emulator cores
 
 Cores are installed onto the device rather than built into the firmware, so
