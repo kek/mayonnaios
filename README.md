@@ -240,11 +240,13 @@ reboot.
 
 RetroArch flushes those writes to the kernel and never fsyncs them, and there
 is no `sync` on this device, so `MayonnaiOS.Saves.flush/1` fsyncs the save
-files when a program the launcher started has exited. Deliberately only then:
-fsyncing while a game runs could catch an autosave between its truncate and
-its write, which is the one way this could destroy the file it exists to
-protect. A cable pulled mid-game is covered by the interval and by f2fs
-writeback, and by nothing else.
+files at the two moments the launcher knows the program is *gone*: when it is
+reaped, and when a deliberate stop has confirmed the process died. A stop that
+could not confirm it — the one that reports `{:error, {:still_running, pid}}`
+— does not flush. Deliberately: fsyncing while a game runs could catch an
+autosave between its truncate and its write, which is the one way this could
+destroy the file it exists to protect. A cable pulled mid-game is covered by
+the interval and by f2fs writeback, and by nothing else.
 
 ## Using it as a Bluetooth controller
 

@@ -34,9 +34,13 @@ defmodule MayonnaiOS.Saves do
   window is microseconds wide and this would be a real bug in exchange for
   nothing, because the next autosave rewrites the file anyway.
 
-  So there is no timer here. `MayonnaiOS.Launcher` calls `flush/1` when the
-  program it started has been reaped, which is the only moment this VM knows
-  that nobody is writing to those files. Two consequences worth stating:
+  So there is no timer here. `MayonnaiOS.Launcher` calls `flush/1` at the two
+  moments it knows the program is gone rather than merely finished with: when
+  the port reports the exit, and when a stop has escalated as far as SIGKILL
+  and *confirmed* the process died. A stop that could not confirm it does not
+  flush -- that program still has the display and could still write a save, and
+  the launcher reports it as still running for the same reason. Two further
+  consequences worth stating:
 
     * A power cable pulled *during* a game is not covered by this module at
       all. What covers that is the autosave interval plus whatever f2fs has

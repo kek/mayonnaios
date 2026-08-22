@@ -280,6 +280,16 @@ defmodule MayonnaiOS.CoresTest do
                ~s(libretro_directory = "#{core_dir}"\n)
     end
 
+    test "turns RetroArch's blocking audio off" do
+      # The guard: with audio_sync on, a card that stops consuming leaves
+      # RetroArch in poll() for ever -- a frozen game, and the DRM master still
+      # held, so every later launch fails with something that looks like a
+      # display bug. Off, it drops samples instead.
+      assert :ok = Cores.write_append_config()
+
+      assert File.read!(Cores.append_config()) =~ ~s(audio_sync = "false")
+    end
+
     test "turns SRAM autosave on, because off is what lost a save" do
       # The device was found with autosave_interval = "0": the .srm is then
       # written only when content closes cleanly, so every kill and every
@@ -299,6 +309,17 @@ defmodule MayonnaiOS.CoresTest do
       Cores.write_append_config()
 
       assert File.read!(Cores.append_config()) =~ ~s(autosave_interval = "42")
+    end
+
+    test "is rewritten from scratch, so a setting removed here leaves the device" do
+      # The property that makes both guards retractable rather than permanent:
+      # this file is generated, not edited, so it cannot accumulate.
+      File.write!(Cores.append_config(), "audio_sync = \"true\"\nsomething_else = \"1\"\n")
+      Cores.write_append_config()
+
+      contents = File.read!(Cores.append_config())
+      refute contents =~ "something_else"
+      refute contents =~ ~s(audio_sync = "true")
     end
 
     test "follows core_dir rather than repeating it", %{base: base} do
@@ -340,11 +361,110 @@ defmodule MayonnaiOS.CoresTest do
     end
   end
 
-  # The autosave setting is asserted in the appended file and scrubbed out of
-  # the player's own config, and it is the scrub that makes it retractable: a
-  # value RetroArch persisted on exit is indistinguishable from one the player
-  # chose, so without this, `autosave_interval = "0"` would outlive every file
-  # that ever set it -- which is precisely what libretro_directory did.
+  # The retraction half of the audio_sync guard. Asserting a RetroArch setting
+  # is easy; being able to stop asserting it is the hard part, and the reason
+  # is `--appendconfig`: RetroArch merges it into its main config handle before
+  # reading anything, so it persists the value on exit as though the player had
+  # chosen it. Without this, `audio_sync = "false"` would outlive every file
+  # that names it -- which is exactly what `libretro_directory` did.
+  describe "clear_persisted_audio_sync/1" do
+    setup %{core_dir: core_dir} do
+      cfg = Path.join(Path.dirname(core_dir), "retroarch.cfg")
+      prev = Application.get_env(:mayonnaios, :retroarch_config)
+      Application.put_env(:mayonnaios, :retroarch_config, cfg)
+
+      on_exit(fn ->
+        if prev,
+          do: Application.put_env(:mayonnaios, :retroarch_config, prev),
+          else: Application.delete_env(:mayonnaios, :retroarch_config)
+      end)
+
+      %{cfg: cfg}
+    end
+
+    test "removes the value RetroArch persisted, and leaves the rest alone", %{cfg: cfg} do
+      File.write!(cfg, """
+      video_driver = "gl"
+      audio_sync = "false"
+      audio_volume = "0.000000"
+      """)
+
+      assert {:ok, {:cleared, ["false"]}} = Cores.clear_persisted_audio_sync()
+
+      after_ = File.read!(cfg)
+      refute after_ =~ "audio_sync"
+      assert after_ =~ ~s(video_driver = "gl")
+      assert after_ =~ ~s(audio_volume = "0.000000")
+    end
+
+    test "removes it even when it agrees with what the launch appends", %{cfg: cfg} do
+      # The asymmetry with clear_stale_directory/1, and the whole retraction
+      # story. A directory that already names dir/0 is correct and is left; a
+      # persisted audio_sync is never load-bearing, because the file appended
+      # last decides the launch. Leaving the ones that "look right" is what
+      # would strand the setting on the device after this firmware stopped
+      # asking for it.
+      File.write!(cfg, ~s(audio_sync = "false"\n))
+
+      assert {:ok, {:cleared, ["false"]}} = Cores.clear_persisted_audio_sync()
+      refute File.read!(cfg) =~ "audio_sync"
+    end
+
+    test "an unquoted value is recognised too", %{cfg: cfg} do
+      File.write!(cfg, "audio_sync = true\n")
+      assert {:ok, {:cleared, ["true"]}} = Cores.clear_persisted_audio_sync()
+    end
+
+    test "a key that merely contains the name is left alone", %{cfg: cfg} do
+      contents = """
+      audio_sync_extra = "true"
+      video_audio_sync = "true"
+      audio_enable = "true"
+      """
+
+      File.write!(cfg, contents)
+      assert {:ok, :unchanged} = Cores.clear_persisted_audio_sync()
+      assert File.read!(cfg) == contents
+    end
+
+    test "no config at all is not a failure", %{cfg: cfg} do
+      refute File.exists?(cfg)
+      assert {:ok, :no_config} = Cores.clear_persisted_audio_sync()
+    end
+
+    test "runs at boot, alongside the directory repair", %{cfg: cfg} do
+      File.write!(cfg, ~s(libretro_directory = "/gone"\naudio_sync = "false"\n))
+
+      Cores.Startup.run()
+
+      after_ = File.read!(cfg)
+      refute after_ =~ "audio_sync"
+      refute after_ =~ "libretro_directory"
+    end
+
+    test "the boot pass leaves the guard asserted where it is read from", %{cfg: cfg} do
+      # Both halves in one place: the player's config carries nothing, and the
+      # file the launch appends last carries the guard. Retracting the guard is
+      # deleting that line, and this test is what would then fail.
+      File.write!(cfg, ~s(audio_sync = "false"\n))
+
+      Cores.Startup.run()
+
+      refute File.read!(cfg) =~ "audio_sync"
+      assert File.read!(Cores.append_config()) =~ ~s(audio_sync = "false")
+    end
+
+    test "the rewrite leaves no temporary file behind", %{cfg: cfg} do
+      File.write!(cfg, ~s(audio_sync = "false"\n))
+      assert {:ok, {:cleared, _}} = Cores.clear_persisted_audio_sync()
+      refute File.exists?(cfg <> ".mayonnaios")
+    end
+  end
+
+  # The autosave setting is asserted in the same appended file and scrubbed out
+  # of the player's own config for the same reason: a value RetroArch persisted
+  # on exit is indistinguishable from one the player chose, so without this,
+  # `autosave_interval = "0"` would outlive every file that ever set it.
   describe "clear_persisted_autosave/0" do
     setup %{core_dir: core_dir} do
       cfg = Path.join(Path.dirname(core_dir), "retroarch.cfg")
@@ -391,6 +511,7 @@ defmodule MayonnaiOS.CoresTest do
       contents = """
       savestate_auto_save = "false"
       autosave_interval_unrelated = "5"
+      retro_autosave_interval = "5"
       video_driver = "gl"
       """
 
