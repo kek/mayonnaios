@@ -41,12 +41,19 @@ defmodule MayonnaiOS.Scene.Pairing do
   use Scenic.Scene
 
   alias MayonnaiOS.Pairing
+  alias MayonnaiOS.Scene.StatusBar
   alias Scenic.Graph
 
   import Scenic.Primitives
 
   @width 640
   @height 480
+
+  # The shared top bar owns the top of the panel on every screen, so the title
+  # starts below it. The height comes from the bar rather than being copied.
+  @status_bar StatusBar.height()
+  @title_y @status_bar + 20
+  @rule_y @status_bar + 30
 
   # The palette every other screen on this device uses.
   @bg {12, 14, 22}
@@ -59,9 +66,17 @@ defmodule MayonnaiOS.Scene.Pairing do
   @dim {110, 125, 155}
   @row_bg {26, 34, 52}
 
-  @top 148
+  @notice_y @rule_y + 28
+  @heading_y @notice_y + 66
+
+  @top @heading_y + 16
   @pitch 34
-  @visible 8
+  # Seven rows rather than eight. The bar took 22 px off the top of this
+  # screen, and eight rows plus the "n of m" line under them would have put
+  # that line through the footer rule -- which is the failure this scene
+  # already guards against for long names. A row of a list is a cheaper thing
+  # to give up than a line drawn over another line.
+  @visible 7
 
   @left 20
   @right 330
@@ -124,8 +139,13 @@ defmodule MayonnaiOS.Scene.Pairing do
   defp base do
     Graph.build(font: :roboto, font_size: 14)
     |> rect({@width, @height}, fill: {:color, @bg})
-    |> text("Bluetooth devices", font_size: 20, fill: {:color, @title}, translate: {20, 28})
-    |> rect({@width - 40, 2}, fill: {:color, @head}, translate: {20, 38})
+    |> StatusBar.mount()
+    |> text("Bluetooth devices",
+      font_size: 20,
+      fill: {:color, @title},
+      translate: {20, @title_y}
+    )
+    |> rect({@width - 40, 2}, fill: {:color, @head}, translate: {20, @rule_y})
   end
 
   # The one thing this screen exists to be honest about.
@@ -134,24 +154,28 @@ defmodule MayonnaiOS.Scene.Pairing do
     |> text("Headphones cannot be connected from here.",
       font_size: 18,
       fill: {:color, @wait},
-      translate: {20, 66}
+      translate: {20, @notice_y}
     )
     |> text("Audio is A2DP over BR/EDR, and this firmware has no BR/EDR host at all.",
       font_size: 13,
       fill: {:color, @label},
-      translate: {20, 88}
+      translate: {20, @notice_y + 22}
     )
     |> text("What works: seeing what is nearby, and managing pairings made as a gamepad.",
       font_size: 13,
       fill: {:color, @dim},
-      translate: {20, 106}
+      translate: {20, @notice_y + 40}
     )
   end
 
   defp heading(graph, x, title, count) do
     graph
-    |> text("#{title} (#{count})", font_size: 15, fill: {:color, @head}, translate: {x, 132})
-    |> rect({@column_width, 1}, fill: {:color, @dim}, translate: {x, 138})
+    |> text("#{title} (#{count})",
+      font_size: 15,
+      fill: {:color, @head},
+      translate: {x, @heading_y}
+    )
+    |> rect({@column_width, 1}, fill: {:color, @dim}, translate: {x, @heading_y + 6})
   end
 
   # -- the bonds, which are the only selectable thing here --------------------

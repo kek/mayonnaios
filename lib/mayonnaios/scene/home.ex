@@ -30,10 +30,18 @@ defmodule MayonnaiOS.Scene.Home do
 
   alias Scenic.Graph
   alias MayonnaiOS.Programs
+  alias MayonnaiOS.Scene.StatusBar
   import Scenic.Primitives
 
   @width 640
   @height 480
+
+  # The shared top bar owns the top of the panel on every screen, so this one
+  # starts its title below it rather than at the top edge. The height comes
+  # from the bar rather than being copied, so moving it moves every screen.
+  @status_bar StatusBar.height()
+  @title_y @status_bar + 20
+  @rule_y @status_bar + 30
 
   # Same palette as MayonnaiOS.Scene.Diagnostics, so the two screens read
   # as one device rather than two programs that happen to share a panel.
@@ -46,8 +54,9 @@ defmodule MayonnaiOS.Scene.Home do
   @row_bg {26, 34, 52}
 
   # 34 px of pitch at font_size 20 leaves the rows legible at arm's length on
-  # a 640x480 panel held in two hands.
-  @top 64
+  # a 640x480 panel held in two hands. Ten rows from 86 end at 426, which
+  # still clears the bottom of the panel now that the top strip is the bar's.
+  @top 86
   @pitch 34
   @visible 10
 
@@ -77,11 +86,15 @@ defmodule MayonnaiOS.Scene.Home do
 
   def graph([], _selected) do
     base()
-    |> text("No programs configured.", font_size: 20, fill: {:color, @title}, translate: {20, 90})
+    |> text("No programs configured.",
+      font_size: 20,
+      fill: {:color, @title},
+      translate: {20, @top + 26}
+    )
     |> text("Set config :mayonnaios, :programs in config/target.exs.",
       font_size: 14,
       fill: {:color, @label},
-      translate: {20, 116}
+      translate: {20, @top + 52}
     )
   end
 
@@ -110,8 +123,9 @@ defmodule MayonnaiOS.Scene.Home do
   defp base do
     Graph.build(font: :roboto, font_size: 20)
     |> rect({@width, @height}, fill: {:color, @bg})
-    |> text("RG40XXV", font_size: 20, fill: {:color, @title}, translate: {20, 28})
-    |> rect({@width - 40, 2}, fill: {:color, @head}, translate: {20, 38})
+    |> StatusBar.mount()
+    |> text("RG40XXV", font_size: 20, fill: {:color, @title}, translate: {20, @title_y})
+    |> rect({@width - 40, 2}, fill: {:color, @head}, translate: {20, @rule_y})
   end
 
   defp row(graph, program, y, selected?) do
@@ -154,7 +168,7 @@ defmodule MayonnaiOS.Scene.Home do
     text(graph, "#{start + 1}-#{min(start + @visible, count)} of #{count}",
       font_size: 14,
       fill: {:color, @dim},
-      translate: {520, 28}
+      translate: {520, @title_y}
     )
   end
 end

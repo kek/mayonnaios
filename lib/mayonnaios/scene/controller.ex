@@ -34,12 +34,23 @@ defmodule MayonnaiOS.Scene.Controller do
   use Scenic.Scene
 
   alias MayonnaiOS.Controller
+  alias MayonnaiOS.Scene.StatusBar
   alias Scenic.Graph
 
   import Scenic.Primitives
 
   @width 640
   @height 480
+
+  # The shared top bar owns the top of the panel on every screen, so the title
+  # starts below it. The height comes from the bar rather than being copied.
+  @status_bar StatusBar.height()
+  @title_y @status_bar + 20
+  @rule_y @status_bar + 30
+
+  @headline_y @rule_y + 52
+  @subtitle_y @headline_y + 28
+  @column_y @headline_y + 70
 
   @bg {12, 14, 22}
   @title {235, 238, 245}
@@ -65,7 +76,7 @@ defmodule MayonnaiOS.Scene.Controller do
   def handle_info(_message, scene), do: {:noreply, scene}
 
   defp refresh(scene) do
-    push_graph(scene, render(status(), scene.assigns[:error]))
+    push_graph(scene, graph(status(), scene.assigns[:error]))
   end
 
   # The app not running is a state this scene has to render rather than crash
@@ -81,28 +92,52 @@ defmodule MayonnaiOS.Scene.Controller do
 
   # -- rendering --------------------------------------------------------------
 
-  defp render(:stopped, error) do
+  @doc """
+  Build the graph for one `MayonnaiOS.Controller.status/0` reading.
+
+  Public because it is the tested surface, the same way the other screens'
+  builders are: no viewport, no driver and no framebuffer, so a host test can
+  assert what the panel says. `:stopped` with a reason renders the "not
+  running" page.
+  """
+  @spec graph(map() | :stopped, term()) :: Scenic.Graph.t()
+  def graph(status, error \\ nil)
+
+  def graph(:stopped, error) do
     base()
-    |> text("Not running", font_size: 26, fill: {:color, @fail}, translate: {20, 90})
-    |> text(reason(error), font_size: 16, fill: {:color, @label}, translate: {20, 120})
-    |> column(20, 160, explain(error))
+    |> text("Not running", font_size: 26, fill: {:color, @fail}, translate: {20, @headline_y})
+    |> text(reason(error), font_size: 16, fill: {:color, @label}, translate: {20, @subtitle_y})
+    |> column(20, @column_y, explain(error))
     |> footer("Menu goes back.")
   end
 
-  defp render(status, _error) do
+  def graph(status, _error) do
     base()
-    |> text(headline(status), font_size: 26, fill: {:color, colour(status)}, translate: {20, 90})
-    |> text(subtitle(status), font_size: 16, fill: {:color, @label}, translate: {20, 118})
-    |> column(20, 160, stages(status))
-    |> column(330, 160, facts(status))
+    |> text(headline(status),
+      font_size: 26,
+      fill: {:color, colour(status)},
+      translate: {20, @headline_y}
+    )
+    |> text(subtitle(status),
+      font_size: 16,
+      fill: {:color, @label},
+      translate: {20, @subtitle_y}
+    )
+    |> column(20, @column_y, stages(status))
+    |> column(330, @column_y, facts(status))
     |> footer("Menu leaves. Until then every button goes to the host.")
   end
 
   defp base do
     Graph.build(font: :roboto, font_size: 14)
     |> rect({@width, @height}, fill: {:color, @bg})
-    |> text("Bluetooth controller", font_size: 20, fill: {:color, @title}, translate: {20, 28})
-    |> rect({@width - 40, 2}, fill: {:color, @head}, translate: {20, 38})
+    |> StatusBar.mount()
+    |> text("Bluetooth controller",
+      font_size: 20,
+      fill: {:color, @title},
+      translate: {20, @title_y}
+    )
+    |> rect({@width - 40, 2}, fill: {:color, @head}, translate: {20, @rule_y})
   end
 
   defp footer(graph, message) do

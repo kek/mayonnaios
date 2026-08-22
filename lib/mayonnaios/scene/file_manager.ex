@@ -14,12 +14,13 @@ defmodule MayonnaiOS.Scene.FileManager do
   press would be a `GenServer.call` every few frames for the whole time the app
   is open, for a screen that changes only when someone presses something.
 
-  ## The top strip is left alone
+  ## The top strip belongs to the shared bar
 
-  Every app is going to get a shared top bar -- battery, WiFi, clock, at the
-  top right. It is not built here and it is not faked here; what this scene
-  does is not paint above `@status_bar`, so that when the bar arrives this
-  screen does not have to be re-laid-out around it.
+  It arrived: `MayonnaiOS.Scene.StatusBar`, mounted by every screen in this
+  firmware, drawing battery, WiFi and the clock at the top right. This scene
+  reserved the strip before there was anything in it and still does not paint
+  above `@status_bar` -- the number now comes from the bar itself rather than
+  being a second copy of it, so the reservation and the bar cannot drift.
 
   ## Why the footer says what the buttons do, on every screen
 
@@ -34,6 +35,7 @@ defmodule MayonnaiOS.Scene.FileManager do
   use Scenic.Scene
 
   alias MayonnaiOS.FileManager
+  alias MayonnaiOS.Scene.StatusBar
   alias Scenic.Graph
 
   import Scenic.Primitives
@@ -53,12 +55,11 @@ defmodule MayonnaiOS.Scene.FileManager do
   @dim {110, 125, 155}
   @row_bg {26, 34, 52}
 
-  # Reserved for the shared top bar that every app will get: battery, WiFi,
-  # clock. Nothing is drawn above this line, which is why this screen starts
-  # its own title lower than `Scene.Home` does. Text is positioned by its
-  # baseline, so the first baseline is far enough below the line that the
-  # ascenders clear it too.
-  @status_bar 30
+  # The strip the shared top bar draws in: battery, WiFi, clock. Nothing is
+  # drawn above this line. Text is positioned by its baseline, so the first
+  # baseline is far enough below the line that the ascenders clear it too --
+  # which is where every other screen's title sits now as well.
+  @status_bar StatusBar.height()
 
   @title_y 50
   @path_y 74
@@ -115,10 +116,10 @@ defmodule MayonnaiOS.Scene.FileManager do
   @doc """
   The height of the strip this scene leaves for the shared top bar.
 
-  Public so a test can assert that nothing is drawn above it -- which is the
-  only way to keep that true through later edits -- and so the status bar,
-  when someone builds it, has a number to fit into rather than a screenshot to
-  measure.
+  Public so a test can assert that nothing is drawn above it, which is the
+  only way to keep that true through later edits. The number is
+  `MayonnaiOS.Scene.StatusBar.height/0`: the bar owns its own height, and this
+  screen asks rather than remembering.
   """
   @spec status_bar() :: pos_integer()
   def status_bar, do: @status_bar
@@ -260,7 +261,8 @@ defmodule MayonnaiOS.Scene.FileManager do
   defp base(title) do
     Graph.build(font: :roboto, font_size: 16)
     |> rect({@width, @height}, fill: {:color, @bg})
-    # The title sits below the reserved strip, not in it.
+    |> StatusBar.mount()
+    # The title sits below the bar's strip, not in it.
     |> text(title, font_size: 20, fill: {:color, @title}, translate: {20, @title_y})
   end
 
