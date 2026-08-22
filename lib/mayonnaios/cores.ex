@@ -272,6 +272,65 @@ defmodule MayonnaiOS.Cores do
   end
 
   @doc """
+  Where the override config lives: one setting, naming `dir/0`.
+
+  Under `/root` rather than in the read-only rootfs because it is generated
+  from `dir/0` rather than written by hand. One place decides where cores
+  go, and both the symlinks and this file follow it.
+  """
+  def append_config do
+    Application.get_env(
+      :mayonnaios,
+      :retroarch_append_config,
+      "/root/.config/retroarch/mayonnaios.cfg"
+    )
+  end
+
+  @doc """
+  Write the override config, so that a launch ends up reading `dir/0`
+  whatever the bundle has to say about it.
+
+  ## Why this exists when nothing is supposed to configure the directory
+
+  The plan was that RetroArch would be told nothing and would use its own
+  default, which is `dir/0`. That plan has one flaw, and the device found it:
+  the RetroArch bundle's own config sets `libretro_directory` -- the installed
+  one names `/root/retroarch/cores`, in a comment block referring to a module
+  this project renamed away from -- and the launcher passes that file with
+  `--appendconfig` on every single launch.
+
+  Against that, `clear_stale_directory/0` cannot win. It runs at boot and
+  removes the value from the player's config; the launch then appends it
+  again, RetroArch reads it, finds a directory with nothing in it, shows an
+  empty core list, and writes the value back into the player's config on
+  exit. Every boot repaired it and every launch broke it again.
+
+  So the invariant is asserted where it is actually decided. `--appendconfig`
+  takes a `|`-separated list and each file is merged in turn, so a second file
+  after the bundle's has the last word. That is the same reasoning
+  `clear_stale_directory/0` is built on -- a bundle is a separately versioned
+  artifact and cannot be relied on to *not* say something -- applied to the
+  launch rather than to the boot.
+
+  Setting the value to the directory RetroArch would have defaulted to is not
+  a contradiction of the "configure nothing" rule so much as its enforcement:
+  the value written here is the default, and `clear_stale_directory/0`
+  deliberately leaves a config naming `dir/0` alone.
+  """
+  def write_append_config do
+    path = append_config()
+
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- File.write(path, "libretro_directory = \"#{dir()}\"\n") do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.warning("[cores] could not write #{path}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
   Rebuild the core directory from the RetroArch bundle and the installed
   core bundles.
 
@@ -379,6 +438,7 @@ defmodule MayonnaiOS.Cores do
 
     def run do
       MayonnaiOS.Cores.clear_stale_directory()
+      MayonnaiOS.Cores.write_append_config()
       MayonnaiOS.Cores.sync()
     rescue
       e -> Logger.warning("[cores] could not sync: #{Exception.message(e)}")

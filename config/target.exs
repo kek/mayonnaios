@@ -188,9 +188,29 @@ config :mayonnaios, :programs, [
   %{
     name: "RetroArch",
     path: "/root/bundles/retroarch/current/bin/retroarch",
+    # Two files, and the order is the point. `--appendconfig` takes a
+    # `|`-separated list and merges each in turn, so the last one wins.
+    #
+    # The bundle's config sets `libretro_directory`, which it should not: the
+    # installed one names /root/retroarch/cores, a directory nothing fills, in a
+    # comment referring to a module this project has since renamed away from.
+    # With only that file appended, RetroArch showed an empty core list on every
+    # launch and wrote the bad value back into the player's config on exit --
+    # which `MayonnaiOS.Cores.clear_stale_directory/0` then removed at the next
+    # boot, and the next launch put back. Repaired once per boot, broken once
+    # per launch.
+    #
+    # The second file is written by `MayonnaiOS.Cores.write_append_config/0`
+    # from `Cores.dir/0`, so it names the directory the symlinks actually go
+    # into and cannot drift from it.
+    #
+    # The `|` never meets a shell: `Port.open/2` with `:spawn_executable` passes
+    # argv straight through, so this is one argument containing a pipe rather
+    # than two commands.
     args: [
       "--appendconfig",
-      "/root/bundles/retroarch/current/share/retroarch/retroarch.cfg"
+      "/root/bundles/retroarch/current/share/retroarch/retroarch.cfg" <>
+        "|/root/.config/retroarch/mayonnaios.cfg"
     ],
     needs_udev: true
   },

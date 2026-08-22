@@ -20,12 +20,14 @@ defmodule MayonnaiOS.CoresTest do
       bundle_root: Application.get_env(:mayonnaios, :bundle_root),
       core_root: Application.get_env(:mayonnaios, :core_root),
       core_dir: Application.get_env(:mayonnaios, :core_dir),
+      retroarch_append_config: Application.get_env(:mayonnaios, :retroarch_append_config),
       cores: Application.get_env(:mayonnaios, :cores)
     }
 
     Application.put_env(:mayonnaios, :bundle_root, bundles)
     Application.put_env(:mayonnaios, :core_root, core_root)
     Application.put_env(:mayonnaios, :core_dir, core_dir)
+    Application.put_env(:mayonnaios, :retroarch_append_config, Path.join(base, "mayonnaios.cfg"))
     Application.put_env(:mayonnaios, :cores, %{})
 
     on_exit(fn ->
@@ -37,7 +39,7 @@ defmodule MayonnaiOS.CoresTest do
       end)
     end)
 
-    %{bundles: bundles, core_root: core_root, core_dir: core_dir}
+    %{bundles: bundles, core_root: core_root, core_dir: core_dir, base: base}
   end
 
   # A bundle as it looks once installed: a version directory and a `current`
@@ -263,6 +265,57 @@ defmodule MayonnaiOS.CoresTest do
       File.write!(cfg, ~s(libretro_directory = "/gone"\n))
       assert {:ok, {:cleared, _}} = Cores.clear_stale_directory()
       refute File.exists?(cfg <> ".mayonnaios")
+    end
+  end
+
+  describe "write_append_config/0" do
+    # The bundle's own config sets libretro_directory and the launcher appends
+    # it on every launch, so boot-time repair loses to launch-time damage. This
+    # file is appended after the bundle's and has the last word.
+
+    test "names the directory the symlinks go into", %{core_dir: core_dir} do
+      assert :ok = Cores.write_append_config()
+
+      assert File.read!(Cores.append_config()) ==
+               ~s(libretro_directory = "#{core_dir}"\n)
+    end
+
+    test "follows core_dir rather than repeating it", %{base: base} do
+      moved = Path.join(base, "somewhere-else")
+      Application.put_env(:mayonnaios, :core_dir, moved)
+
+      Cores.write_append_config()
+
+      assert File.read!(Cores.append_config()) =~ moved
+    end
+
+    test "creates the directory it writes into", %{base: base} do
+      nested = Path.join([base, "not", "there", "yet", "mayonnaios.cfg"])
+      Application.put_env(:mayonnaios, :retroarch_append_config, nested)
+
+      assert :ok = Cores.write_append_config()
+      assert File.exists?(nested)
+    end
+
+    test "the value it writes is one clear_stale_directory/0 leaves alone", %{
+      core_dir: core_dir,
+      base: base
+    } do
+      # The two have to agree, or every launch would write a value the next
+      # boot strips out again -- which is the loop this whole arrangement
+      # exists to end.
+      config = Path.join(base, "retroarch.cfg")
+      File.write!(config, ~s(libretro_directory = "#{core_dir}"\n))
+
+      Cores.clear_stale_directory(config)
+
+      assert File.read!(config) =~ "libretro_directory"
+    end
+
+    test "is written at boot, before anything launches", %{core_dir: core_dir} do
+      Cores.Startup.run()
+
+      assert File.read!(Cores.append_config()) =~ core_dir
     end
   end
 end
