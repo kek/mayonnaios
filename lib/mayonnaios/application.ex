@@ -111,6 +111,12 @@ defmodule MayonnaiOS.Application do
         # configfs at boot, so without this usb0 never appears.
         MayonnaiOS.USBGadget,
 
+        # Takes /root out of discard mode. Ahead of everything that writes to
+        # it, because the discards this stops are what the writes trigger --
+        # but behind the three above, which are there to make a failing boot
+        # diagnosable and should not be displaced by a repair.
+        MayonnaiOS.AppPartition.Startup,
+
         # Takes the mixer to 0% and mutes it, so the device starts silent by
         # decision rather than by inheritance. The hardware happens to power
         # on that way too -- DAC and Line Out switched off, no ALSA state to
