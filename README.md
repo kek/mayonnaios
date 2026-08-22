@@ -506,22 +506,6 @@ a scratch directory and start `MayonnaiOS.Web` under a supervisor.
 
 ## Not done yet
 
-**The analog stick's orientation.** The stick is read now — the launcher
-opens `adc-joystick` alongside the pad and the power key, forwards its
-events with everything else, and the controller app reports it as the left
-stick, scaled from the ADC's 0..4096 to the report's 0..65535 and quantised
-to 256 steps so ADC noise does not become radio traffic. What has not
-happened is a hand on the hardware confirming which way is up: the ADC's
-zero could be either end of either axis, and no host was connected when the
-driver shipped. If characters walk inverted, the fix is one subtraction in
-`MayonnaiOS.Controller.Report`'s `scale/1`, and this entry exists so that
-whoever sees it knows it is a known unknown rather than a regression.
-
-The old text of this entry — the stick as a thing nothing in this firmware
-reads — is done, along with the reason it existed: reporting axes was unsafe
-while the D-pad was the thing feeding them, and it took the Xbox identity
-change, which rebuilt the whole report anyway, to add them as what they are.
-
 **Pairing devices *to* the handheld.** The controller app is this device
 advertising itself to a host — the peripheral role. Scanning for headphones or
 another gamepad and pairing them to this device is the central role, and none

@@ -121,10 +121,11 @@ defmodule MayonnaiOS.Controller.Report do
   laziness: the low bits of a 12-bit ADC are noise, every twitch of them
   would be a report the radio has to carry (`MayonnaiOS.Controller.Pad` sends
   on change), and 256 positions per axis is more than a thumb on a 30 mm
-  stick can express anyway. Whether up on this stick is 0 or 4096 has not
-  been checked against hardware yet; if characters walk upside down, the fix
-  is one subtraction in `scale/1` and the roadmap section of the README says
-  so.
+  stick can express anyway. The Y axis is flipped on the way through --
+  this ADC's Y grows toward physically up where HID's grows toward down --
+  and that is a fact read off a Steam Deck with the stick in hand, not an
+  assumption; the first firmware to carry the stick shipped it straight and
+  walked everything upside down.
 
   ## Changing this descriptor means re-pairing
 
@@ -211,9 +212,8 @@ defmodule MayonnaiOS.Controller.Report do
     btn_dpad_right: :right
   }
 
-  # evdev absolute axis -> struct field. Only the left stick exists; abs
-  # events for anything else fall through `apply_event/2` untouched.
-  @axes %{abs_x: :x, abs_y: :y}
+  # The ADC's range. Only the left stick exists; abs events for anything
+  # else fall through `apply_event/2` untouched.
   @axis_in_max 4096
 
   # Hat switch values, clockwise from north. The 1914 numbers directions from
@@ -693,12 +693,12 @@ defmodule MayonnaiOS.Controller.Report do
     end
   end
 
-  def apply_event(state, {:ev_abs, axis, value}) do
-    case Map.get(@axes, axis) do
-      nil -> state
-      field -> Map.put(state, field, scale(value))
-    end
-  end
+  def apply_event(state, {:ev_abs, :abs_x, value}), do: %{state | x: scale(value)}
+
+  # Flipped, and checked on the hardware rather than assumed: this ADC's Y
+  # grows toward physically up, HID's Y grows toward down, and shipping the
+  # value straight through moved the world upside down on a Steam Deck.
+  def apply_event(state, {:ev_abs, :abs_y, value}), do: %{state | y: scale(@axis_in_max - value)}
 
   def apply_event(state, _event), do: state
 

@@ -189,8 +189,15 @@ defmodule MayonnaiOS.Controller.ReportTest do
 
     test "the stick scales the ADC's 0..4096 up to the report's range" do
       assert <<0, 0, 0, 0x80, _::binary>> = stick(0, 2048)
-      assert <<0, 0x80, 0, 0, _::binary>> = stick(2048, 0)
       assert <<0xFF, 0xFF, 0, 0x80, _::binary>> = stick(4096, 2048)
+    end
+
+    test "the Y axis is flipped, because the ADC's up is HID's down" do
+      # Read off the hardware: pushing this stick up raises the raw value,
+      # and a HID Y of 0 is up. Shipping it straight through walked
+      # characters upside down on a Steam Deck.
+      assert <<_, _, 0xFF, 0xFF, _::binary>> = stick(2048, 0)
+      assert <<_, _, 0, 0, _::binary>> = stick(2048, 4096)
     end
 
     test "stick values are quantised, so ADC noise is not a report" do
