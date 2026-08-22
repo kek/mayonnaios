@@ -34,24 +34,30 @@ defmodule MayonnaiOS.Bluetooth.Host do
   second process to read it -- which matters because a socket read from two
   processes is a socket whose ownership on close is a matter of opinion.
 
-  ## ACL credits, and why a dropped report is the right answer
+  ## ACL credits: reports drop, answers queue
 
-  The controller can hold a small number of ACL packets -- typically four to
-  eight on a part like this one -- and sending more than it can hold is a
-  protocol violation, not a queue. `send_acl/1` therefore counts credits and
-  refuses a PDU that will not fit, and the refusal goes back to the caller.
+  The controller can hold a small number of ACL packets -- eight of 27 bytes
+  on this board's Realtek -- and sending more than it can hold is a protocol
+  violation, not a queue. `MayonnaiOS.Bluetooth.Credits` is the accounting;
+  this process only writes what it says may be written.
 
-  For a gamepad that is the correct behaviour and not a compromise. The thing
-  being sent is the *current* state of the buttons; if it cannot go now, the
-  next one supersedes it a few milliseconds later. Queueing them would deliver
-  a burst of stale states after the stall, which in a game reads as the
-  controller sticking and then catching up.
+  There are two sends because there are two kinds of PDU. `send_acl/1` is
+  all-or-nothing and refuses when the credits are not there, which is correct
+  for an input report: the next one supersedes it in milliseconds, and a
+  queue of them delivers a burst of stale states that reads as the controller
+  sticking. `queue_acl/1` never refuses, because it carries the PDUs that are
+  answers -- an ATT response, an SMP step -- where "not now" has to mean
+  "as soon as the controller returns a buffer" rather than "never". The
+  difference stopped being theoretical when the report descriptor grew to
+  ten fragments against eight buffers and the one read a host will not
+  forgive losing was silently thrown away; the Credits moduledoc has the
+  post-mortem.
   """
 
   use GenServer
   require Logger
 
-  alias MayonnaiOS.Bluetooth.{HCI, HCISocket}
+  alias MayonnaiOS.Bluetooth.{Credits, HCI, HCISocket}
 
   @command_timeout 5_000
 
@@ -65,8 +71,7 @@ defmodule MayonnaiOS.Bluetooth.Host do
             monitor: nil,
             pending: nil,
             queue: :queue.new(),
-            credits: @fallback_credits,
-            total_credits: @fallback_credits,
+            acl: Credits.new(@fallback_credits),
             packet_length: @fallback_packet_length
 
   @doc """
@@ -104,13 +109,24 @@ defmodule MayonnaiOS.Bluetooth.Host do
   end
 
   @doc """
-  Send the ACL packets of one PDU, or none of them.
+  Send the ACL packets of one droppable PDU, or none of them.
 
-  `{:error, :no_credits}` means the controller's buffers are full. See the
-  moduledoc for why that is reported rather than queued.
+  `{:error, :no_credits}` means the controller's buffers are full or a
+  queued PDU is part-way out. See the moduledoc for why a report is dropped
+  rather than queued.
   """
   @spec send_acl([binary()]) :: :ok | {:error, term()}
   def send_acl(packets), do: GenServer.call(__MODULE__, {:acl, packets})
+
+  @doc """
+  Send the ACL packets of one PDU that must arrive, queueing what does not
+  fit.
+
+  For the PDUs that are answers -- ATT responses, SMP, signalling. Always
+  `:ok`: what cannot go now goes as the controller returns buffers, in order.
+  """
+  @spec queue_acl([binary()]) :: :ok
+  def queue_acl(packets), do: GenServer.call(__MODULE__, {:acl_queued, packets})
 
   @doc "The controller's ACL payload limit, which is what fragments are cut to."
   @spec packet_length() :: pos_integer()
@@ -185,20 +201,26 @@ defmodule MayonnaiOS.Bluetooth.Host do
   end
 
   def handle_call({:acl, packets}, _from, state) do
-    count = length(packets)
+    case Credits.offer(state.acl, packets) do
+      {:ok, to_send, acl} ->
+        Enum.each(to_send, &:socket.send(state.socket, &1))
+        {:reply, :ok, %{state | acl: acl}}
 
-    if count <= state.credits do
-      Enum.each(packets, &:socket.send(state.socket, &1))
-      {:reply, :ok, %{state | credits: state.credits - count}}
-    else
-      {:reply, {:error, :no_credits}, state}
+      {:error, :no_credits} ->
+        {:reply, {:error, :no_credits}, state}
     end
+  end
+
+  def handle_call({:acl_queued, packets}, _from, state) do
+    {to_send, acl} = Credits.push(state.acl, packets)
+    Enum.each(to_send, &:socket.send(state.socket, &1))
+    {:reply, :ok, %{state | acl: acl}}
   end
 
   def handle_call(:packet_length, _from, state), do: {:reply, state.packet_length, state}
 
   def handle_call({:buffers, length, count}, _from, state) do
-    {:reply, :ok, %{state | packet_length: length, credits: count, total_credits: count}}
+    {:reply, :ok, %{state | packet_length: length, acl: Credits.new(count)}}
   end
 
   @impl true
@@ -277,10 +299,24 @@ defmodule MayonnaiOS.Bluetooth.Host do
 
   defp handle_packet(state, {:event, :number_of_completed_packets, %{handles: handles}}) do
     returned = handles |> Enum.map(&elem(&1, 1)) |> Enum.sum()
-    %{state | credits: min(state.credits + returned, state.total_credits)}
+    {to_send, acl} = Credits.completed(state.acl, returned)
+    Enum.each(to_send, &:socket.send(state.socket, &1))
+    %{state | acl: acl}
   end
 
-  defp handle_packet(state, packet) do
+  # Forwarded like every other event, and also acted on here: the buffers a
+  # dead link still held come back without completions, and fragments queued
+  # for its handle must not reach the controller. `Credits.disconnected/1`
+  # has the account; the single-connection assumption it rests on is in its
+  # moduledoc.
+  defp handle_packet(state, {:event, :disconnection_complete, _params} = packet) do
+    forward(state, packet)
+    %{state | acl: Credits.disconnected(state.acl)}
+  end
+
+  defp handle_packet(state, packet), do: forward(state, packet)
+
+  defp forward(state, packet) do
     if state.owner do
       send(state.owner, {:hci, packet})
     else

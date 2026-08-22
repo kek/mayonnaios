@@ -69,6 +69,14 @@ defmodule MayonnaiOS.Bluetooth.FakeController do
     {:reply, :ok, state}
   end
 
+  # The queued send. The fake has infinite buffers, so "queued" and "sent"
+  # are the same thing here; what the credit arithmetic does when they are
+  # not is `MayonnaiOS.Bluetooth.CreditsTest`'s job, against the pure module.
+  def handle_call({:acl_queued, packets}, _from, state) do
+    send(state.test, {:acl, packets})
+    {:reply, :ok, state}
+  end
+
   def handle_call({:buffers, _length, _count}, _from, state), do: {:reply, :ok, state}
   def handle_call(:packet_length, _from, state), do: {:reply, 27, state}
   def handle_call(:commands, _from, state), do: {:reply, state.commands, state}

@@ -535,18 +535,26 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
 
   defp send_smp(state, pdu), do: send_pdu(state, L2CAP.cid_smp(), pdu)
 
+  # Everything that answers a question goes through the queued send:
+  # `Host.queue_acl/1` holds what the controller cannot take yet and sends
+  # it as buffers come back. A dropped response is not a smaller failure
+  # than a dropped connection -- a host waits thirty seconds for the report
+  # map it asked for, gives up, and the device is paired, encrypted and
+  # invisible. That was live once: the 283-byte descriptor reads as ten
+  # fragments against eight buffers, and the old all-or-nothing send threw
+  # the answer away. Only notifications may be dropped, and they go through
+  # `notify/6` below.
   defp send_pdu(%{connection: nil} = state, _cid, _payload), do: state
 
   defp send_pdu(state, cid, payload) do
-    packets =
-      cid
-      |> L2CAP.encode(payload)
-      |> then(&L2CAP.fragments(state.connection.handle, &1, state.packet_length))
+    :ok = Host.queue_acl(fragments(state, cid, payload))
+    state
+  end
 
-    case Host.send_acl(packets) do
-      :ok -> state
-      {:error, reason} -> drop(state, reason)
-    end
+  defp fragments(state, cid, payload) do
+    cid
+    |> L2CAP.encode(payload)
+    |> then(&L2CAP.fragments(state.connection.handle, &1, state.packet_length))
   end
 
   defp notify(state, handle, cccd, key, value, count_drops \\ true)
@@ -567,8 +575,13 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
         if count, do: drop(state, :unsubscribed), else: state
 
       true ->
-        state = send_pdu(state, L2CAP.cid_att(), ATT.notification(handle, value))
-        %{state | sent: state.sent + 1}
+        # The droppable send, and the only caller of it. A notification is
+        # the current state of something; when the credits are not there,
+        # the next one supersedes it, and the counter says how often.
+        case Host.send_acl(fragments(state, L2CAP.cid_att(), ATT.notification(handle, value))) do
+          :ok -> %{state | sent: state.sent + 1}
+          {:error, reason} -> if count, do: drop(state, reason), else: state
+        end
     end
   end
 
