@@ -78,16 +78,17 @@ defmodule MayonnaiOS.Cores do
   RetroArch spec does: a checksum served from beside the file it describes is
   not evidence of anything.
 
-  ## The one thing in here that is not about cores
+  ## The two things in here that are not about cores
 
-  `write_append_config/0` also writes `audio_sync = "false"`, which has
-  nothing to do with cores and everything to do with the mechanism this module
-  already owns: the one file appended after the bundle's, rewritten every
-  boot, paired with a boot-time scrub of the player's config so that nothing
-  it says can outlive it. That pairing is the only way this firmware can
-  assert a RetroArch setting and still be able to take it back, and it exists
-  here because `libretro_directory` needed it first. Splitting it across two
-  modules would mean two writers of one file. See that function.
+  `write_append_config/0` also writes `audio_sync = "false"` and an
+  `autosave_interval`, neither of which has anything to do with cores and both
+  of which have everything to do with the mechanism this module already owns:
+  the one file appended after the bundle's, rewritten every boot, paired with a
+  boot-time scrub of the player's config so that nothing it says can outlive
+  it. That pairing is the only way this firmware can assert a RetroArch setting
+  and still be able to take it back, and it exists here because
+  `libretro_directory` needed it first. Splitting it across two modules would
+  mean two writers of one file. See that function.
   """
 
   require Logger
@@ -98,6 +99,11 @@ defmodule MayonnaiOS.Cores do
   # Overridable so the tests can point somewhere writable; the device never
   # needs to.
   @retroarch_config "/root/.config/retroarch/retroarch.cfg"
+
+  # Seconds between SRAM autosaves. The number is argued in
+  # `write_append_config/0`; overridable so a test can assert that the value
+  # travels rather than hard-coding it twice.
+  @autosave_interval 10
 
   @doc """
   Where core bundles are installed, one versioned directory per core.
@@ -126,6 +132,15 @@ defmodule MayonnaiOS.Cores do
   """
   def retroarch_config do
     Application.get_env(:mayonnaios, :retroarch_config, @retroarch_config)
+  end
+
+  @doc """
+  Seconds between SRAM autosaves, as `write_append_config/0` will assert it.
+
+  See that function for why the number is what it is.
+  """
+  def autosave_interval do
+    Application.get_env(:mayonnaios, :retroarch_autosave_interval, @autosave_interval)
   end
 
   @doc """
@@ -181,6 +196,31 @@ defmodule MayonnaiOS.Cores do
   """
   def clear_persisted_audio_sync(path \\ nil) do
     strip(path || retroarch_config(), "audio_sync", &audio_sync?/1)
+  end
+
+  @doc """
+  Remove `autosave_interval` from RetroArch's main config, whatever it says.
+
+  The other half of the `autosave_interval` that `write_append_config/0`
+  writes, and the half that makes the setting removable. Unconditional for the
+  same reasons as `clear_persisted_audio_sync/1` -- which has the argument for
+  why a scrub is asymmetric with `clear_stale_directory/1` -- plus one that is
+  specific to this setting: the fossil that caused today's loss was
+  `autosave_interval = "0"`, RetroArch's own default, and nothing in a config
+  file distinguishes it from a number the player chose.
+
+  So it goes, every boot. Which means the day this policy changes, editing the
+  number in `write_append_config/0` -- or deleting the line -- is genuinely
+  enough: the next boot removes the fossil and RetroArch falls back to what
+  the appended file says, or to its own default when the line is gone.
+
+  The price, the same shape as the one above: this firmware owns
+  `autosave_interval`, and a value set in RetroArch's own Saving menu will not
+  survive a reboot. Accepted because the setting being wrong costs a save file,
+  and the person it costs it to is the one who cannot see that it is wrong.
+  """
+  def clear_persisted_autosave(path \\ nil) do
+    strip(path || retroarch_config(), "autosave_interval", &autosave_interval?/1)
   end
 
   # One read, one rewrite, for any setting this application takes back out of
@@ -239,12 +279,18 @@ defmodule MayonnaiOS.Cores do
   # directory one is not.
   defp audio_sync?(line), do: value_of("audio_sync", line) != nil
 
+  # Any `autosave_interval` at all, including one that agrees with what this
+  # firmware asks for: the appended file is what decides a launch, so the copy
+  # in the player's config is a fossil even when it matches.
+  defp autosave_interval?(line), do: value_of("autosave_interval", line) != nil
+
   # One `key = value` line, or nil if this line is not that key.
   #
   # Anchored on both sides of the key, which is not fussiness: RetroArch's
   # config holds `libretro_info_path`, `libretro_log_level`,
-  # `core_updater_buildbot_cores_url` and a hundred others, and a loose match
-  # would edit lines this application knows nothing about.
+  # `core_updater_buildbot_cores_url`, `savestate_auto_save` next to
+  # `autosave_interval`, and a hundred others, and a loose match would edit
+  # lines this application knows nothing about.
   defp value_of(setting, line) do
     case Regex.run(~r/^\s*#{Regex.escape(setting)}\s*=\s*"?(.*?)"?\s*$/, line) do
       [_, value] -> value
@@ -376,7 +422,13 @@ defmodule MayonnaiOS.Cores do
   the value written here is the default, and `clear_stale_directory/0`
   deliberately leaves a config naming `dir/0` alone.
 
-  ## The other setting: `audio_sync = "false"`
+  ## The other settings: `audio_sync = "false"` and `autosave_interval`
+
+  Two settings that are not about cores, here because this is the one file
+  whose contents this firmware can both assert and retract. They are otherwise
+  unrelated: one stops a hang, the other stops a save being thrown away.
+
+  ### `audio_sync = "false"`
 
   A guard, not a preference, and the only setting in this firmware that is
   here to stop a *hang* rather than to name a path.
@@ -396,9 +448,76 @@ defmodule MayonnaiOS.Cores do
   survive a deliberately stalled card with this setting on, because producing
   one means playing audio on a device whose owner has asked for silence.
 
+  ### `autosave_interval = "10"`
+
+  The device was found with `autosave_interval = "0"` in the player's config,
+  which is RetroArch's own default and means *never autosave*. With it off,
+  the SRAM `.srm` is written when content closes cleanly and at no other time,
+  so every kill, every hang and every pulled power cable discards the whole
+  session -- including in-game saves the player made at a save point an hour
+  earlier. That is not a hypothetical: it happened repeatedly in one
+  afternoon, to a Chrono Trigger file, while a hung RetroArch was being
+  SIGKILLed to diagnose the audio fault the setting above is the belt for.
+
+  This device cannot rely on a clean close. It is switched off by pulling the
+  power, there is no clean shutdown in normal use, and a program that hangs
+  holding DRM master has to be killed -- which `MayonnaiOS.Launcher` now does
+  properly, and which is exactly the operation that used to cost the save. A
+  save mechanism that only runs on a clean exit is a save mechanism that runs
+  on the good days.
+
+  Read the guarantee carefully, because it is narrower than "you lose at most
+  ten seconds of play": SRAM holds what the *game* has written to its
+  battery-backed memory, so what is being protected is the player's own
+  in-game saves, not the walk between them. What ten seconds buys is that an
+  in-game save is on its way to the card about ten seconds later instead of
+  surviving only if RetroArch is allowed to exit cleanly.
+
+  Ten rather than sixty because the cost is bounded by the game rather than by
+  the clock: RetroArch's autosave thread compares the SRAM against its last
+  copy and writes only when it differs, so a shorter interval does not mean
+  more writes on a card that times out on erase (`mmc_erase: group start error
+  -110`, the reason `/root` is mounted `nodiscard` -- see
+  `MayonnaiOS.AppPartition`). It means the write happens sooner after the
+  game's own save, and 8 KB of `.srm` is one f2fs write either way. Ten
+  rather than one because a burst of SRAM writes -- some games rewrite a
+  checksum region repeatedly -- should coalesce into one write, and because
+  ten seconds of extra exposure is not worth a tenfold write rate in the
+  pathological case.
+
+  That the writes are change-gated is read from RetroArch's autosave thread,
+  not measured here. If it turns out to write unconditionally, the number to
+  change is `@autosave_interval` and nothing else moves.
+
+  What this setting does *not* do is make the write durable. RetroArch flushes
+  the file to the kernel and does not fsync it, so an autosaved `.srm` lives
+  in the page cache until f2fs writes it back on its own schedule -- and this
+  device has no `sync` binary and no clean shutdown. `MayonnaiOS.Saves` is the
+  other half of that, and it is the half that can only run once the program
+  that owns the file is confirmed gone.
+
+  ### What was considered and not done: a save state on stop
+
+  `savestate_auto_save = "true"` would write a full machine state when content
+  closes, and `savestate_auto_load` would put the player back exactly where
+  they were. It is rejected, and not narrowly.
+
+  It writes on a *clean close*, which is the code path that already works and
+  the one that was never the problem: a SIGKILLed or unplugged RetroArch does
+  not reach it either. So it adds nothing to the failure being fixed, while
+  adding a multi-megabyte write to every ordinary exit on a card whose erase
+  times out. And a state is tied to the core that wrote it -- upgrade
+  snes9x2010 and the automatic load either fails or, worse, restores something
+  subtly wrong -- so it would make a core upgrade able to break a game that
+  had been fine, in exchange for convenience nobody asked for.
+
+  SRAM is the opposite of that: 8 KB, the format the game itself defined, and
+  portable across cores and RetroArch versions. It is the thing worth making
+  durable.
+
   ## Why here, and not in the bundle or on the command line
 
-  There is no command line for it -- RetroArch takes settings from config
+  There is no command line for either -- RetroArch takes settings from config
   files -- so the only question is which file. It cannot be the bundle's:
   bundles are separately versioned artifacts, a value one appends is
   indistinguishable from one the player chose, and RetroArch writes it into
@@ -410,13 +529,14 @@ defmodule MayonnaiOS.Cores do
 
     * it is rewritten from this function on every boot, so what it says is
       whatever this firmware currently says, and
-    * `clear_persisted_audio_sync/1` takes the setting out of the player's
-      config on every boot, so the copy RetroArch persists on exit is scrubbed
-      before the next launch reads anything.
+    * `clear_persisted_audio_sync/1` and `clear_persisted_autosave/1` take
+      those settings out of the player's config on every boot, so the copies
+      RetroArch persists on exit are scrubbed before the next launch reads
+      anything.
 
-  Retraction is therefore deleting one line from this function. There is no
-  device to go and repair afterwards, which is the property `libretro_directory`
-  did not have.
+  Retraction is therefore editing or deleting one line in this function. There
+  is no device to go and repair afterwards, which is the property
+  `libretro_directory` did not have.
 
   One file with two settings rather than a second file with one, because the
   file has exactly one writer and that is worth keeping. Two modules writing
@@ -431,6 +551,7 @@ defmodule MayonnaiOS.Cores do
     contents = """
     libretro_directory = "#{dir()}"
     audio_sync = "false"
+    autosave_interval = "#{autosave_interval()}"
     """
 
     with :ok <- File.mkdir_p(Path.dirname(path)),
@@ -528,7 +649,8 @@ defmodule MayonnaiOS.Cores do
   defmodule Startup do
     @moduledoc """
     Asserts the core arrangement once at boot: RetroArch's config names no core
-    directory, carries no `audio_sync` of its own, and the default core
+    directory, carries neither an `audio_sync` nor an `autosave_interval` of its
+    own, and the default core
     directory holds a link per core.
 
     Cheap -- a listing and a handful of symlinks -- and it is the step that
@@ -552,9 +674,11 @@ defmodule MayonnaiOS.Cores do
 
     def run do
       MayonnaiOS.Cores.clear_stale_directory()
-      # Unconditional, every boot, and that is what makes the audio_sync guard
-      # removable rather than permanent. See clear_persisted_audio_sync/1.
+      # Unconditional, every boot, and that is what makes these two settings
+      # retractable rather than permanent. See clear_persisted_audio_sync/1 and
+      # clear_persisted_autosave/1.
       MayonnaiOS.Cores.clear_persisted_audio_sync()
+      MayonnaiOS.Cores.clear_persisted_autosave()
       MayonnaiOS.Cores.write_append_config()
       MayonnaiOS.Cores.sync()
     rescue

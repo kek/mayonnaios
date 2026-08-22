@@ -65,6 +65,21 @@ defmodule MayonnaiOS.Launcher do
   part that belongs up here is that "the program owns the panel until it
   exits" now means *exits*, not *was asked to*.
 
+  ## Getting the saves onto the card
+
+  A program being *confirmed* gone is also the only moment this VM knows that
+  nobody is writing to RetroArch's save files, and on a handheld switched off
+  by pulling its power that moment is worth using: RetroArch flushes the SRAM
+  to the kernel and never fsyncs it. So both places this module learns that a
+  program has stopped -- the reap above and `finish_stop/1` -- call
+  `MayonnaiOS.Saves.flush/1`, and the path that could *not* confirm it, the
+  one that returns `{:error, {:still_running, pid}}`, deliberately does not.
+
+  That is the same distinction the panel hold turns on, and it is load-bearing
+  for the same kind of reason: fsyncing a file a live program is still writing
+  can make a truncation durable and its contents not. `MayonnaiOS.Saves` has
+  the account.
+
   ## The full set of bindings
 
       D-pad up/down move the menu cursor
@@ -334,6 +349,12 @@ defmodule MayonnaiOS.Launcher do
       term_timeout: Keyword.get(opts, :term_timeout, @term_timeout),
       kill_timeout: Keyword.get(opts, :kill_timeout, @kill_timeout),
       poll_ms: Keyword.get(opts, :poll_ms, @poll_ms),
+      # Pushing the save files onto the card, at the only moments it is safe
+      # to: after the program that owns them is confirmed gone. Injectable
+      # because what a test can check is that it happens then and not when a
+      # program survived the kill, and an fsync itself has no observable
+      # result from in here.
+      flush_saves: Keyword.get(opts, :flush_saves, &MayonnaiOS.Saves.flush/0),
       # Whether the backlight was turned off by the chord. Kept here rather
       # than read back from sysfs on every event, because it is this process
       # that has to decide whether to swallow a press and because the panel
@@ -462,6 +483,15 @@ defmodule MayonnaiOS.Launcher do
     # owned it is gone. This is the moment the display comes back.
     Panel.release()
     repaint(state)
+
+    # And after the screen is back, because the program being gone is what
+    # makes this safe rather than urgent: RetroArch hands the SRAM to the
+    # kernel and never fsyncs it, so on a device with no `sync` and no clean
+    # shutdown the save it just wrote is only as durable as the page cache. An
+    # fsync on this card can take a moment and nothing can launch anything
+    # before this clause returns, so the panel comes back first.
+    state.flush_saves.()
+
     {:noreply, %{state | port: nil, running: nil}}
   end
 
@@ -864,6 +894,13 @@ defmodule MayonnaiOS.Launcher do
 
     Panel.release()
     repaint(state)
+
+    # Same flush as the reap clause, and for the same reason it is allowed
+    # here: this function only runs once `do_stop/1` has confirmed the process
+    # is gone, so RetroArch is not going to write that `.srm` again. A stop
+    # that could not confirm it never reaches this line.
+    state.flush_saves.()
+
     %{state | port: nil, running: nil}
   end
 

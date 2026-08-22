@@ -290,8 +290,29 @@ defmodule MayonnaiOS.CoresTest do
       assert File.read!(Cores.append_config()) =~ ~s(audio_sync = "false")
     end
 
+    test "turns SRAM autosave on, because off is what lost a save" do
+      # The device was found with autosave_interval = "0": the .srm is then
+      # written only when content closes cleanly, so every kill and every
+      # pulled power cable discards the session.
+      assert :ok = Cores.write_append_config()
+
+      assert File.read!(Cores.append_config()) =~
+               ~s(autosave_interval = "#{Cores.autosave_interval()}")
+
+      refute Cores.autosave_interval() == 0
+    end
+
+    test "the interval travels rather than being written twice" do
+      Application.put_env(:mayonnaios, :retroarch_autosave_interval, 42)
+      on_exit(fn -> Application.delete_env(:mayonnaios, :retroarch_autosave_interval) end)
+
+      Cores.write_append_config()
+
+      assert File.read!(Cores.append_config()) =~ ~s(autosave_interval = "42")
+    end
+
     test "is rewritten from scratch, so a setting removed here leaves the device" do
-      # The property that makes the guard retractable rather than permanent:
+      # The property that makes both guards retractable rather than permanent:
       # this file is generated, not edited, so it cannot accumulate.
       File.write!(Cores.append_config(), "audio_sync = \"true\"\nsomething_else = \"1\"\n")
       Cores.write_append_config()
@@ -437,6 +458,91 @@ defmodule MayonnaiOS.CoresTest do
       File.write!(cfg, ~s(audio_sync = "false"\n))
       assert {:ok, {:cleared, _}} = Cores.clear_persisted_audio_sync()
       refute File.exists?(cfg <> ".mayonnaios")
+    end
+  end
+
+  # The autosave setting is asserted in the same appended file and scrubbed out
+  # of the player's own config for the same reason: a value RetroArch persisted
+  # on exit is indistinguishable from one the player chose, so without this,
+  # `autosave_interval = "0"` would outlive every file that ever set it.
+  describe "clear_persisted_autosave/0" do
+    setup %{core_dir: core_dir} do
+      cfg = Path.join(Path.dirname(core_dir), "retroarch.cfg")
+      prev = Application.get_env(:mayonnaios, :retroarch_config)
+      Application.put_env(:mayonnaios, :retroarch_config, cfg)
+
+      on_exit(fn ->
+        if prev,
+          do: Application.put_env(:mayonnaios, :retroarch_config, prev),
+          else: Application.delete_env(:mayonnaios, :retroarch_config)
+      end)
+
+      %{cfg: cfg}
+    end
+
+    test "removes the value that lost the save, and leaves the rest alone", %{cfg: cfg} do
+      File.write!(cfg, """
+      video_driver = "gl"
+      autosave_interval = "0"
+      menu_driver = "rgui"
+      """)
+
+      assert {:ok, {:cleared, ["0"]}} = Cores.clear_persisted_autosave()
+
+      after_ = File.read!(cfg)
+      refute after_ =~ "autosave_interval"
+      assert after_ =~ ~s(video_driver = "gl")
+      assert after_ =~ ~s(menu_driver = "rgui")
+    end
+
+    test "removes the value this firmware itself asks for", %{cfg: cfg} do
+      # Unconditional on purpose, and this is the case that proves it. The
+      # value that decides a launch is the one in the appended file, merged
+      # last on every launch; the copy in the player's config is a fossil even
+      # when it agrees. Leaving agreeing values would mean a later change of
+      # mind could not take them back.
+      File.write!(cfg, ~s(autosave_interval = "#{Cores.autosave_interval()}"\n))
+
+      assert {:ok, {:cleared, _}} = Cores.clear_persisted_autosave()
+      refute File.read!(cfg) =~ "autosave_interval"
+    end
+
+    test "a key that merely looks similar is left alone", %{cfg: cfg} do
+      contents = """
+      savestate_auto_save = "false"
+      autosave_interval_unrelated = "5"
+      retro_autosave_interval = "5"
+      video_driver = "gl"
+      """
+
+      File.write!(cfg, contents)
+      assert {:ok, :unchanged} = Cores.clear_persisted_autosave()
+      assert File.read!(cfg) == contents
+    end
+
+    test "no config at all is not a failure", %{cfg: cfg} do
+      refute File.exists?(cfg)
+      assert {:ok, :no_config} = Cores.clear_persisted_autosave()
+    end
+
+    test "the rewrite leaves no temporary file behind", %{cfg: cfg} do
+      File.write!(cfg, ~s(autosave_interval = "0"\n))
+      assert {:ok, {:cleared, _}} = Cores.clear_persisted_autosave()
+      refute File.exists?(cfg <> ".mayonnaios")
+    end
+
+    test "boot scrubs the fossil and writes the setting again", %{cfg: cfg} do
+      # The pair, in the order the device runs it. Without the scrub half, a
+      # device that has ever run RetroArch keeps whatever it persisted and no
+      # later firmware can withdraw it.
+      File.write!(cfg, ~s(autosave_interval = "0"\n))
+
+      Cores.Startup.run()
+
+      refute File.read!(cfg) =~ "autosave_interval"
+
+      assert File.read!(Cores.append_config()) =~
+               ~s(autosave_interval = "#{Cores.autosave_interval()}")
     end
   end
 end

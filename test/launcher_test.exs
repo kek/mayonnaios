@@ -361,6 +361,71 @@ defmodule MayonnaiOS.LauncherTest do
       assert gone?(os_pid)
     end
   end
+
+  # RetroArch hands its SRAM to the kernel and never fsyncs it, and this device
+  # is switched off by pulling the power. So the launcher fsyncs the saves at
+  # the two moments a program is *confirmed* gone -- and, just as important, at
+  # no other moment. Same harness as the stop tests above, because "confirmed
+  # gone" is exactly what that machinery decides. See MayonnaiOS.Saves.
+  describe "flushing the saves" do
+    alias MayonnaiOS.Panel
+
+    setup do
+      Unkillable.reset()
+
+      on_exit(fn ->
+        Panel.release()
+        Unkillable.reset()
+      end)
+
+      :ok
+    end
+
+    defp flushing do
+      test = self()
+      [flush_saves: fn -> send(test, :flushed) end]
+    end
+
+    test "when the program exits on its own" do
+      # A real reap: the process is killed from outside the launcher, so the
+      # port's :exit_status arrives the way it does when a game quits itself.
+      os_pid =
+        start(@blocks_for_ever, flushing() ++ [term_timeout: 500, poll_ms: 10])
+
+      System.cmd("kill", ["-KILL", Integer.to_string(os_pid)])
+
+      assert_receive :flushed, 2_000
+      assert gone?(os_pid)
+    end
+
+    test "when a deliberate stop has confirmed the process is gone" do
+      # Pressing Menu. The flush is in finish_stop/1, which is only reached
+      # once do_stop/1 knows the process has died -- so this is the ordinary
+      # way out of a game, and it is durable.
+      os_pid = start(@blocks_for_ever, flushing() ++ [term_timeout: 2_000, poll_ms: 10])
+
+      assert Launcher.stop_program() == :ok
+      assert_receive :flushed
+      assert gone?(os_pid)
+    end
+
+    test "not when the program survived the kill and could still be writing" do
+      # The guard that matters, and the reason the flush is not simply "after
+      # we asked it to stop": fsyncing a save a live RetroArch is in the middle
+      # of writing can make its truncation durable and its contents not, which
+      # is the one way this mechanism could destroy what it exists to protect.
+      os_pid =
+        start(
+          @blocks_for_ever,
+          flushing() ++ [signals: Unkillable, term_timeout: 60, kill_timeout: 60, poll_ms: 10]
+        )
+
+      assert Launcher.stop_program() == {:error, {:still_running, os_pid}}
+
+      refute_received :flushed
+      assert alive?(os_pid)
+    end
+  end
 end
 
 # An operating system that will not kill anything: signals are accepted and
