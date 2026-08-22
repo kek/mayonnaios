@@ -178,8 +178,12 @@ defmodule MayonnaiOS.Splash do
 
   defp do_await(fb, deadline) do
     cond do
-      File.exists?(fb) -> :ok
-      System.monotonic_time(:millisecond) >= deadline -> {:error, :timeout}
+      File.exists?(fb) ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        {:error, :timeout}
+
       true ->
         Process.sleep(100)
         do_await(fb, deadline)

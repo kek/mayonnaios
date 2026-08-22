@@ -133,11 +133,32 @@ cannot lose a core, and installing a core never writes inside a bundle.
 `MayonnaiOS.Cores.sync/0` rebuilds those links and runs at every boot, which is
 what makes them follow `current` across an upgrade. Running it by hand is safe.
 
-If RetroArch shows *no* cores at all, the usual cause is a `libretro_directory`
-left in RetroArch's own config by an older bundle — it is taken verbatim, is
-not checked against reality, and survives the bundle that set it.
-`MayonnaiOS.Cores.clear_stale_directory/0` takes it back out, and boot does the
-same.
+If RetroArch shows *no* cores at all, the cause is a `libretro_directory`
+pointing somewhere nothing fills. RetroArch takes that setting verbatim — it
+does not check that the directory exists, the way it does for the save
+directories — so the symptom is an empty list and nothing in the log.
+
+Two things put it there, and they need different answers.
+
+A value **left in the player's own config** by an older bundle is removed by
+`MayonnaiOS.Cores.clear_stale_directory/0`, which also runs at boot.
+
+A value **the installed bundle sets** is the harder one, because the launcher
+passes that bundle's config with `--appendconfig` on every launch. Clearing at
+boot then loses: the launch appends the value again, RetroArch reads it, and
+writes it back into the player's config on exit. Repaired once per boot,
+broken once per launch — which is exactly what the RetroArch bundle installed
+here does, naming `/root/retroarch/cores` in a comment block that refers to a
+module this project renamed away from.
+
+So a second config is appended after the bundle's own, and `--appendconfig`
+merges its files in order, last one winning.
+`MayonnaiOS.Cores.write_append_config/0` generates it from `MayonnaiOS.Cores.dir/0`
+at boot, so it always names the directory the symlinks actually go into.
+Fixing the bundle would be tidier and is worth doing in
+[`retroarch-rg40xxv`](https://github.com/kek/retroarch-rg40xxv) — but a bundle
+is versioned separately and installed independently, so relying on it to *not*
+set something is the arrangement that already failed once.
 
 ## Using it as a Bluetooth controller
 
