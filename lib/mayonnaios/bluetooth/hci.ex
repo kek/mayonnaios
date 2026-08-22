@@ -54,6 +54,7 @@ defmodule MayonnaiOS.Bluetooth.HCI do
 
   # LE meta subevents.
   @le_connection_complete 0x01
+  @le_advertising_report 0x02
   @le_connection_update_complete 0x03
   @le_read_remote_features_complete 0x04
   @le_long_term_key_request 0x05
@@ -74,6 +75,8 @@ defmodule MayonnaiOS.Bluetooth.HCI do
   @op_le_set_advertising_data 0x2008
   @op_le_set_scan_response_data 0x2009
   @op_le_set_advertise_enable 0x200A
+  @op_le_set_scan_parameters 0x200B
+  @op_le_set_scan_enable 0x200C
   @op_le_long_term_key_request_reply 0x201A
   @op_le_long_term_key_request_negative_reply 0x201B
 
@@ -93,6 +96,8 @@ defmodule MayonnaiOS.Bluetooth.HCI do
   def opcode(:le_set_advertising_data), do: @op_le_set_advertising_data
   def opcode(:le_set_scan_response_data), do: @op_le_set_scan_response_data
   def opcode(:le_set_advertise_enable), do: @op_le_set_advertise_enable
+  def opcode(:le_set_scan_parameters), do: @op_le_set_scan_parameters
+  def opcode(:le_set_scan_enable), do: @op_le_set_scan_enable
   def opcode(:le_long_term_key_request_reply), do: @op_le_long_term_key_request_reply
 
   def opcode(:le_long_term_key_request_negative_reply),
@@ -122,6 +127,8 @@ defmodule MayonnaiOS.Bluetooth.HCI do
       :le_set_advertising_data,
       :le_set_scan_response_data,
       :le_set_advertise_enable,
+      :le_set_scan_parameters,
+      :le_set_scan_enable,
       :le_long_term_key_request_reply,
       :le_long_term_key_request_negative_reply
     ]
@@ -259,6 +266,59 @@ defmodule MayonnaiOS.Bluetooth.HCI do
   @spec le_set_scan_response_data(binary()) :: binary()
   def le_set_scan_response_data(data) when byte_size(data) <= 31 do
     command(:le_set_scan_response_data, <<byte_size(data), pad(data, 31)::binary>>)
+  end
+
+  @doc """
+  Scan parameters: active scanning, so scan responses come back too.
+
+  Active (0x01) rather than passive because a passive scan sees only the
+  advertisement, and most devices keep their name in the *scan response* --
+  this project's own peripheral does, because the name did not fit in the
+  31-byte advertisement. A passive scan of a room therefore produces a list
+  of addresses with no names in it, which is indistinguishable from a scan
+  that is not working.
+
+  Interval and window are in units of 0.625 ms. 37.5 ms interval with a
+  30 ms window is an 80% duty cycle: high enough that a device advertising
+  at the slow end of the usual range turns up in a second or two, and not
+  continuous, which would leave the radio no gaps at all.
+  """
+  @spec le_set_scan_parameters(keyword()) :: binary()
+  def le_set_scan_parameters(opts \\ []) do
+    # 0x01 = active. 0x00 would be passive.
+    type = Keyword.get(opts, :type, 0x01)
+    interval = Keyword.get(opts, :interval, 0x0060)
+    window = Keyword.get(opts, :window, 0x0030)
+    # 0x00 = the controller's public address, the same choice advertising
+    # makes: this device has a real one from the Realtek part.
+    own_address_type = Keyword.get(opts, :own_address_type, 0x00)
+    # 0x00 = accept every advertisement. There is no accept list to filter
+    # against, and filtering is what a scan screen exists not to do.
+    filter_policy = Keyword.get(opts, :filter_policy, 0x00)
+
+    command(
+      :le_set_scan_parameters,
+      <<type, interval::16-little, window::16-little, own_address_type, filter_policy>>
+    )
+  end
+
+  @doc """
+  Start or stop scanning.
+
+  `filter_duplicates` defaults to **false**, which is the opposite of what
+  most examples do, and it is deliberate. With duplicate filtering on, the
+  controller reports each address once and then goes quiet, so a device that
+  has been switched off or carried out of range stays on the screen forever
+  with nothing to say it is gone. With it off, every advertisement arrives,
+  which is what lets the list carry an age and an RSSI that mean something.
+
+  The cost is one event per advertising interval per device -- tens per
+  second in a busy room. That is a handful of small binaries to decode, and
+  cheaper than a list that lies.
+  """
+  @spec le_set_scan_enable(boolean(), boolean()) :: binary()
+  def le_set_scan_enable(enabled, filter_duplicates \\ false) do
+    command(:le_set_scan_enable, <<bool(enabled), bool(filter_duplicates)>>)
   end
 
   @doc "Start or stop advertising."
@@ -432,6 +492,24 @@ defmodule MayonnaiOS.Bluetooth.HCI do
      }}
   end
 
+  # The reports are interleaved, not columnar, and that is the trap.
+  #
+  # The specification writes this event's parameters as parallel arrays --
+  # Event_Type[i], Address_Type[i], Address[i], Data_Length[i], Data[i],
+  # RSSI[i] -- which reads as six arrays laid end to end. It is not: each
+  # report is a complete record and they follow one another. The reference
+  # for that reading is the kernel's own, `struct hci_ev_le_advertising_info`
+  # in `include/net/bluetooth/hci.h` -- type, bdaddr_type, bdaddr, length,
+  # data[] -- with the RSSI taken as the byte after the data, which is how
+  # the kernel's LE advertising report handler walks the buffer.
+  #
+  # Num_Reports is 0x01 on every controller anyone has met, so the columnar
+  # reading parses the common case correctly and falls apart only in a busy
+  # room -- which is the worst possible time to find out.
+  defp le_meta(@le_advertising_report, <<count, rest::binary>>) do
+    {:event, :le_advertising_report, %{reports: advertising_reports(rest, count, [])}}
+  end
+
   defp le_meta(
          @le_connection_update_complete,
          <<status, handle::16-little, interval::16-little, latency::16-little,
@@ -462,6 +540,44 @@ defmodule MayonnaiOS.Bluetooth.HCI do
   end
 
   defp le_meta(subevent, params), do: {:event, {:le_meta, subevent}, %{params: params}}
+
+  defp advertising_reports(_rest, 0, acc), do: Enum.reverse(acc)
+
+  defp advertising_reports(
+         <<event_type, address_type, peer::binary-6, length, data::binary-size(length),
+           rssi::signed-8, rest::binary>>,
+         count,
+         acc
+       ) do
+    report = %{
+      event_type: advertising_event_type(event_type),
+      address_type: address_type,
+      address: address(peer),
+      address_bytes: peer,
+      data: data,
+      # 127 is the specification's "not available", and it is a real value a
+      # controller sends. Reported as nil rather than as an absurdly strong
+      # signal, because +127 dBm sorted to the top of a list would be the
+      # loudest thing in the room.
+      rssi: if(rssi == 127, do: nil, else: rssi)
+    }
+
+    advertising_reports(rest, count - 1, [report | acc])
+  end
+
+  # A truncated or malformed run: keep the reports that did parse. The
+  # alternative is a function clause error inside the socket reader, which
+  # would take the whole stack down over one bad event.
+  defp advertising_reports(_rest, _count, acc), do: Enum.reverse(acc)
+
+  # ADV_IND and ADV_DIRECT_IND are the connectable ones; SCAN_RSP is the
+  # answer to an active scan and is where names usually live.
+  defp advertising_event_type(0x00), do: :adv_ind
+  defp advertising_event_type(0x01), do: :adv_direct_ind
+  defp advertising_event_type(0x02), do: :adv_scan_ind
+  defp advertising_event_type(0x03), do: :adv_nonconn_ind
+  defp advertising_event_type(0x04), do: :scan_rsp
+  defp advertising_event_type(other), do: other
 
   defp completed(<<>>, _count, acc), do: Enum.reverse(acc)
 

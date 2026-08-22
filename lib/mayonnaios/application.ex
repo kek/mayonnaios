@@ -26,7 +26,9 @@ defmodule MayonnaiOS.Application do
         [{Scenic, [Application.get_env(:mayonnaios, :viewport)]}]
       else
         []
-      end ++ [controller_sessions(), file_manager_sessions()] ++ target_children()
+      end ++
+        [controller_sessions(), file_manager_sessions(), pairing_sessions()] ++
+        target_children()
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
@@ -45,6 +47,15 @@ defmodule MayonnaiOS.Application do
   # launcher starts it from the process that owns the gamepad, so it must not
   # be linked to that process. Empty until someone opens it.
   defp file_manager_sessions, do: MayonnaiOS.FileManager.sessions()
+
+  # The same arrangement for the Bluetooth devices app, and a second empty
+  # DynamicSupervisor rather than a shared one on purpose: the two apps want
+  # hci0 and cannot both have it, and a single supervisor holding both would
+  # make that collision look like a supervision decision instead of what it
+  # is -- one radio. Starting the second while the first runs fails on
+  # `MayonnaiOS.Bluetooth.Host`'s registered name, which is a reason the panel
+  # can print.
+  defp pairing_sessions, do: MayonnaiOS.Pairing.sessions()
 
   # List all child processes to be supervised
   if Mix.target() == :host do
