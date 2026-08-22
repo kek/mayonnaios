@@ -111,14 +111,24 @@ defmodule MayonnaiOS.Application do
         # configfs at boot, so without this usb0 never appears.
         MayonnaiOS.USBGadget,
 
+        # Takes /root out of discard mode. Ahead of everything that writes to
+        # it, because the discards this stops are what the writes trigger --
+        # but behind the three above, which are there to make a failing boot
+        # diagnosable and should not be displaced by a repair.
+        MayonnaiOS.AppPartition.Startup,
+
         # Takes the mixer to 0% and mutes it, so the device starts silent by
         # decision rather than by inheritance. The hardware happens to power
         # on that way too -- DAC and Line Out switched off, no ALSA state to
         # restore -- which is exactly why it is worth setting.
         MayonnaiOS.Audio.Startup,
 
+        # The volume rocker. After Audio.Startup, because it starts believing
+        # the mixer is silent and that is the process that makes it so.
+        MayonnaiOS.Volume,
+
         # Collects battery, thermal, RTC, Bluetooth and mixer readings, and
-        # owns the volume keys and the headphone-jack switch. Before the
+        # reads the volume keys and the headphone-jack switch. Before the
         # Launcher, so the readout has data the moment the scene is opened.
         MayonnaiOS.Diagnostics,
 
@@ -138,7 +148,8 @@ defmodule MayonnaiOS.Application do
         MayonnaiOS.Web,
 
         # A launches the selected program, Menu goes back to the home screen,
-        # X opens the diagnostics readout, Select+Menu powers off.
+        # X opens the diagnostics readout, Select+Start turns the backlight
+        # off until any button is pressed, and Select+Menu powers off.
         MayonnaiOS.Launcher
       ] ++ boot_diagnostics()
     end

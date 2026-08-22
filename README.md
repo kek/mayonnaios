@@ -16,7 +16,7 @@ Hardware:
 - 640×480 panel
 - Mali-G31 MC1 GPU, via Panfrost and Mesa
 - Gamepad, volume keys and headphone-jack detection, through evdev
-- Audio out, speaker and headphones
+- Audio out, speaker and headphones, with the volume rocker moving the mixer
 - Battery, charge and discharge
 - Four thermal zones
 - RTL8821CS WiFi and Bluetooth
@@ -32,6 +32,10 @@ Software:
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
 - A web UI for uploading games from a phone
+- Sleep on Select+Start: the backlight goes off and any button brings it back.
+  Not the power button, which Linux cannot see on this board, and not suspend —
+  no button on the front of the device is wakeup-capable, so a real suspend
+  would look like a brick
 
 ## Building and flashing
 
@@ -383,6 +387,7 @@ the way any BEAM node is:
     iex> MayonnaiOS.Bundle.install(MayonnaiOS.Bundle.spec(:retroarch))
     iex> MayonnaiOS.Library.index()
     iex> MayonnaiOS.GamesCard.mounted?()
+    iex> MayonnaiOS.Volume.up()
     iex> MayonnaiOS.Audio.run()
 
 `Bundle.install/1` is how RetroArch itself gets onto the device, by the same
@@ -428,6 +433,7 @@ host-only path:
 | `c` | X — the diagnostics screen |
 | enter | Menu — back to the home screen |
 | backspace | Select |
+| `s` | Start — with backspace held, the sleep chord |
 | escape | Select+Menu, the power-off chord |
 
 `x` and `v` are sent too, as B and Y, and do nothing — the launcher binds

@@ -13,11 +13,11 @@ defmodule MayonnaiOS.Diagnostics do
   check becomes "press the button and watch the number change" rather than a
   session over the network.
 
-  ## Why it owns two input devices
+  ## Why it opens two input devices
 
   The gamepad is `event0` and `MayonnaiOS.Launcher` has it. `InputEvent`
-  delivers to whichever process opened the device, so the two devices nobody
-  else uses are opened here:
+  delivers to whichever process opened the device, so the two devices the
+  Launcher does not read are opened here:
 
       event1  gpio-keys-volume            KEY_VOLUMEDOWN 114, KEY_VOLUMEUP 115
       event2  H616 Audio Codec Headphone  SW_HEADPHONE_INSERT
@@ -25,6 +25,12 @@ defmodule MayonnaiOS.Diagnostics do
   Both codes were read from `/sys/firmware/devicetree/base/gpio-keys-volume/`
   on the device rather than assumed. They happen to be the obvious ones this
   time; the gamepad's were not, which is the reason for looking.
+
+  `MayonnaiOS.Volume` opens the rocker as well, and acts on it. Both readers
+  get every event -- evdev is only exclusive to a reader that asks for
+  `EVIOCGRAB`, and `InputEvent` does not unless told to -- so the press counts
+  here stay a plain observation of the hardware while the mixer is somebody
+  else's job. That split is deliberate; this process reports, it does not act.
 
   ## Switch state at startup
 

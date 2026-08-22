@@ -33,6 +33,7 @@ defmodule MayonnaiOS.Launcher do
       A             launch the selected program
       Menu          go back to the home screen
       X             switch between the menu and diagnostics
+      Select+Start  sleep -- backlight off, and any press wakes it
       Select+Menu   power off
 
   These are the buttons as printed on the shell. Two of the atoms above name
@@ -47,6 +48,31 @@ defmodule MayonnaiOS.Launcher do
   Select+Menu still powers off, so the chord is checked before the plain
   press. Power off is a chord rather than a button because it is not undoable
   and this is a handheld that gets carried in a pocket.
+
+  ## Sleep, and the press that wakes it
+
+  Select+Start turns the backlight off; `MayonnaiOS.Sleep` owns both the
+  mechanism and the choice of keys, including why it is not the power button
+  (Linux cannot see the power button on this board) and why it is not suspend.
+
+  What belongs here is the other half: while the panel is dark, **the next
+  press is consumed**. Waking is not a binding of its own -- any button wakes,
+  which is the only thing someone holding a dark handheld can be expected to
+  discover -- and the press that wakes must not also do what it usually does.
+  The failure that rule prevents is small and infuriating: pressing A to see
+  the screen again and having the launcher start a game.
+
+  The held set is cleared at the same time, so a key that was down when the
+  device woke cannot become half of a chord it was never meant to complete.
+
+  Three limits, all deliberate. The volume rocker does not wake it, because
+  `MayonnaiOS.Diagnostics` owns that input device and the Launcher never sees
+  its events. An app that has the buttons keeps them, sleep chord included,
+  for the same reason it keeps Menu -- see below. And a running *program* has
+  its own file descriptor on the pad: it goes on running with the panel dark,
+  and the press that wakes the device reaches it too. Only the launcher's own
+  bindings can be swallowed, which is the half that would have launched
+  something.
 
   This process owns `event0`, so everything on the gamepad is bound here even
   when it belongs to something else. `MayonnaiOS.Diagnostics` owns the
@@ -76,7 +102,7 @@ defmodule MayonnaiOS.Launcher do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.Programs
+  alias MayonnaiOS.{Input, Programs, Sleep}
 
   # The name the driver gives the gamepad, and the path it has always had.
   # `MayonnaiOS.Input` prefers the name and falls back to the path, because
@@ -116,7 +142,7 @@ defmodule MayonnaiOS.Launcher do
   # them to these atoms (deps/input_event types table). Unlike the face
   # buttons there is no name collision to fall into here -- but the codes came
   # off this board's device tree, which has already lied once about X and Y,
-  # so the catch-all `press/2` logs unhandled keys at debug: if up and down
+  # so the catch-all `bound/2` logs unhandled keys at debug: if up and down
   # turn out to be swapped, `log_attach_all(:debug)` on the device says so
   # immediately instead of leaving a menu that scrolls the wrong way.
   @up_button :btn_dpad_up
@@ -156,20 +182,52 @@ defmodule MayonnaiOS.Launcher do
   """
   def selected, do: GenServer.call(__MODULE__, :selected)
 
+  @doc """
+  Sleep and wake without pressing anything, and ask which it is.
+
+  `sleep/0` returns what the backlight write returned, so a console gets the
+  reason rather than a cheerful `:ok` over a lit screen. `asleep?/0` answers
+  from this process's own state, which is the thing that decides whether the
+  next button press is swallowed; `MayonnaiOS.Sleep.asleep?/0` answers from
+  sysfs, and the two can legitimately differ -- see that module.
+  """
+  def sleep, do: GenServer.call(__MODULE__, :sleep)
+  def wake, do: GenServer.call(__MODULE__, :wake)
+  def asleep?, do: GenServer.call(__MODULE__, :asleep?)
+
   @impl GenServer
   def init(opts) do
-    device = Keyword.get(opts, :device, MayonnaiOS.Input.find(@device_name, @device))
+    Enum.each(devices(opts), &watch/1)
+    {:ok, new_state()}
+  end
 
+  # The gamepad, plus whatever device the sleep key is on.
+  #
+  # Today those are the same node and `uniq` collapses them to one open, which
+  # is why this is not speculation: it is the same single device it has always
+  # been. The day `CONFIG_INPUT_AXP20X_PEK` is enabled, `Sleep.device/0`
+  # resolves to the `axp20x-pek` node instead and the launcher opens both --
+  # evdev is not a broadcast, so the only way to see `KEY_POWER` is to have
+  # that node open, and both devices deliver into the same `handle_info`.
+  #
+  # An explicit `:device` overrides the lot, which is how the tests and
+  # `MayonnaiOS.Dev` drive this with synthetic events.
+  defp devices(opts) do
+    case Keyword.get(opts, :device) do
+      nil -> Enum.uniq([Input.find(@device_name, @device), Sleep.device()])
+      device -> [device]
+    end
+  end
+
+  defp watch(device) do
     case open_device(device) do
       {:ok, _pid} ->
-        Logger.info("[launcher] watching #{device}: D-pad moves, A launches, Start stops")
-        {:ok, new_state()}
+        Logger.info("[launcher] watching #{device}")
 
       {:error, reason} ->
         # No buttons is not a reason to fail the boot -- the UI is still
         # useful, and this is the only thing that would be lost.
         Logger.warning("[launcher] #{device} unavailable: #{inspect(reason)}")
-        {:ok, new_state()}
     end
   end
 
@@ -192,7 +250,13 @@ defmodule MayonnaiOS.Launcher do
       running: nil,
       held: MapSet.new(),
       scene: :home,
-      selected: 0
+      selected: 0,
+      # Whether the backlight was turned off by the chord. Kept here rather
+      # than read back from sysfs on every event, because it is this process
+      # that has to decide whether to swallow a press and because the panel
+      # can be dark for reasons this process did not cause -- and the reading
+      # that matters is "did we turn it off", not "is it off".
+      asleep: false
     }
 
   @impl GenServer
@@ -210,8 +274,46 @@ defmodule MayonnaiOS.Launcher do
   def handle_call(:launch, _from, state), do: {:reply, :ok, do_launch(state)}
   def handle_call(:stop, _from, state), do: {:reply, :ok, do_stop(state)}
   def handle_call(:selected, _from, state), do: {:reply, state.selected, state}
+  def handle_call(:asleep?, _from, state), do: {:reply, state.asleep, state}
+
+  def handle_call(:sleep, _from, state) do
+    {result, state} = enter_sleep(state)
+    {:reply, result, state}
+  end
+
+  def handle_call(:wake, _from, state) do
+    {result, state} = wake_up(state)
+    {:reply, result, state}
+  end
 
   @impl GenServer
+  # Asleep: the panel is dark, and the next press is spent on turning it back
+  # on. First clause, before the app one, because "any button wakes it" has to
+  # be true of every button in every state -- someone holding a dark handheld
+  # has no way to find out which button is the right one.
+  #
+  # The press is swallowed rather than dispatched. Pressing A to see the
+  # screen again must not launch a game, and pressing Menu to see it must not
+  # stop the one that is running.
+  #
+  # Releases are still tracked, and only a press wakes: the chord that put the
+  # device to sleep is still held at that moment, and its release arriving a
+  # moment later must not wake the device straight back up.
+  def handle_info({:input_event, _device, events}, %{asleep: true} = state) do
+    if Enum.any?(events, &match?({:ev_key, _key, 1}, &1)) do
+      {_result, state} = wake_up(state)
+      {:noreply, state}
+    else
+      state =
+        Enum.reduce(events, state, fn
+          {:ev_key, key, 0}, acc -> release(acc, key)
+          _, acc -> acc
+        end)
+
+      {:noreply, state}
+    end
+  end
+
   # An app has the buttons: the launcher's own bindings are off and every
   # event is forwarded, Menu included. The app is free to ignore what it does
   # not want -- `MayonnaiOS.Controller.Report` drops Menu on the floor -- and
@@ -327,17 +429,55 @@ defmodule MayonnaiOS.Launcher do
     %{state | app: nil, running: nil}
   end
 
-  defp press(state, @launch_button), do: do_launch(state)
-  defp press(state, @diagnostics_button), do: toggle_scene(state)
-  defp press(state, @up_button), do: move(state, -1)
-  defp press(state, @down_button), do: move(state, +1)
+  # The sleep chord is tested before any single-key binding, for the reason
+  # the power-off chord is tested before Menu: a modifier that only works when
+  # the other key happens to be unbound is not a modifier, and the next thing
+  # someone does with `MayonnaiOS.Sleep`'s one-line binding is move it onto a
+  # key that *is* bound (`KEY_POWER` is not, but Select+X would be). Asking
+  # `Sleep` first means that keeps working instead of silently doing nothing.
+  defp press(state, key) do
+    if Sleep.trigger?(state.held, key) do
+      {_result, state} = enter_sleep(state)
+      state
+    else
+      bound(state, key)
+    end
+  end
+
+  # Entering sleep only counts if the backlight write landed. A dark-panel
+  # flag over a lit screen would swallow the next press for nothing, which is
+  # the same failure as not sleeping at all plus a button that does not work.
+  # `Sleep` has already logged why.
+  defp enter_sleep(state) do
+    case Sleep.sleep() do
+      :ok -> {:ok, %{state | asleep: true}}
+      {:error, reason} -> {{:error, reason}, state}
+    end
+  end
+
+  # Waking clears the flag whether or not the write landed, deliberately. If
+  # the backlight cannot be turned back on, more presses will not do it, and a
+  # device that keeps eating them is worse off than one with a dark panel and
+  # working buttons -- a game can still be started, and Select+Menu still
+  # powers it off. `Sleep` logs the failure and the console call returns it.
+  #
+  # The held set goes too: the press that woke the device was consumed, so it
+  # must not also count as the modifier half of a chord.
+  defp wake_up(state) do
+    {Sleep.wake(), %{state | asleep: false, held: MapSet.new()}}
+  end
+
+  defp bound(state, @launch_button), do: do_launch(state)
+  defp bound(state, @diagnostics_button), do: toggle_scene(state)
+  defp bound(state, @up_button), do: move(state, -1)
+  defp bound(state, @down_button), do: move(state, +1)
 
   # Menu: back to the home screen, or -- with Select held -- power off.
   #
   # The chord is checked first, so the modifier is not decorative: a bare
   # Menu must never be able to shut the device down, because it is the key
   # someone reaches for to get out of a game.
-  defp press(state, @home_button) do
+  defp bound(state, @home_button) do
     if MapSet.member?(state.held, @poweroff_modifier) do
       poweroff()
       state
@@ -346,7 +486,7 @@ defmodule MayonnaiOS.Launcher do
     end
   end
 
-  defp press(state, key) do
+  defp bound(state, key) do
     # Debug, not info: this fires for every unbound button on the pad. It
     # exists because the D-pad codes are inherited from the device tree and
     # this board's device tree has been wrong before -- if up and down feel
