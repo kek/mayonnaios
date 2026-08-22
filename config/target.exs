@@ -207,6 +207,13 @@ config :mayonnaios, :programs, [
     # the directory the symlinks actually go into, cannot drift from it, and
     # being last it wins over anything a bundle or an earlier run left behind.
     #
+    # That file now also carries `audio_sync = "false"`, which is a guard
+    # against a stalled codec freezing a game in `poll()` rather than a
+    # preference about audio. It is in this file rather than a bundle's for the
+    # same reason as the directory -- this one can be withdrawn -- and the
+    # withdrawal is a boot-time scrub of the player's own config. See that
+    # function.
+    #
     # The `|` never meets a shell: `Port.open/2` with `:spawn_executable` passes
     # argv straight through, so this is one argument containing a pipe rather
     # than two commands.
