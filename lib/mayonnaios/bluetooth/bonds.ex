@@ -23,11 +23,25 @@ defmodule MayonnaiOS.Bluetooth.Bonds do
 
   ## Why a term file and not a database
 
-  Two keys, sixteen bytes each, written when someone pairs. `:erlang.term_to_binary`
-  and a rename over the top is the whole implementation, and a rename is
-  atomic on ext4, so a power cut during a write leaves the previous file
-  rather than half of a new one -- which matters on a handheld that is turned
-  off by pulling the power.
+  Two keys, sixteen bytes each, written when someone pairs. `:erlang.term_to_binary`,
+  an fsync, and a rename over the top is the whole implementation.
+
+  ## The fsync is the whole point of the file
+
+  A rename being atomic says the file will not be half a new bond. It says
+  nothing about the bytes reaching the card, and on this device that is the
+  part that bites: there is no `sync` in the image -- not the binary, not a
+  busybox applet -- so anything written and left to the page cache is gone
+  after a power cut, which is how this handheld is switched off. That has
+  already eaten a set of ROMs once on this board.
+
+  So `write/1` opens the temporary file, writes, calls `:file.sync/1`, closes
+  and only then renames. The rename itself is not fsynced -- there is no
+  portable way to fsync a directory from Erlang -- so a power cut in the gap
+  between the sync and the rename leaves the *previous* file intact, which is
+  the same outcome as the write never having happened and costs one
+  re-pairing. Losing the new bond is survivable; writing a bond, reporting
+  success, and having it vanish is the failure this project keeps making.
 
   The file has no format version. When the shape here changes, a file that
   does not decode is treated as no bonds at all: re-pairing is a known, small
@@ -88,6 +102,18 @@ defmodule MayonnaiOS.Bluetooth.Bonds do
   @spec clear() :: :ok
   def clear, do: GenServer.call(__MODULE__, :clear)
 
+  @doc """
+  Forget one host, named by the peer address a `list/0` entry carries.
+
+  One at a time rather than only all at once, because the thing someone
+  actually wants to do is drop the laptop they were testing against and keep
+  the machine they play on. Returns `:ok` whether or not anything matched:
+  the panel re-reads the list after every press, so a bond that was already
+  gone is not an error to report, it is a row that is no longer there.
+  """
+  @spec forget({0..1, binary()}) :: :ok
+  def forget(peer), do: GenServer.call(__MODULE__, {:forget, peer})
+
   @impl true
   def init(_opts) do
     {:ok, %{bonds: read()}}
@@ -106,6 +132,17 @@ defmodule MayonnaiOS.Bluetooth.Bonds do
     # and pair again would otherwise leave a key nothing can ever use.
     bonds = [bond | Enum.reject(state.bonds, &(&1.peer == bond.peer))]
     write(bonds)
+    {:reply, :ok, %{state | bonds: bonds}}
+  end
+
+  def handle_call({:forget, peer}, _from, state) do
+    bonds = Enum.reject(state.bonds, &(&1.peer == peer))
+
+    # Only write when something changed. The file is on the writable partition
+    # and every write is an fsync; answering a press on a row that is already
+    # gone with a flash write is a small waste that would happen on repeat.
+    if bonds != state.bonds, do: write(bonds)
+
     {:reply, :ok, %{state | bonds: bonds}}
   end
 
@@ -142,12 +179,33 @@ defmodule MayonnaiOS.Bluetooth.Bonds do
     temporary = path <> ".new"
 
     with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(temporary, :erlang.term_to_binary(bonds)),
+         :ok <- durable_write(temporary, :erlang.term_to_binary(bonds)),
          :ok <- File.rename(temporary, path) do
       :ok
     else
       error ->
         Logger.error("[bonds] could not write #{path}: #{inspect(error)}")
+        error
+    end
+  end
+
+  # Write, fsync, close. `File.write/2` on its own is the version of this that
+  # looks right and loses the bond; see the moduledoc on why the sync is the
+  # only part of the durability story this device actually gets.
+  defp durable_write(path, contents) do
+    case :file.open(path, [:write, :binary, :raw]) do
+      {:ok, handle} ->
+        result =
+          with :ok <- :file.write(handle, contents) do
+            :file.sync(handle)
+          end
+
+        # Closed whatever happened. A leaked handle on the writable partition
+        # outlives the app and there is no lsof here to find it with.
+        :file.close(handle)
+        result
+
+      error ->
         error
     end
   end

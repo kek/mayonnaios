@@ -226,7 +226,17 @@ config :mayonnaios, :programs, [
   # It takes hci0 for as long as it runs, so it cannot be up at the same time
   # as anything else that wants the Bluetooth controller. That is why it is
   # here as a menu entry and not in the boot supervision tree.
-  %{name: "Bluetooth controller", app: MayonnaiOS.Controller}
+  %{name: "Bluetooth controller", app: MayonnaiOS.Controller},
+  # The other direction, and it takes hci0 for the same reason, so these two
+  # are mutually exclusive and the launcher's one-app-at-a-time rule is what
+  # enforces it.
+  #
+  # Named "devices" rather than "pairing" deliberately. What it does is list
+  # what is nearby and manage the pairings this device already has; it cannot
+  # connect headphones, because that is A2DP over BR/EDR and there is no
+  # BR/EDR host in this firmware. `MayonnaiOS.Pairing` has the full account,
+  # and the screen says it in the first line rather than in a footnote.
+  %{name: "Bluetooth devices", app: MayonnaiOS.Pairing}
 ]
 
 # The name a host shows in its pairing list, and the icon it draws next to it
