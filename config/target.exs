@@ -451,7 +451,8 @@ config :mayonnaios, autostart_ui: true
 #
 # This flag only gates the tone. The mixer itself is taken to 0% and muted at
 # boot by `MayonnaiOS.Audio.Startup` either way -- volume is something the
-# player asks for, not something the device assumes.
+# player asks for, not something the device assumes, and the rocker on the top
+# edge is how they ask: `MayonnaiOS.Volume` walks the mixer up from silence.
 config :mayonnaios, audio_test: true
 
 # Import target specific config. This must remain at the bottom
