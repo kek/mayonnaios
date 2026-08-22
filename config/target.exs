@@ -226,7 +226,19 @@ config :mayonnaios, :programs, [
   # It takes hci0 for as long as it runs, so it cannot be up at the same time
   # as anything else that wants the Bluetooth controller. That is why it is
   # here as a menu entry and not in the boot supervision tree.
-  %{name: "Bluetooth controller", app: MayonnaiOS.Controller}
+  %{name: "Bluetooth controller", app: MayonnaiOS.Controller},
+  # Also an app, and for a much duller reason than Bluetooth: it needs the
+  # buttons and the panel and nothing else. Reading a directory is a syscall,
+  # not a device, so there is nothing here for it to take away from anything
+  # else -- which is why, unlike the controller, two of these running at once
+  # would be harmless rather than a bug. It is still one entry and one process.
+  #
+  # It reaches only the roots `MayonnaiOS.Files` derives from the configuration
+  # below -- the ROM roots, the bundles, the cores, and /root -- and it builds
+  # every path from a root key plus checked names rather than from a string.
+  # See that module's moduledoc for what the boundary does and does not
+  # promise; the symlink caveat is the part worth reading.
+  %{name: "Files", app: MayonnaiOS.FileManager}
 ]
 
 # The name a host shows in its pairing list, and the icon it draws next to it

@@ -26,7 +26,7 @@ defmodule MayonnaiOS.Application do
         [{Scenic, [Application.get_env(:mayonnaios, :viewport)]}]
       else
         []
-      end ++ [controller_sessions()] ++ target_children()
+      end ++ [controller_sessions(), file_manager_sessions()] ++ target_children()
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
@@ -40,6 +40,11 @@ defmodule MayonnaiOS.Application do
   # laptop with the bind error rather than with "no such supervisor", which is
   # a much less interesting thing to be told.
   defp controller_sessions, do: MayonnaiOS.Controller.sessions()
+
+  # The same arrangement for the file manager, and for the same reason: the
+  # launcher starts it from the process that owns the gamepad, so it must not
+  # be linked to that process. Empty until someone opens it.
+  defp file_manager_sessions, do: MayonnaiOS.FileManager.sessions()
 
   # List all child processes to be supervised
   if Mix.target() == :host do
