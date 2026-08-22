@@ -11,7 +11,7 @@ defmodule MayonnaiOS.Bluetooth.GATTTest do
   # still be undiscoverable if a group-end handle is one short.
 
   setup do
-    %{db: HOGP.build("MayonnaiOS Controller")}
+    %{db: HOGP.build("Xbox Wireless Controller")}
   end
 
   defp ask(db, pdu), do: GATT.request(db, ATT.decode(pdu))
@@ -82,8 +82,10 @@ defmodule MayonnaiOS.Bluetooth.GATTTest do
 
       uuids = Enum.map(characteristics, fn {_handle, _props, _value, uuid} -> uuid end)
 
-      # HID Information, Report Map, Control Point, Protocol Mode, Report.
-      assert uuids == [0x2A4A, 0x2A4B, 0x2A4C, 0x2A4E, 0x2A4D]
+      # HID Information, Report Map, Control Point, Protocol Mode, then two
+      # Reports: the input report and the rumble output report, told apart by
+      # their Report Reference descriptors rather than by UUID.
+      assert uuids == [0x2A4A, 0x2A4B, 0x2A4C, 0x2A4E, 0x2A4D, 0x2A4D]
     end
 
     test "the report characteristic can notify and its value handle is the next one", %{db: db} do
@@ -125,7 +127,9 @@ defmodule MayonnaiOS.Bluetooth.GATTTest do
     end
 
     test "and readable once it is", %{db: db} do
-      db = %{db | encrypted: true, mtu: 247}
+      # The MTU has to clear the 283-byte descriptor plus the opcode, or the
+      # read comes back truncated at MTU - 1 and the rest is Read Blob's job.
+      db = %{db | encrypted: true, mtu: 517}
       handle = GATT.find_handle(db, 0x2A4B)
 
       {response, _db, _events} = ask(db, <<0x0A, handle::16-little>>)

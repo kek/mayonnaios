@@ -169,7 +169,7 @@ defmodule MayonnaiOS.Controller.AppTest do
     test "a press produces one report" do
       Pad.input([{:ev_key, :btn_b, 1}])
 
-      assert_receive {:report, <<_, 0x01, 0x00>>}
+      assert_receive {:report, <<_::binary-size(13), 0x01, 0x00, 0x00>>}
     end
 
     test "and a release produces another" do
@@ -177,7 +177,7 @@ defmodule MayonnaiOS.Controller.AppTest do
       assert_receive {:report, _}
 
       Pad.input([{:ev_key, :btn_b, 0}])
-      assert_receive {:report, <<_, 0x00, 0x00>>}
+      assert_receive {:report, <<_::binary-size(13), 0x00, 0x00, 0x00>>}
     end
 
     test "an event that changes nothing sends nothing" do
@@ -203,7 +203,17 @@ defmodule MayonnaiOS.Controller.AppTest do
         {:ev_key, :btn_b, 1}
       ])
 
-      assert_receive {:report, <<3, 0x01, 0x00>>}
+      assert_receive {:report, <<_::binary-size(12), 4, 0x01, 0x00, 0x00>>}
+      refute_receive {:report, _}, 50
+    end
+
+    test "the stick is a report too, and its noise is not" do
+      Pad.input([{:ev_abs, :abs_x, 4096}])
+      assert_receive {:report, <<0xFF, 0xFF, _::binary>>}
+
+      # A wobble inside one quantisation step encodes to the same bytes, and
+      # the same bytes are not sent twice.
+      Pad.input([{:ev_abs, :abs_x, 4090}])
       refute_receive {:report, _}, 50
     end
 

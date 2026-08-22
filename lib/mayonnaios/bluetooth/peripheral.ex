@@ -48,7 +48,11 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
 
   alias MayonnaiOS.Bluetooth.{ATT, Advertising, Bonds, GATT, HCI, HOGP, Host, L2CAP, SMP}
 
-  @default_name "MayonnaiOS Controller"
+  # The real pad's name, because the name is part of the identity: it is the
+  # first thing a host shows and some third-party drivers match on it. See
+  # `MayonnaiOS.Bluetooth.HOGP` -- the numbers, the name and the report
+  # format change together or not at all.
+  @default_name "Xbox Wireless Controller"
 
   defstruct name: @default_name,
             address: nil,

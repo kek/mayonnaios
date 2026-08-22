@@ -54,8 +54,8 @@ defmodule MayonnaiOS.Bluetooth.AdvertisingTest do
     test "carries the whole name when it fits" do
       types = Advertising.types()
 
-      assert [{type, "MayonnaiOS Controller"}] =
-               Advertising.decode(Advertising.scan_response("MayonnaiOS Controller"))
+      assert [{type, "Xbox Wireless Controller"}] =
+               Advertising.decode(Advertising.scan_response("Xbox Wireless Controller"))
 
       assert type == types.complete_name
     end

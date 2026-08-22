@@ -406,7 +406,7 @@ defmodule MayonnaiOS.StatusBarTest do
 
   defp controller_status do
     %{
-      name: "MayonnaiOS Controller",
+      name: "Xbox Wireless Controller",
       address: "00:11:22:33:44:55",
       advertising: true,
       connected: true,

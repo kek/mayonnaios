@@ -182,6 +182,13 @@ defmodule MayonnaiOS.Launcher do
   # it. See `MayonnaiOS.Input`.
   @device_name "gpio-keys-gamepad"
 
+  # The analog stick. Opened for the same reason as the power key -- evdev is
+  # not a broadcast, so a device nobody holds open is a device whose events
+  # nobody sees. The launcher itself does nothing with `ev_abs`: its own
+  # handlers ignore them, and the one consumer is the controller app, which
+  # gets them through the same forwarding as everything else.
+  @stick_name "adc-joystick"
+
   # See the moduledoc: this is physical A, not the atom's name.
   @launch_button :btn_b
 
@@ -309,11 +316,12 @@ defmodule MayonnaiOS.Launcher do
     {:ok, new_state(opts)}
   end
 
-  # The gamepad, plus whatever device the sleep key is on. Two nodes now that
-  # `CONFIG_INPUT_AXP20X_PEK` is enabled: evdev is not a broadcast, so the only
-  # way to see `KEY_POWER` is to have `axp20x-pek` open, and both devices
-  # deliver into the same `handle_info`. `uniq` because a binding back on the
-  # pad would make them the same node again, as they were until this firmware.
+  # The gamepad, the analog stick, and whatever device the sleep key is on.
+  # Three nodes: evdev is not a broadcast, so the only way to see `KEY_POWER`
+  # is to have `axp20x-pek` open and the only way to see the stick is to have
+  # `adc-joystick` open, and all of them deliver into the same `handle_info`.
+  # `uniq` because a binding back on the pad would fold two of these into one
+  # node again, as the power key was until this firmware.
   #
   # `nil` is dropped rather than opened. A device that is not there by name is
   # not there, and the alternative -- a number -- is a different device that
@@ -325,7 +333,12 @@ defmodule MayonnaiOS.Launcher do
   defp devices(opts) do
     case Keyword.get(opts, :device) do
       nil ->
-        case Enum.uniq(Enum.reject([Input.find(@device_name), Sleep.device()], &is_nil/1)) do
+        case Enum.uniq(
+               Enum.reject(
+                 [Input.find(@device_name), Input.find(@stick_name), Sleep.device()],
+                 &is_nil/1
+               )
+             ) do
           [] ->
             # A laptop, where this is ordinary and the synthetic-event path is
             # the point -- and a device whose kernel lost both nodes, where it
