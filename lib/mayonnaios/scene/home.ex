@@ -15,7 +15,7 @@ defmodule MayonnaiOS.Scene.Home do
   ## Where the selection comes from
 
   This scene renders the cursor, it does not own it. `MayonnaiOS.Launcher`
-  owns `event0` and therefore the D-pad, and it passes the selected index in
+  owns the gamepad and therefore the D-pad, and it passes the selected index in
   as the scene's start argument. That has to be the direction of travel:
   `Scenic.ViewPort.set_root/3` terminates this process and starts a new one on
   every repaint, so anything this scene remembered would be lost the moment a

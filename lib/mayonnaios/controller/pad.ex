@@ -2,10 +2,10 @@ defmodule MayonnaiOS.Controller.Pad do
   @moduledoc """
   Holds what is currently pressed, and tells the host when that changes.
 
-  The gamepad is read by `MayonnaiOS.Launcher`, which owns `event0` and always
-  has. This process does not open the device: the launcher forwards whole
-  evdev reports here while controller mode is on. One reader, one owner, and
-  the buttons keep working exactly as they did -- which also means the
+  The gamepad is read by `MayonnaiOS.Launcher`, which owns `gpio-keys-gamepad`
+  and always has. This process does not open the device: the launcher forwards
+  whole evdev reports here while controller mode is on. One reader, one owner,
+  and the buttons keep working exactly as they did -- which also means the
   keyboard bridge in `MayonnaiOS.Keyboard` drives the controller too, so the
   whole path can be exercised from a laptop with no handheld attached.
 

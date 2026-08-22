@@ -33,12 +33,14 @@ defmodule MayonnaiOS.Controller.Report do
 
   No axes are declared, and that is a statement about the kernel rather than
   about the hardware. This shell *does* have an analog stick -- unlike the
-  RG35XX Plus whose device tree this board's was extended from -- but nothing
-  in this firmware can see it: no `adc-joystick` driver, no joystick node, so
-  no `ev_abs` on any input device. `InputEvent.enumerate/0` on the device
-  shows `event0` offering fifteen keys and nothing else. Declaring axes that
-  no input can ever move would put a dead stick in front of every host. The
-  README's roadmap has what enabling it would take.
+  RG35XX Plus whose device tree this board's was extended from -- and Linux
+  can now see it: `adc-joystick` is built, the node is in the device tree, and
+  `InputEvent.enumerate/0` on firmware `3cc86f59` shows it with `abs_x` and
+  `abs_y` over 0..4096. This descriptor still declares no axes because
+  *nothing in this firmware reads that device*, and axes fed by nothing would
+  put a dead stick in front of every host just as surely as axes with no
+  driver behind them. What is missing is now on this side; the README's
+  roadmap has it.
 
   ## The D-pad used to be declared twice, and that was the bug
 
@@ -119,8 +121,8 @@ defmodule MayonnaiOS.Controller.Report do
 
   ## What is verified and what is not
 
-  The kernel's own capability list settles most of it. `event0` declares
-  exactly fifteen keys:
+  The kernel's own capability list settles most of it. `gpio-keys-gamepad`
+  declares exactly fifteen keys:
 
       btn_a btn_b btn_x btn_y btn_tl btn_tr btn_tl2 btn_tr2
       btn_select btn_start btn_mode

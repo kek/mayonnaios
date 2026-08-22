@@ -32,10 +32,10 @@ Software:
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
 - A web UI for uploading games from a phone
-- Sleep on Select+Start: the backlight goes off and any button brings it back.
-  Not the power button, which Linux cannot see on this board, and not suspend —
-  no button on the front of the device is wakeup-capable, so a real suspend
-  would look like a brick
+- Sleep on the power button: the backlight goes off and any button brings it
+  back. Not suspend — only `s2idle` exists here, it aborts inside rtw88's SDIO
+  suspend handler, and with no cpuidle driver the cores are in a bare WFI
+  either way, so a successful one would save almost nothing
 
 ## Building and flashing
 
@@ -466,12 +466,14 @@ host-only path:
 | `c` | X — the diagnostics screen |
 | enter | Menu — back to the home screen |
 | backspace | Select |
-| `s` | Start — with backspace held, the sleep chord |
+| `p` | the power button — sleep, and any key wakes it |
 | escape | Select+Menu, the power-off chord |
 
-`x` and `v` are sent too, as B and Y, and do nothing — the launcher binds
-neither. None of this is conditional on the target, so a USB keyboard plugged
-into the handheld gets the same bindings.
+`x`, `v` and `s` are sent too, as B, Y and Start, and do nothing — the launcher
+binds none of them. None of this is conditional on the target, so a USB
+keyboard plugged into the handheld gets the same bindings. `p` is the one key
+that is not a pad button: it sends `KEY_POWER`, which on the device arrives
+from `axp20x-pek` rather than from the gamepad.
 
 Rendering on the host goes through `scenic_driver_local`'s cairo-gtk backend,
 which wants `gtk+3`, `cairo`, `pkgconf` and, on macOS, XQuartz. On the device
@@ -483,27 +485,23 @@ a scratch directory and start `MayonnaiOS.Web` under a supervisor.
 
 ## Not done yet
 
-**The analog stick.** The shell has one and nothing in this firmware can see
-it. Linux is not being told it exists: the `adc-joystick` driver is not built
-(`CONFIG_JOYSTICK_ADC`), there is no joystick node in the device tree, and no
-ADC driver for the H700 for such a node to read. Confirmed on the device
-rather than inferred: `InputEvent.enumerate/0` shows three input devices —
-fifteen gamepad keys, two volume keys, the headphone switch — and no `ev_abs`
-anywhere. No amount of work in this repository changes that; it is a device
-tree node and two kernel options in
-[`nerves_system_rg40xxv`](https://github.com/kek/nerves_system_rg40xxv).
+**The analog stick.** Linux can see it now and nothing in this firmware
+reads it. The BSP side is done — the `adc-joystick` driver is built, the node
+is in the device tree, and there is an ADC driver behind it — which is a
+change from what this section used to say, and the correction is worth
+recording: it claimed the driver was absent and the node did not exist, and it
+went on claiming it after both had shipped, because nothing in this repository
+looks at the stick and so nothing here noticed. Read off the device on
+firmware `3cc86f59`:
 
-The reason it was missed is legible in the device tree itself. This board's
-DTS extends mainline's `sun50i-h700-anbernic-rg35xx-plus.dts`, and the RG35XX
-Plus has no stick — so the inherited description is complete and correct for
-a device that is not quite this one. Everything the two boards share came
-across; the one control they do not share is the one that is missing.
+    /dev/input/event1  adc-joystick  ev_abs: [abs_x: 0..4096, abs_y: 0..4096]
 
-Once it is there, the work on this side is small and known. The Bluetooth
-report descriptor gains X and Y axes fed by `ABS_X` and `ABS_Y`, taking the
-report from three bytes back to five, and whichever input device the driver
-creates has to be read alongside `event0` — `MayonnaiOS.Launcher` owns that
-one today and would own the stick's too, forwarding both to the app.
+Live values, centred at about 2050 on both axes. What is left is on this side.
+The Bluetooth report descriptor gains X and Y axes fed by `ABS_X` and `ABS_Y`,
+taking the report from three bytes back to five, and the `adc-joystick` node
+has to be opened alongside the gamepad — `MayonnaiOS.Launcher` already opens
+two devices for exactly this reason (the pad and the power key) and would open
+a third, forwarding all of it to the app.
 
 Worth being precise about why those axes are correct when the ones removed in
 the commit before this were a bug: the axes that had to go were the *D-pad*
