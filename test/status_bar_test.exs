@@ -172,7 +172,14 @@ defmodule MayonnaiOS.StatusBarTest do
       # for -- the failure this project keeps repeating is a plausible value
       # that never moves, and the bar is the most believed place on the panel
       # to repeat it.
-      stale = StatusBar.fields(reading, now: reading.battery.at + 6_001)
+      #
+      # Measured from the *newest* of the two stamps. The battery and the WiFi
+      # are stamped separately as the reader takes them, so on a loaded
+      # machine the WiFi stamp can be a millisecond or two later than the
+      # battery's -- and 6_001 past the battery's would then be inside the
+      # window for the WiFi, which asserts below that it is not.
+      taken = max(reading.battery.at, reading.wifi.at)
+      stale = StatusBar.fields(reading, now: taken + 6_001)
 
       assert stale.battery.percent == "--"
       assert stale.battery.word == "no reading"
@@ -271,7 +278,11 @@ defmodule MayonnaiOS.StatusBarTest do
       # has historically been wrong: a scene that builds a graph in a test and
       # crashes on the device is exactly the shape of "CI green on a GPU-less
       # image".
-      {:ok, _scenic} = Scenic.start_link([])
+      # Under the test supervisor, not linked to the test process: `test/
+      # panel_test.exs` starts Scenic too, and a `:scenic` left to die on its
+      # own outlives the test that started it -- so whichever of the two ran
+      # second used to race a supervisor that was already shutting down.
+      start_supervised!({Scenic, []})
 
       {:ok, viewport} =
         Scenic.ViewPort.start(%{

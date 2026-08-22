@@ -21,6 +21,21 @@ defmodule MayonnaiOS.Scene.StatusBar do
   there is no status bar, and that is a property of the arrangement rather
   than a gap to be filled later.
 
+  "There is no status bar" has to mean no *graph push*, not merely no visible
+  bar, and that is what `MayonnaiOS.Panel` is for. This component is the one
+  thing on the panel that changes without anybody pressing anything -- the
+  clock turns over, the battery percent moves, a reading goes quiet -- so it
+  is also the one thing that would, once a minute, hand Scenic a changed
+  graph and have it write `/dev/fb0` underneath a running game. On this SoC
+  that write hangs the board. It cost a device hang on the first SNES game
+  launched after the bar shipped: loading the core survived only because it
+  happened inside the same clock minute.
+
+  Pausing `MayonnaiOS.Status` would not have been the fix. A reading going
+  stale during a game is itself a change -- to the `no reading` form -- and
+  the `:tick` below would draw it. The thing that must not happen is the
+  push.
+
   ## Nothing is drawn from a reading that has gone quiet
 
   `MayonnaiOS.Status` stamps every reading with the time it was taken. Once a
@@ -57,7 +72,7 @@ defmodule MayonnaiOS.Scene.StatusBar do
 
   use Scenic.Component, has_children: false
 
-  alias MayonnaiOS.{Power, Status}
+  alias MayonnaiOS.{Panel, Power, Status}
   alias Scenic.Assets.Static
   alias Scenic.Graph
 
@@ -181,13 +196,27 @@ defmodule MayonnaiOS.Scene.StatusBar do
     Enum.any?([:battery, :wifi], &(fresh(reading, &1, now) == :stale))
   end
 
+  # Two reasons not to draw, and they are different reasons.
+  #
+  # Nothing changed: the ordinary case, once a second, and the whole point of
+  # keeping `drawn` -- a graph push that would produce the same pixels is a
+  # framebuffer write for nothing.
+  #
+  # The panel is not ours: an external program owns the display, and a write
+  # into it hangs the board. `MayonnaiOS.Panel.draw/2` is the one place that
+  # knows, and it leaves `drawn` alone, so this bar still has a difference to
+  # notice if it outlives the hold.
+  #
+  # The order matters only for cost. Asking `Panel` is a `:persistent_term`
+  # read, so it is cheap enough to ask before building anything, and asking
+  # first means a bar under a running game does no work at all.
   defp render(scene) do
     fields = fields(scene.assigns.reading)
 
     if fields == scene.assigns.drawn do
       scene
     else
-      scene |> assign(drawn: fields) |> push_graph(graph(fields))
+      scene |> assign(drawn: fields) |> Panel.draw(graph(fields))
     end
   end
 

@@ -27,6 +27,28 @@ defmodule MayonnaiOS.Launcher do
   program exits the panel still shows whatever that program left there. The
   viewport has to be told to repaint; `Scenic.ViewPort.set_root/3` does it.
 
+  ## Taking the screen away, which is the harder half
+
+  The sentence above is also a promise this module has to keep: *while the
+  program runs, nothing in this VM may change a graph.* The scene is left
+  alive and simply stops changing, which is why there is no compositor and no
+  bar over a game -- and why the panel belongs to the program until it exits.
+
+  Leaving the scene alive is not the same as leaving it quiet. Two things in
+  this firmware draw on their own clock: `MayonnaiOS.Scene.StatusBar`, whose
+  clock turns over once a minute on every screen, and
+  `MayonnaiOS.Scene.Diagnostics`, which refreshes once a second. Either one
+  writing `/dev/fb0` while RetroArch holds DRM master hangs this board -- it
+  did, on the first SNES game launched after the bar shipped.
+
+  So "a program owns the panel" is a fact rather than an implication, and it
+  lives in `MayonnaiOS.Panel`. This module is its only writer: it holds
+  before `Port.open/2` and releases when the program is reaped, which is the
+  same pair of moments that already bracket the handover. Everything that
+  draws consults it. And `set_root/2` below refuses while it is held, because
+  re-rooting the viewport is itself a write -- pressing X during a game would
+  otherwise paint the diagnostics screen into a framebuffer the game owns.
+
   ## The full set of bindings
 
       D-pad up/down move the menu cursor
@@ -102,7 +124,7 @@ defmodule MayonnaiOS.Launcher do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.{Input, Programs, Sleep}
+  alias MayonnaiOS.{Input, Panel, Programs, Sleep}
 
   # The name the driver gives the gamepad, and the path it has always had.
   # `MayonnaiOS.Input` prefers the name and falls back to the path, because
@@ -197,6 +219,13 @@ defmodule MayonnaiOS.Launcher do
 
   @impl GenServer
   def init(opts) do
+    # Nothing is running yet, whatever a leftover term says. The panel hold
+    # lives in the VM rather than in a process, so this is the one thing that
+    # clears a hold whose program died with the launcher that started it --
+    # without it, a crash during a game would leave the panel frozen for
+    # good, with every scene politely refusing to draw.
+    Panel.release()
+
     Enum.each(devices(opts), &watch/1)
     {:ok, new_state()}
   end
@@ -365,6 +394,11 @@ defmodule MayonnaiOS.Launcher do
   # and a log line that names the wrong binary is worse than none.
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     Logger.info("[launcher] #{name_of(state.running)} exited (#{status})")
+
+    # Released before the repaint, and in that order: the repaint *is* a write
+    # to the framebuffer, and it is only allowed because the program that
+    # owned it is gone. This is the moment the display comes back.
+    Panel.release()
     repaint(state)
     {:noreply, %{state | port: nil, running: nil}}
   end
@@ -509,6 +543,12 @@ defmodule MayonnaiOS.Launcher do
     # not drawn at all, so a repaint there would be pure cost. The cursor
     # still moves in both cases; only the redraw waits.
     #
+    # The program half of that is now also enforced one level down --
+    # `set_root/2` refuses while `MayonnaiOS.Panel` is held, which is what
+    # catches the buttons this clause does not. It stays here because the
+    # diagnostics half is this function's own business and because a guard
+    # that says why it exists is worth more than one line saved.
+    #
     # And only when the cursor actually moved. `set_root/3` is not a redraw:
     # it stops the running scene process and starts a new one. At the ends of
     # the list -- and with the single-entry list this ships with, on every
@@ -623,6 +663,12 @@ defmodule MayonnaiOS.Launcher do
   defp start_program(program, state) do
     Logger.info("[launcher] launching #{Enum.join([program.path | program.args], " ")}")
 
+    # The panel is the program's from here until it is reaped. Taken before
+    # the spawn rather than after it, so there is no window in which the
+    # program has the display and this VM still thinks it may draw -- and
+    # before the udev start below, which is a daemon and takes time.
+    Panel.hold(program.name)
+
     # Programs that read input through udev need the daemon running and the
     # input devices in its database first. Nothing in this application does --
     # InputEvent reads evdev directly -- but RetroArch has no other way to see
@@ -661,6 +707,12 @@ defmodule MayonnaiOS.Launcher do
     rescue
       e ->
         Logger.warning("[launcher] #{program.path} would not start: #{Exception.message(e)}")
+
+        # Nothing was spawned, so nothing owns the panel. Without this a
+        # mistyped path would leave the UI unable to draw with no program on
+        # screen to explain why -- the worst failure in this file, because it
+        # looks exactly like a dead device.
+        Panel.release()
         state
     end
   end
@@ -678,6 +730,10 @@ defmodule MayonnaiOS.Launcher do
     _ = try do: Port.close(port), rescue: (_ -> :ok)
 
     Logger.info("[launcher] stopped #{name_of(state.running)}")
+
+    # Closing the port means no `:exit_status` message will arrive, so this is
+    # the only place the hold can be lifted on the Menu-out-of-a-game path.
+    Panel.release()
     repaint(state)
     %{state | port: nil, running: nil}
   end
@@ -706,6 +762,18 @@ defmodule MayonnaiOS.Launcher do
 
   defp set_root(nil, _param), do: :ok
 
+  # Re-rooting the viewport is a repaint of the whole panel, so it is exactly
+  # what must not happen while a program holds the display. Two buttons reach
+  # here during a game: X, which flips to the diagnostics screen, and a D-pad
+  # press, which `move/2` already guards for the same reason.
+  #
+  # The state still moves -- the scene flips, the cursor moves -- and only the
+  # write waits. `repaint/1` on the way out is what puts whichever screen that
+  # left us on back on the panel, and by then the hold has been released.
+  defp set_root(scene, param) do
+    if Panel.held?(), do: :ok, else: do_set_root(scene, param)
+  end
+
   # Repainting must never take the Launcher down when there is no UI running.
   # Scenic.ViewPort.info/1 is a bare GenServer.call, so on a missing viewport
   # it *exits* rather than returning an error -- the `case` this used to do
@@ -717,7 +785,7 @@ defmodule MayonnaiOS.Launcher do
   # That matters beyond the tests: Scenic is deliberately not started at boot
   # (see MayonnaiOS), so on a device where start_ui/0 has not been called yet,
   # one button press would have crashed the process that owns the buttons.
-  defp set_root(scene, param) do
+  defp do_set_root(scene, param) do
     with pid when is_pid(pid) <- Process.whereis(viewport_name()),
          {:ok, vp} <- Scenic.ViewPort.info(pid) do
       Scenic.ViewPort.set_root(vp, scene, param)

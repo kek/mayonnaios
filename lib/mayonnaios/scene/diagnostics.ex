@@ -15,12 +15,25 @@ defmodule MayonnaiOS.Scene.Diagnostics do
 
   Rows marked with a bullet are waiting on a person. Press the button, pull
   the cable, and watch the row turn.
+
+  ## Once a second, unless a program owns the panel
+
+  This is the only screen in this firmware that redraws itself on a clock
+  while the launcher may have handed the display to somebody else. Press X
+  during a game, or start a game from this screen, and the scene stays alive
+  with its one-second refresh running: every refresh is a changed graph, and
+  Scenic writing `/dev/fb0` under a program that holds DRM hangs this board.
+
+  So the refresh goes through `MayonnaiOS.Panel.draw/2` rather than
+  `push_graph/2`. The timer keeps running and the snapshot keeps being taken;
+  only the write waits. The launcher repaints on the way back, so the screen
+  is current again a frame after the program exits.
   """
 
   use Scenic.Scene
 
   alias Scenic.Graph
-  alias MayonnaiOS.{Audio, Diagnostics}
+  alias MayonnaiOS.{Audio, Diagnostics, Panel}
   alias MayonnaiOS.Scene.StatusBar
   import Scenic.Primitives
 
@@ -52,11 +65,11 @@ defmodule MayonnaiOS.Scene.Diagnostics do
   @impl Scenic.Scene
   def init(scene, _param, _opts) do
     :timer.send_interval(@refresh_ms, :refresh)
-    {:ok, push_graph(scene, graph(snapshot()))}
+    {:ok, Panel.draw(scene, graph(snapshot()))}
   end
 
   @impl GenServer
-  def handle_info(:refresh, scene), do: {:noreply, push_graph(scene, graph(snapshot()))}
+  def handle_info(:refresh, scene), do: {:noreply, Panel.draw(scene, graph(snapshot()))}
   def handle_info(_msg, scene), do: {:noreply, scene}
 
   # The scene must survive the collector not running -- on the host it never
