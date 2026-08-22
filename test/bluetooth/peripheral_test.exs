@@ -11,52 +11,15 @@ defmodule MayonnaiOS.Bluetooth.PeripheralTest do
   # under it -- a process registered under the name the real one uses -- and
   # plays a whole central: connect, discover, pair, subscribe, press a button.
   #
-  # What that buys is the part that is otherwise only testable on the device
-  # with a Windows machine in the other hand. What it does not prove is that
-  # the controller behaves as the fake one does; the fake answers every
-  # command with success, and the real one has opinions.
+  # The fake itself lives in `test/support/fake_controller.exs`, because
+  # `MayonnaiOS.Bluetooth.ScannerTest` needs exactly the same seam and two
+  # doubles that drift apart are worse than one that is slightly more general
+  # than either caller.
+  alias MayonnaiOS.Bluetooth.FakeController
 
   @handle 0x0040
   @central {0x01, <<0xA6, 0xA5, 0xA4, 0xA3, 0xA2, 0xA1>>}
   @peripheral_address <<0xB6, 0xB5, 0xB4, 0xB3, 0xB2, 0xB1>>
-
-  # A controller that says yes to everything and forwards what it is asked to
-  # transmit to the test process.
-  defmodule FakeController do
-    use GenServer
-
-    def start_link(test),
-      do: GenServer.start_link(__MODULE__, test, name: MayonnaiOS.Bluetooth.Host)
-
-    @impl true
-    def init(test), do: {:ok, %{test: test, commands: []}}
-
-    @impl true
-    def handle_call({:attach, _pid}, _from, state), do: {:reply, :ok, state}
-
-    def handle_call(
-          {:command, <<0x01, opcode::16-little, _len, params::binary>>, _t},
-          _from,
-          state
-        ) do
-      send(state.test, {:command, opcode, params})
-      {:reply, {:ok, return_params(opcode)}, %{state | commands: [opcode | state.commands]}}
-    end
-
-    def handle_call({:acl, packets}, _from, state) do
-      send(state.test, {:acl, packets})
-      {:reply, :ok, state}
-    end
-
-    def handle_call({:buffers, _length, _count}, _from, state), do: {:reply, :ok, state}
-    def handle_call(:packet_length, _from, state), do: {:reply, 27, state}
-
-    # LE Read Buffer Size: four packets of 27 bytes, which is a realistic
-    # answer and small enough that a report descriptor read has to fragment.
-    defp return_params(0x2002), do: <<27::16-little, 4>>
-    defp return_params(0x1009), do: <<0xB6, 0xB5, 0xB4, 0xB3, 0xB2, 0xB1>>
-    defp return_params(_other), do: <<>>
-  end
 
   setup do
     start_supervised!({FakeController, self()})
