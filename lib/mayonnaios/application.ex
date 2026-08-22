@@ -96,8 +96,12 @@ defmodule MayonnaiOS.Application do
         # restore -- which is exactly why it is worth setting.
         MayonnaiOS.Audio.Startup,
 
+        # The volume rocker. After Audio.Startup, because it starts believing
+        # the mixer is silent and that is the process that makes it so.
+        MayonnaiOS.Volume,
+
         # Collects battery, thermal, RTC, Bluetooth and mixer readings, and
-        # owns the volume keys and the headphone-jack switch. Before the
+        # reads the volume keys and the headphone-jack switch. Before the
         # Launcher, so the readout has data the moment the scene is opened.
         MayonnaiOS.Diagnostics,
 
