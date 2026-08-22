@@ -73,12 +73,29 @@ defmodule MayonnaiOS.Volume do
   (`repeat_delay`/`repeat_period`, an `EVIOCSREP` on the shared fd) if it
   turns out to be wanted, and that would change what Diagnostics sees too.
 
-  Level 0 is silence *and* muted, which is the state `MayonnaiOS.Audio.Startup`
-  leaves at boot -- so this process starts believing the mixer, rather than
-  asserting anything over it. Volume up from there unswitches the outputs on
-  the way to level 1; volume down to 0 switches them off again. A rocker whose
-  first press raises a number behind a closed switch would look exactly like
-  one that is not wired up.
+  Level 0 is silence and nothing else: the `DAC` at 0%, with the output path
+  still switched on. That is the state `MayonnaiOS.Audio.Startup` leaves at
+  boot, so this process starts believing the mixer rather than asserting
+  anything over it.
+
+  Level 0 used to mean muted as well, and that was a bug with a much larger
+  blast radius than a volume control has any business having. The switches
+  are the route to the sink, ALSA powers the DAC only when the route is
+  complete, so closing them makes playback *impossible* rather than
+  inaudible: a write to the PCM returns `EIO`, and a program that waits for
+  buffer space instead waits in `poll()` for ever.
+
+  The device was found demonstrating exactly that -- a game frozen mid-play,
+  the ring buffer holding `[volume] level 0/10 (0%)` and the PCM's `hw_ptr`
+  stopping in the same second. The rocker had walked down to the bottom of its
+  travel, which is the one thing a volume control must always be allowed to
+  do. `MayonnaiOS.Audio` has the measurements; the part that belongs here is
+  that this process no longer has a level that can take the audio path away
+  from whatever is playing.
+
+  Which leaves one notion of silence in one place. `Audio.disable_output/1`
+  closes the path and is not a level, not the boot state, and not reachable
+  from these two keys.
 
   ## No on-screen indicator, yet
 
@@ -139,10 +156,16 @@ defmodule MayonnaiOS.Volume do
         Logger.warning("[volume] #{device} unavailable: #{inspect(reason)}")
     end
 
-    # Silence, because that is what `MayonnaiOS.Audio.Startup` has just set
-    # and what the hardware powers on as. Nothing is written here: the boot
-    # state is already correct, and re-asserting it would make this process
-    # the second thing that decides how loud a freshly booted device is.
+    # Silence, because that is what `MayonnaiOS.Audio.Startup` has just set.
+    # Nothing is written here: the boot state is already correct, and
+    # re-asserting it would make this process the second thing that decides
+    # how loud a freshly booted device is.
+    #
+    # Note that this is no longer also what the hardware powers on as. The
+    # hardware comes up with the output path closed and `Startup` opens it, so
+    # believing the mixer here is believing `Startup` -- and if `Startup`
+    # failed, its warning is the thing that says so. Writing a level from here
+    # to be sure would hide that.
     {:ok, %{level: Keyword.get(opts, :level, 0), mixer: Keyword.get(opts, :mixer, Audio.Amixer)}}
   end
 

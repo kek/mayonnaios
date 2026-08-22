@@ -9,9 +9,14 @@ defmodule MayonnaiOS.VolumeTest do
   # There is no ALSA on the machine these tests run on, so the mixer is a
   # module that records what it was asked to do. That is the whole seam:
   # everything that can be wrong about volume without the hardware saying so
-  # -- the ladder, the clamping, whether raising from silence also unswitches
-  # the outputs, which control gets named -- is arithmetic and argument lists,
-  # and both are readable from here.
+  # -- the ladder, the clamping, whether any level closes the route to the
+  # sink, which control gets named -- is arithmetic and argument lists, and
+  # both are readable from here.
+  #
+  # That middle one is the reason this file grew: the argument list `["0%",
+  # "mute"]` and the argument list `["0%", "unmute"]` are the difference
+  # between a quiet handheld and one where every game freezes, and a test that
+  # only counted percentages could not tell them apart.
   defmodule FakeMixer do
     @behaviour MayonnaiOS.Audio.Mixer
 
@@ -124,20 +129,50 @@ defmodule MayonnaiOS.VolumeTest do
   end
 
   describe "Audio.set_level/2" do
-    test "level 0 mutes every playback control and drops it to 0%" do
+    test "level 0 is 0% with the output path left switched on" do
+      # The bug this replaces: level 0 used to switch DAC, Line Out and
+      # Speaker off, and a closed route to the sink is not a quiet device, it
+      # is one where ALSA never powers the DAC. Writes to the PCM then return
+      # EIO, and a program that waits for buffer space instead -- RetroArch --
+      # waits in poll() for ever. Measured on the device: `aplay /dev/zero`
+      # fails with "Input/output error" in that state and succeeds in this
+      # one.
       assert Audio.set_level(0, FakeMixer) == :ok
 
       assert writes() == [
-               {"Speaker", ["mute"]},
-               {"DAC", ["0%", "mute"]},
-               {"Line Out", ["0%", "mute"]}
+               {"DAC", ["0%", "unmute"]},
+               {"Line Out", ["100%", "unmute"]},
+               {"Speaker", ["unmute"]}
              ]
     end
 
-    test "an audible level unmutes as well as setting the gain" do
-      # The mute interaction is the failure mode being fixed: this device
-      # boots muted, so a volume-up that only moved a percentage would move a
-      # number behind a closed switch and make no sound at all.
+    test "no level, anywhere on the ladder, ever closes a switch" do
+      # The invariant, stated once over the whole range rather than at the two
+      # ends: silence is a gain here and nothing else. `mute` appearing in any
+      # of these argument lists is the whole failure coming back.
+      for level <- -3..(Audio.steps() + 3) do
+        Audio.set_level(level, FakeMixer)
+
+        for {control, args} <- writes() do
+          refute "mute" in args, "level #{level} closed #{control}"
+          assert "unmute" in args
+        end
+      end
+    end
+
+    test "every level writes the same three controls, differing only in the gain" do
+      # Which is the shape of the fix: one clause, and the level decides a
+      # percentage rather than a route.
+      shapes =
+        for level <- 0..Audio.steps() do
+          Audio.set_level(level, FakeMixer)
+          Enum.map(writes(), fn {control, args} -> {control, List.last(args)} end)
+        end
+
+      assert length(Enum.uniq(shapes)) == 1
+    end
+
+    test "an audible level sets the gain with the path already open" do
       assert Audio.set_level(1, FakeMixer) == :ok
 
       writes = writes()
@@ -146,14 +181,13 @@ defmodule MayonnaiOS.VolumeTest do
       assert {"Speaker", ["unmute"]} in writes
     end
 
-    test "the amplifier is switched on last and off first" do
+    test "the amplifier is switched on last" do
       # Nothing here can hear the difference, but the ordering is why there is
       # no moment where a switched-on output carries a level nobody asked for.
-      Audio.set_level(Audio.steps(), FakeMixer)
-      assert {"Speaker", ["unmute"]} = List.last(writes())
-
-      Audio.set_level(0, FakeMixer)
-      assert [{"Speaker", ["mute"]} | _] = writes()
+      for level <- 0..Audio.steps() do
+        Audio.set_level(level, FakeMixer)
+        assert {"Speaker", ["unmute"]} = List.last(writes())
+      end
     end
 
     test "volume lives on the DAC control, named and not indexed" do
@@ -188,7 +222,7 @@ defmodule MayonnaiOS.VolumeTest do
       assert {"DAC", ["100%", "unmute"]} in writes()
 
       Audio.set_level(-99, FakeMixer)
-      assert {"DAC", ["0%", "mute"]} in writes()
+      assert {"DAC", ["0%", "unmute"]} in writes()
     end
 
     test "stops at the first control that will not set" do
@@ -196,25 +230,111 @@ defmodule MayonnaiOS.VolumeTest do
     end
   end
 
-  describe "Audio.mute/1 and Audio.unmute/1" do
-    test "mute is level 0 and unmute is the top of the ladder" do
-      Audio.mute(FakeMixer)
-      muted = writes()
+  describe "Audio.silence/1 and Audio.full/1" do
+    test "silence is level 0 and full is the top of the ladder" do
+      Audio.silence(FakeMixer)
+      quiet = writes()
       Audio.set_level(0, FakeMixer)
-      assert writes() == muted
+      assert writes() == quiet
 
-      Audio.unmute(FakeMixer)
+      Audio.full(FakeMixer)
       loud = writes()
       Audio.set_level(Audio.steps(), FakeMixer)
       assert writes() == loud
     end
 
-    test "unmute is the state the test tone was heard in" do
-      Audio.unmute(FakeMixer)
+    test "full is the state the test tone was heard in" do
+      Audio.full(FakeMixer)
       writes = writes()
       assert {"DAC", ["100%", "unmute"]} in writes
       assert {"Line Out", ["100%", "unmute"]} in writes
       assert {"Speaker", ["unmute"]} in writes
+    end
+
+    test "silence leaves a device that can still play" do
+      # The one sentence this whole change is about: after the boot step, the
+      # three switches that make up the route to the sink are on. On the
+      # hardware that is the difference between `aplay /dev/zero` returning
+      # EIO and returning 0.
+      Audio.silence(FakeMixer)
+
+      assert Enum.sort(writes()) ==
+               Enum.sort([
+                 {"DAC", ["0%", "unmute"]},
+                 {"Line Out", ["100%", "unmute"]},
+                 {"Speaker", ["unmute"]}
+               ])
+    end
+  end
+
+  describe "Audio.disable_output/1" do
+    test "closes all three switches, which is the state nothing can play in" do
+      # Kept as an explicit act and named for what it does. It is not a volume
+      # level, nothing in the firmware calls it, and the rocker cannot reach
+      # it -- but `amixer sset Speaker mute` is one line anybody can type, so
+      # the consequence is written down next to a function rather than nowhere.
+      assert Audio.disable_output(FakeMixer) == :ok
+
+      assert writes() == [
+               {"Speaker", ["mute"]},
+               {"DAC", ["0%", "mute"]},
+               {"Line Out", ["0%", "mute"]}
+             ]
+    end
+
+    test "the amplifier goes off first" do
+      Audio.disable_output(FakeMixer)
+      assert [{"Speaker", ["mute"]} | _] = writes()
+    end
+
+    test "any level undoes it, silence included" do
+      Audio.disable_output(FakeMixer)
+      _ = writes()
+
+      Audio.set_level(0, FakeMixer)
+
+      for {_control, args} <- writes(), do: assert("unmute" in args)
+    end
+  end
+
+  describe "the boot state" do
+    # The state a freshly powered device is in is the one state every audio
+    # program has to cope with, and until now it was only assertable by
+    # booting a device and listening. `Startup.run/1` takes the mixer for
+    # exactly that reason.
+
+    test "is 0% with the output path open, not 0% with it closed" do
+      assert Audio.Startup.run(FakeMixer) == :ok
+
+      assert writes() == [
+               {"DAC", ["0%", "unmute"]},
+               {"Line Out", ["100%", "unmute"]},
+               {"Speaker", ["unmute"]}
+             ]
+    end
+
+    test "is not disable_output/1" do
+      # These were the same call, and that was the bug.
+      Audio.Startup.run(FakeMixer)
+      booted = writes()
+
+      Audio.disable_output(FakeMixer)
+      refute writes() == booted
+    end
+
+    test "closes nothing, so a program that opens ALSA after boot can play" do
+      Audio.Startup.run(FakeMixer)
+
+      for {control, args} <- writes() do
+        refute "mute" in args, "boot closed #{control}"
+      end
+    end
+
+    test "a mixer that cannot be reached is a warning and not a crash" do
+      # It must not take the boot down. What it leaves behind is worse than it
+      # used to be -- the hardware's own closed path -- which is why the
+      # warning says so, and why this returns rather than raising.
+      assert Audio.Startup.run(BrokenMixer) == :ok
     end
   end
 
@@ -239,7 +359,7 @@ defmodule MayonnaiOS.VolumeTest do
       assert writes() == []
     end
 
-    test "volume up from silence goes to level 1, unmuting on the way", %{volume: pid} do
+    test "volume up from silence goes to level 1 with the path still open", %{volume: pid} do
       press(pid, :key_volumeup)
       assert Volume.level(pid) == 1
       assert {"Speaker", ["unmute"]} in writes()
@@ -262,17 +382,37 @@ defmodule MayonnaiOS.VolumeTest do
       assert Volume.level(pid) == 0
     end
 
-    test "down from level 1 is silence, and mutes", %{volume: pid} do
+    test "down from level 1 is silence, and does not close the path", %{volume: pid} do
+      # The rocker walking back to the bottom of its travel must not be able
+      # to take audio away from a program that is playing. It could, and the
+      # device was found with a game frozen in poll() because of it.
       press(pid, :key_volumeup)
       _ = writes()
       press(pid, :key_volumedown)
+
       assert Volume.level(pid) == 0
-      assert {"Speaker", ["mute"]} in writes()
+      writes = writes()
+      assert {"DAC", ["0%", "unmute"]} in writes
+      assert {"Speaker", ["unmute"]} in writes
+      refute Enum.any?(writes, fn {_control, args} -> "mute" in args end)
+    end
+
+    test "no sequence of presses can ever close the path", %{volume: pid} do
+      # Whatever someone does with the two keys -- squeezing both, running the
+      # ladder to either end and back -- the route to the sink stays open.
+      for key <- [:key_volumedown, :key_volumeup, :key_volumedown, :key_volumeup],
+          _ <- 1..(Audio.steps() + 2) do
+        press(pid, key)
+
+        for {control, args} <- writes() do
+          refute "mute" in args, "#{key} closed #{control}"
+        end
+      end
     end
 
     test "a press at the end of the travel still re-asserts the mixer", %{volume: pid} do
       # Deliberate: one press repairs a mixer that something else has moved --
-      # `Audio.unmute/0` from IEx, say -- rather than leaving the two
+      # `Audio.disable_output/0` from IEx, say -- rather than leaving the two
       # disagreeing until a reboot.
       _ = writes()
       press(pid, :key_volumedown)

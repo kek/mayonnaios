@@ -449,10 +449,15 @@ config :mayonnaios, autostart_ui: true
 # now that it is answered, a key that makes noise when brushed in a pocket is
 # not worth keeping for a check that belongs in IEx.
 #
-# This flag only gates the tone. The mixer itself is taken to 0% and muted at
-# boot by `MayonnaiOS.Audio.Startup` either way -- volume is something the
-# player asks for, not something the device assumes, and the rocker on the top
-# edge is how they ask: `MayonnaiOS.Volume` walks the mixer up from silence.
+# This flag only gates the tone. The mixer itself is taken to 0% at boot by
+# `MayonnaiOS.Audio.Startup` either way -- volume is something the player asks
+# for, not something the device assumes, and the rocker on the top edge is how
+# they ask: `MayonnaiOS.Volume` walks the mixer up from silence.
+#
+# 0% at boot, but *not* switched off any more. Switched off is a device on
+# which no program can play at all -- ALSA powers the DAC only when the route
+# to the sink is complete, so a closed switch turns a write to the PCM into
+# EIO and turns RetroArch into a game frozen in `poll()`. That was the hang.
 config :mayonnaios, audio_test: true
 
 # Import target specific config. This must remain at the bottom
