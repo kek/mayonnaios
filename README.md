@@ -381,6 +381,7 @@ host-only path:
 | `c` | X — the diagnostics screen |
 | enter | Menu — back to the home screen |
 | backspace | Select |
+| `s` | Start — with backspace held, the sleep chord |
 | escape | Select+Menu, the power-off chord |
 
 `x` and `v` are sent too, as B and Y, and do nothing — the launcher binds

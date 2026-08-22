@@ -31,6 +31,7 @@ defmodule MayonnaiOS.Keyboard do
       c                   X -- the diagnostics screen
       enter               Menu -- back to the home screen
       backspace           Select
+      s                   Start -- with backspace held, the sleep chord
       escape              Select+Menu, the power-off chord
 
   Arrows and `jk` both move because the arrows are where a hand goes first and
@@ -85,7 +86,13 @@ defmodule MayonnaiOS.Keyboard do
     # X: diagnostics
     "c" => :btn_y,
     # Y, also unbound in the Launcher
-    "v" => :btn_x
+    "v" => :btn_x,
+    # Start, which the Launcher does not bind on its own either -- but held
+    # with backspace it is Select+Start, the sleep chord. A codepoint has no
+    # release, and this is the one key where that is worth saying: the chord
+    # works because *Select* is held through the :key path, and `s` only has
+    # to be the press that completes it.
+    "s" => :btn_start
   }
 
   # Escape is the chord rather than a single key, because Select+Menu is
