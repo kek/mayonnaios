@@ -77,6 +77,17 @@ defmodule MayonnaiOS.Cores do
   The catalogue lives in config, with the firmware, for the same reason the
   RetroArch spec does: a checksum served from beside the file it describes is
   not evidence of anything.
+
+  ## The one thing in here that is not about cores
+
+  `write_append_config/0` also writes `audio_sync = "false"`, which has
+  nothing to do with cores and everything to do with the mechanism this module
+  already owns: the one file appended after the bundle's, rewritten every
+  boot, paired with a boot-time scrub of the player's config so that nothing
+  it says can outlive it. That pairing is the only way this firmware can
+  assert a RetroArch setting and still be able to take it back, and it exists
+  here because `libretro_directory` needed it first. Splitting it across two
+  modules would mean two writers of one file. See that function.
   """
 
   require Logger
@@ -137,19 +148,56 @@ defmodule MayonnaiOS.Cores do
   a pulled power cable would lose the lot.
   """
   def clear_stale_directory(path \\ nil) do
-    path = path || retroarch_config()
+    strip(path || retroarch_config(), "libretro_directory", &stale_directory?/1)
+  end
 
+  @doc """
+  Remove `audio_sync` from RetroArch's main config, whatever it says.
+
+  This is the other half of `write_append_config/0`'s `audio_sync = "false"`,
+  and it is the half that makes the guard removable. The full account of why
+  the guard exists is on that function; this is how it is taken back out.
+
+  Unconditional, unlike `clear_stale_directory/1`, and the asymmetry is the
+  point. A `libretro_directory` that already names `dir/0` is *correct*, so
+  leaving it costs nothing. A persisted `audio_sync` is never correct and
+  never load-bearing: the value that decides the launch is the one in
+  `append_config/0`, which is merged last on every launch and rewritten on
+  every boot. The copy in the player's config is only ever a fossil of a
+  launch that has already happened.
+
+  So it goes, every boot. Which means the day the codec is trustworthy,
+  deleting the line from `write_append_config/0` is genuinely enough: the next
+  boot removes the fossil and RetroArch falls back to its own default
+  (`audio_sync = true`). No device is left carrying a setting no file in any
+  repository still contains -- which is exactly what happened with
+  `libretro_directory`, and cost two rounds of debugging to find.
+
+  The price is worth stating plainly: this firmware owns `audio_sync`. A value
+  set in RetroArch's own audio menu will not survive a reboot. That is a real
+  loss of control over one setting, accepted because the alternative failure
+  is a frozen game and because nobody can reach that menu while the game is
+  frozen.
+  """
+  def clear_persisted_audio_sync(path \\ nil) do
+    strip(path || retroarch_config(), "audio_sync", &audio_sync?/1)
+  end
+
+  # One read, one rewrite, for any setting this application takes back out of
+  # the player's config. Shared because the mechanism is the same and the
+  # policy -- which lines go -- is the only thing that differs.
+  defp strip(path, setting, drop?) do
     case File.read(path) do
       {:ok, contents} ->
         {stale, keep} =
           contents
           |> String.split("\n")
-          |> Enum.split_with(&stale_directory?/1)
+          |> Enum.split_with(drop?)
 
         if stale == [] do
           {:ok, :unchanged}
         else
-          rewrite(path, keep, Enum.map(stale, &configured_directory/1))
+          rewrite(path, setting, keep, Enum.map(stale, &value_of(setting, &1)))
         end
 
       {:error, :enoent} ->
@@ -161,12 +209,12 @@ defmodule MayonnaiOS.Cores do
     end
   end
 
-  defp rewrite(path, lines, cleared) do
+  defp rewrite(path, setting, lines, cleared) do
     tmp = path <> ".mayonnaios"
 
     with :ok <- File.write(tmp, Enum.join(lines, "\n")),
          :ok <- File.rename(tmp, path) do
-      Logger.info("[cores] cleared libretro_directory #{inspect(cleared)} from #{path}")
+      Logger.info("[cores] cleared #{setting} #{inspect(cleared)} from #{path}")
       {:ok, {:cleared, cleared}}
     else
       {:error, reason} ->
@@ -177,7 +225,7 @@ defmodule MayonnaiOS.Cores do
   end
 
   defp stale_directory?(line) do
-    case configured_directory(line) do
+    case value_of("libretro_directory", line) do
       nil -> false
       # Expanded before comparing: RetroArch writes the value back with the
       # home directory abbreviated to `~`, so the string it saves for the
@@ -186,8 +234,19 @@ defmodule MayonnaiOS.Cores do
     end
   end
 
-  defp configured_directory(line) do
-    case Regex.run(~r/^\s*libretro_directory\s*=\s*"?(.*?)"?\s*$/, line) do
+  # Any `audio_sync` at all, whatever it is set to. See
+  # `clear_persisted_audio_sync/1` for why this one is unconditional and the
+  # directory one is not.
+  defp audio_sync?(line), do: value_of("audio_sync", line) != nil
+
+  # One `key = value` line, or nil if this line is not that key.
+  #
+  # Anchored on both sides of the key, which is not fussiness: RetroArch's
+  # config holds `libretro_info_path`, `libretro_log_level`,
+  # `core_updater_buildbot_cores_url` and a hundred others, and a loose match
+  # would edit lines this application knows nothing about.
+  defp value_of(setting, line) do
+    case Regex.run(~r/^\s*#{Regex.escape(setting)}\s*=\s*"?(.*?)"?\s*$/, line) do
       [_, value] -> value
       nil -> nil
     end
@@ -316,12 +375,66 @@ defmodule MayonnaiOS.Cores do
   a contradiction of the "configure nothing" rule so much as its enforcement:
   the value written here is the default, and `clear_stale_directory/0`
   deliberately leaves a config naming `dir/0` alone.
+
+  ## The other setting: `audio_sync = "false"`
+
+  A guard, not a preference, and the only setting in this firmware that is
+  here to stop a *hang* rather than to name a path.
+
+  RetroArch's ALSA output is blocking by default: when the buffer is full it
+  waits in `poll()` for the card to make space. If the card never does, it
+  waits for ever -- not a dropout, a frozen game on a frozen screen, with the
+  DRM master still held so that every later launch fails with `[KMS] Error
+  when switching mode` and looks like a display bug. That is what a codec with
+  its output path switched off did to this device, and `MayonnaiOS.Audio` is
+  the fix for the cause. This is the belt to that braces: with `audio_sync`
+  off, RetroArch sets the driver non-blocking and drops samples instead of
+  waiting, so a stalled codec costs audio rather than the machine.
+
+  Read that as reasoning about RetroArch's audio driver, not as a measurement.
+  What is measured is the hang and the codec; nobody has yet watched a game
+  survive a deliberately stalled card with this setting on, because producing
+  one means playing audio on a device whose owner has asked for silence.
+
+  ## Why here, and not in the bundle or on the command line
+
+  There is no command line for it -- RetroArch takes settings from config
+  files -- so the only question is which file. It cannot be the bundle's:
+  bundles are separately versioned artifacts, a value one appends is
+  indistinguishable from one the player chose, and RetroArch writes it into
+  the player's own config on exit. That is how `libretro_directory` outlived
+  every file that named it. Anything a bundle asserts, no later bundle can
+  withdraw.
+
+  This file has neither problem, and both halves matter:
+
+    * it is rewritten from this function on every boot, so what it says is
+      whatever this firmware currently says, and
+    * `clear_persisted_audio_sync/1` takes the setting out of the player's
+      config on every boot, so the copy RetroArch persists on exit is scrubbed
+      before the next launch reads anything.
+
+  Retraction is therefore deleting one line from this function. There is no
+  device to go and repair afterwards, which is the property `libretro_directory`
+  did not have.
+
+  One file with two settings rather than a second file with one, because the
+  file has exactly one writer and that is worth keeping. Two modules writing
+  one path is a clobber waiting for the boot order to change; and the
+  `--appendconfig` argument in `config :mayonnaios, :programs` names this path
+  once, so a second file would also mean editing the launch arguments to add
+  it.
   """
   def write_append_config do
     path = append_config()
 
+    contents = """
+    libretro_directory = "#{dir()}"
+    audio_sync = "false"
+    """
+
     with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(path, "libretro_directory = \"#{dir()}\"\n") do
+         :ok <- File.write(path, contents) do
       :ok
     else
       {:error, reason} ->
@@ -415,7 +528,8 @@ defmodule MayonnaiOS.Cores do
   defmodule Startup do
     @moduledoc """
     Asserts the core arrangement once at boot: RetroArch's config names no core
-    directory, and the default one holds a link per core.
+    directory, carries no `audio_sync` of its own, and the default core
+    directory holds a link per core.
 
     Cheap -- a listing and a handful of symlinks -- and it is the step that
     makes a RetroArch upgrade not lose the installed cores: `current` has
@@ -438,6 +552,9 @@ defmodule MayonnaiOS.Cores do
 
     def run do
       MayonnaiOS.Cores.clear_stale_directory()
+      # Unconditional, every boot, and that is what makes the audio_sync guard
+      # removable rather than permanent. See clear_persisted_audio_sync/1.
+      MayonnaiOS.Cores.clear_persisted_audio_sync()
       MayonnaiOS.Cores.write_append_config()
       MayonnaiOS.Cores.sync()
     rescue

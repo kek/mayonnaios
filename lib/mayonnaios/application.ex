@@ -117,10 +117,13 @@ defmodule MayonnaiOS.Application do
         # diagnosable and should not be displaced by a repair.
         MayonnaiOS.AppPartition.Startup,
 
-        # Takes the mixer to 0% and mutes it, so the device starts silent by
-        # decision rather than by inheritance. The hardware happens to power
-        # on that way too -- DAC and Line Out switched off, no ALSA state to
-        # restore -- which is exactly why it is worth setting.
+        # Takes the mixer to 0% with the output path switched on, so the
+        # device starts silent by decision rather than by inheritance -- and
+        # so "silent" means the volume is down rather than the speaker being
+        # disconnected. The hardware powers on with the path *closed*, which
+        # is silent in the way that makes every audio program fail with EIO,
+        # so this step is now the thing that makes audio work at all rather
+        # than a tidy restatement of a default. See MayonnaiOS.Audio.
         MayonnaiOS.Audio.Startup,
 
         # The volume rocker. After Audio.Startup, because it starts believing

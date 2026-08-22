@@ -49,6 +49,22 @@ defmodule MayonnaiOS.Launcher do
   re-rooting the viewport is itself a write -- pressing X during a game would
   otherwise paint the diagnostics screen into a framebuffer the game owns.
 
+  ## Giving the screen back requires the program to actually be dead
+
+  The other half of that promise, and the one this module got wrong for
+  longer: a program is not stopped because it was sent a signal. RetroArch
+  catches SIGTERM and its handler only sets a flag for a main loop that may
+  never look again, so `kill -TERM` on a hung one returns 0 having achieved
+  nothing -- while the process keeps `/dev/dri/card0` open and the launcher
+  reports it stopped. Every launch after that failed with `[KMS] Error when
+  switching mode`, which reads as a display bug in a completely different
+  place.
+
+  So the stop path escalates to SIGKILL, waits for the process to be gone, and
+  only then releases the hold and repaints. `do_stop/1` has the detail; the
+  part that belongs up here is that "the program owns the panel until it
+  exits" now means *exits*, not *was asked to*.
+
   ## The full set of bindings
 
       D-pad up/down move the menu cursor
@@ -170,6 +186,26 @@ defmodule MayonnaiOS.Launcher do
   @up_button :btn_dpad_up
   @down_button :btn_dpad_down
 
+  # How long a stop waits for the program to go, per signal. See `do_stop/1`.
+  #
+  # SIGTERM gets the larger share because a program that honours it has work to
+  # do first -- RetroArch flushes SRAM and saves its config on the way out --
+  # and killing it in the middle of that loses a save. SIGKILL is not a
+  # request, so the second wait is only the time the kernel needs to tear the
+  # process down and the VM needs to reap it.
+  #
+  # Both are ceilings rather than costs. A program that exits on TERM is gone
+  # in milliseconds and the wait ends when its exit arrives, not when the clock
+  # runs out; only a program that has stopped listening pays the full three
+  # seconds, and that program was going to cost a reboot.
+  @term_timeout 2_000
+  @kill_timeout 1_000
+
+  # How often the wait asks the OS whether the process is still there, in
+  # between watching for the port's exit message. Small enough that the normal
+  # path is not noticeably slower than the old fire-and-forget one.
+  @poll_ms 50
+
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc """
@@ -190,9 +226,19 @@ defmodule MayonnaiOS.Launcher do
 
   @doc """
   Start or stop it from a console, without pressing anything.
+
+  `stop_program/0` returns `:ok` only when the OS process is confirmed gone.
+  A program that survives both SIGTERM and SIGKILL comes back as
+  `{:error, {:still_running, os_pid}}` and is still on the display -- see
+  `do_stop/1` for why that is reported rather than tidied over.
+
+  It blocks while it waits, which is a call that can take a couple of seconds
+  in the bad case. That is deliberate: the alternative is returning before the
+  program has let go of the display, which is the bug being fixed.
   """
   def launch, do: GenServer.call(__MODULE__, :launch)
-  def stop_program, do: GenServer.call(__MODULE__, :stop)
+
+  def stop_program(timeout \\ 10_000), do: GenServer.call(__MODULE__, :stop, timeout)
 
   @doc """
   The index of the highlighted menu entry.
@@ -227,7 +273,7 @@ defmodule MayonnaiOS.Launcher do
     Panel.release()
 
     Enum.each(devices(opts), &watch/1)
-    {:ok, new_state()}
+    {:ok, new_state(opts)}
   end
 
   # The gamepad, plus whatever device the sleep key is on.
@@ -271,7 +317,7 @@ defmodule MayonnaiOS.Launcher do
     if File.exists?(device), do: InputEvent.start_link(device), else: {:error, :enoent}
   end
 
-  defp new_state,
+  defp new_state(opts),
     do: %{
       port: nil,
       app: nil,
@@ -280,6 +326,14 @@ defmodule MayonnaiOS.Launcher do
       held: MapSet.new(),
       scene: :home,
       selected: 0,
+      # The seam the stop path is tested against: signalling an OS process and
+      # asking whether it is still there. Injectable because the one case that
+      # matters most cannot be produced for real -- a process that survives
+      # SIGKILL is a process stuck in a driver, and a test cannot make one.
+      signals: Keyword.get(opts, :signals, MayonnaiOS.Launcher.Kill),
+      term_timeout: Keyword.get(opts, :term_timeout, @term_timeout),
+      kill_timeout: Keyword.get(opts, :kill_timeout, @kill_timeout),
+      poll_ms: Keyword.get(opts, :poll_ms, @poll_ms),
       # Whether the backlight was turned off by the chord. Kept here rather
       # than read back from sysfs on every event, because it is this process
       # that has to decide whether to swallow a press and because the panel
@@ -301,7 +355,15 @@ defmodule MayonnaiOS.Launcher do
   end
 
   def handle_call(:launch, _from, state), do: {:reply, :ok, do_launch(state)}
-  def handle_call(:stop, _from, state), do: {:reply, :ok, do_stop(state)}
+
+  # The reply is the result rather than a cheerful `:ok`, because there is now
+  # an outcome worth having: `{:error, {:still_running, pid}}` means the
+  # program is still on the display and this process could not shift it.
+  def handle_call(:stop, _from, state) do
+    {result, state} = do_stop(state)
+    {:reply, result, state}
+  end
+
   def handle_call(:selected, _from, state), do: {:reply, state.selected, state}
   def handle_call(:asleep?, _from, state), do: {:reply, state.asleep, state}
 
@@ -419,16 +481,22 @@ defmodule MayonnaiOS.Launcher do
   # Trimmed and length-capped because a chatty program should not be able to
   # push everything else out of a fixed-size ring buffer.
   def handle_info({port, {:data, data}}, %{port: port} = state) do
+    log_output(state, data)
+    {:noreply, state}
+  end
+
+  def handle_info(_msg, state), do: {:noreply, state}
+
+  # Trimmed and length-capped because a chatty program should not be able to
+  # push everything else out of a fixed-size ring buffer. Shared with the stop
+  # path, which reads the same pipe while it waits for the program to die.
+  defp log_output(state, data) do
     data
     |> String.split("\n", trim: true)
     |> Enum.each(fn line ->
       Logger.info("[#{program_name(state)}] #{String.slice(line, 0, 300)}")
     end)
-
-    {:noreply, state}
   end
-
-  def handle_info(_msg, state), do: {:noreply, state}
 
   # The running program's name, for log lines. Falls back to "program" rather
   # than crashing the log call if a message arrives after the state is cleared.
@@ -573,7 +641,12 @@ defmodule MayonnaiOS.Launcher do
 
     cond do
       state.port != nil ->
-        do_stop(home)
+        # A program that would not die keeps the screen, and this returns the
+        # state that says so: still running, panel still held, nothing
+        # repainted. Pressing Menu again tries again, which is the only thing
+        # left to offer.
+        {_result, state} = do_stop(home)
+        state
 
       state.scene != :home ->
         show(:home, home)
@@ -717,25 +790,151 @@ defmodule MayonnaiOS.Launcher do
     end
   end
 
-  defp do_stop(%{port: nil} = state), do: state
+  # Stop the running program, and do not come back until it is actually gone.
+  #
+  # ## Why SIGTERM is not enough
+  #
+  # RetroArch **catches** SIGTERM. Read off a running one rather than assumed:
+  # `/proc/<pid>/status` has bit 15 set in `SigCgt` and clear in `SigIgn`. Its
+  # handler only sets a quit flag, which the main loop has to notice -- and a
+  # main loop blocked in `poll()` on a stalled audio device never gets back to
+  # looking. `kill -TERM` on that process returns 0, having done nothing at
+  # all. Verified on the device: TERM delivered, four seconds later the process
+  # was still there, still sleeping.
+  #
+  # So the signal escalates. TERM first, because a program that honours it
+  # exits cleanly and saves what it was holding; SIGKILL after, which cannot be
+  # caught, ignored or blocked.
+  #
+  # ## Why it waits, and why the wait is the point
+  #
+  # The old code signalled, closed the port, released the panel and repainted,
+  # in that order, without ever asking whether the program had gone. Every one
+  # of those steps is wrong about a program that has not died yet:
+  #
+  #   * A hung RetroArch keeps `/dev/dri/card0` and `card1` open. The launcher
+  #     reported it stopped, and then every later launch failed with `[KMS]
+  #     Error when switching mode` / `Cannot open video driver` -- which from
+  #     the outside looks like a completely different bug in a completely
+  #     different subsystem.
+  #   * The repaint is a write to a framebuffer whose DRM master is still that
+  #     program, which is the thing `MayonnaiOS.Panel` exists to prevent and
+  #     which hangs this SoC. Raised as a follow-up on the panel-ownership PR;
+  #     this is that follow-up.
+  #
+  # And if even SIGKILL does not land, the honest thing is to report that
+  # rather than tidy up around it. Nothing is closed, nothing is released,
+  # `running?/0` stays true, and the state is returned untouched -- so the port
+  # is still open, its `:exit_status` still arrives if the process ever dies,
+  # and pressing Menu again tries again. A launcher that reports a program
+  # stopped while its process is alive is how a display bug gets invented.
+  defp do_stop(%{port: nil} = state), do: {:ok, state}
 
   defp do_stop(%{port: port} = state) do
-    # Closing the port shuts the pipes but does not reliably stop a program
-    # that never reads stdin, and kmscube does not. Signal the OS process.
-    case Port.info(port, :os_pid) do
-      {:os_pid, os_pid} -> System.cmd("kill", ["-TERM", Integer.to_string(os_pid)])
-      _ -> :ok
-    end
+    case os_pid(port) do
+      nil ->
+        # No OS pid to signal: the VM has already reaped the process, so the
+        # only thing left is the bookkeeping.
+        {:ok, finish_stop(state)}
 
+      os_pid ->
+        case terminate_process(state, os_pid) do
+          :gone ->
+            {:ok, finish_stop(state)}
+
+          :alive ->
+            Logger.error(
+              "[launcher] #{name_of(state.running)} (pid #{os_pid}) survived SIGKILL: " <>
+                "still holding the display, not reporting it stopped"
+            )
+
+            {{:error, {:still_running, os_pid}}, state}
+        end
+    end
+  end
+
+  # The bookkeeping, and only ever after the process is confirmed gone.
+  #
+  # Closing the port means no `:exit_status` message will arrive, so this is
+  # the only place the hold can be lifted on the Menu-out-of-a-game path.
+  defp finish_stop(%{port: port} = state) do
     _ = try do: Port.close(port), rescue: (_ -> :ok)
 
     Logger.info("[launcher] stopped #{name_of(state.running)}")
 
-    # Closing the port means no `:exit_status` message will arrive, so this is
-    # the only place the hold can be lifted on the Menu-out-of-a-game path.
     Panel.release()
     repaint(state)
     %{state | port: nil, running: nil}
+  end
+
+  # Named for the OS process rather than as `terminate/2`, which is a GenServer
+  # callback and would be silently taken for one.
+  defp terminate_process(state, os_pid) do
+    case signal_and_wait(state, os_pid, "TERM", state.term_timeout) do
+      :gone -> :gone
+      :alive -> signal_and_wait(state, os_pid, "KILL", state.kill_timeout)
+    end
+  end
+
+  defp signal_and_wait(state, os_pid, signal, timeout) do
+    Logger.info("[launcher] SIG#{signal} to #{name_of(state.running)} (pid #{os_pid})")
+
+    # A signal that will not send is not a reason to stop waiting: the usual
+    # reason is that the process has already gone, which the wait below is
+    # exactly the thing that finds out.
+    case state.signals.signal(signal, os_pid) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[launcher] SIG#{signal} to #{os_pid} failed: #{inspect(reason)}")
+    end
+
+    await_exit(state, os_pid, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  # Two independent answers to "is it gone", because neither is sufficient
+  # alone. The port's `:exit_status` is authoritative -- it means the VM has
+  # reaped the process -- but it only arrives for a program this VM spawned and
+  # only once. Asking the OS covers the rest, and has to be a fallback rather
+  # than the primary: between a process exiting and being reaped it is a zombie,
+  # and a zombie answers signal 0 exactly like a live process.
+  #
+  # The exit message is consumed here rather than left for `handle_info/2`.
+  # Deliberately: `finish_stop/1` is about to do everything that clause would
+  # do, and a leftover message would repaint the panel a second time.
+  defp await_exit(state, os_pid, deadline) do
+    port = state.port
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      if state.signals.alive?(os_pid), do: :alive, else: :gone
+    else
+      receive do
+        {^port, {:exit_status, status}} ->
+          Logger.info("[launcher] #{name_of(state.running)} exited (#{status})")
+          :gone
+
+        # Still worth reading. A program's dying words are the only thing it
+        # can say about why it would not go, and dropping them here is what
+        # cost an evening the last time this module discarded port output.
+        {^port, {:data, data}} ->
+          log_output(state, data)
+          await_exit(state, os_pid, deadline)
+      after
+        min(remaining, state.poll_ms) ->
+          if state.signals.alive?(os_pid),
+            do: await_exit(state, os_pid, deadline),
+            else: :gone
+      end
+    end
+  end
+
+  defp os_pid(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, os_pid} -> os_pid
+      _ -> nil
+    end
   end
 
   defp name_of(%{name: name}), do: name
@@ -800,5 +999,72 @@ defmodule MayonnaiOS.Launcher do
 
   defp default_scene do
     get_in(Application.get_env(:mayonnaios, :viewport), [:default_scene])
+  end
+
+  defmodule Signals do
+    @moduledoc """
+    The two things the stop path needs from the operating system.
+
+    `signal/2` sends one signal; `alive?/1` says whether a pid is still there.
+    That is the whole interface, and it is a seam rather than a direct
+    `System.cmd/3` for one reason: the case that matters most cannot be
+    produced for real. A process that survives `SIGKILL` is a process wedged
+    in a driver, a test cannot make one, and "what does the launcher do when
+    the program will not die" is precisely the question that was answered
+    wrongly before -- it reported the program stopped.
+
+    So a test supplies a module whose signals go nowhere and whose `alive?/1`
+    keeps saying yes, and asserts that the launcher does *not* release the
+    panel, does *not* repaint, and does *not* report success. Everything else
+    in the stop path is tested against real OS processes, which the host has.
+    """
+
+    @callback signal(signal :: String.t(), os_pid :: pos_integer()) :: :ok | {:error, term()}
+    @callback alive?(os_pid :: pos_integer()) :: boolean()
+  end
+
+  defmodule Kill do
+    @moduledoc """
+    Signals, through `kill(1)`.
+
+    `kill -0` for the liveness check: it sends nothing and only reports whether
+    the signal *could* be sent, which is the cheapest question there is. Not
+    `/proc/<pid>`, even though this is Linux, because the host these tests run
+    on has no procfs and a seam that only works on the target is a seam that
+    only gets exercised on the target.
+
+    One thing it cannot distinguish, and the caller has to know it: a process
+    that has exited but has not yet been reaped -- a zombie -- answers signal 0
+    exactly like a live one. `MayonnaiOS.Launcher.await_exit/3` handles that by
+    treating the port's own exit message as the authoritative answer and this
+    as the fallback.
+    """
+
+    @behaviour MayonnaiOS.Launcher.Signals
+
+    @impl MayonnaiOS.Launcher.Signals
+    def signal(signal, os_pid) when is_binary(signal) and is_integer(os_pid) do
+      case kill(["-" <> signal, Integer.to_string(os_pid)]) do
+        {:ok, _out} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    end
+
+    @impl MayonnaiOS.Launcher.Signals
+    def alive?(os_pid) when is_integer(os_pid) do
+      match?({:ok, _out}, kill(["-0", Integer.to_string(os_pid)]))
+    end
+
+    # `System.cmd/3` raises when the executable is not on the path, and a stop
+    # that takes the launcher down with it would leave the buttons dead as well
+    # as the program running.
+    defp kill(args) do
+      case System.cmd("kill", args, stderr_to_stdout: true) do
+        {out, 0} -> {:ok, out}
+        {out, status} -> {:error, {:exit, status, String.trim(out)}}
+      end
+    rescue
+      _ -> {:error, {:no_tool, "kill"}}
+    end
   end
 end
