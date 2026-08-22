@@ -32,6 +32,10 @@ Software:
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
 - A web UI for uploading games from a phone
+- Sleep on Select+Start: the backlight goes off and any button brings it back.
+  Not the power button, which Linux cannot see on this board, and not suspend —
+  no button on the front of the device is wakeup-capable, so a real suspend
+  would look like a brick
 
 ## Building and flashing
 
