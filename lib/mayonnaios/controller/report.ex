@@ -114,6 +114,25 @@ defmodule MayonnaiOS.Controller.Report do
   you could not press safely. For the same reason it is *not* mapped to the
   Xbox button, which on every host summons an overlay.
 
+  ## Select+Start held together is the Xbox button
+
+  The shell has no plastic for the Xbox button, and on a Steam Deck that
+  button is how you reach Steam. So the chord: while Select and Start are
+  both down, the report says Xbox and says neither View nor Menu.
+
+  The edges are where chords go wrong, and both are decided here. On the way
+  in, whichever half goes down first is reported alone for the beat before
+  the other arrives -- a brief View or Menu press the host really sees.
+  Swallowing it would take a timer holding every Select and Start hostage
+  against a chord that usually is not coming, and this fold owns no clock;
+  a game that pauses on Menu may pause on the way into the overlay, which is
+  where the player was headed anyway. On the way out the same leak would be
+  worse -- release one half and the other would read as a fresh press,
+  re-opening the pause menu the overlay was closed onto -- so the chord
+  *latches*: once it fires, View and Menu stay suppressed until both halves
+  are up. In, Xbox; out, silence; the two single buttons work exactly as
+  before when the chord is never completed.
+
   ## The stick arrives in twelfths and leaves in two-fifty-sixths
 
   `adc-joystick` delivers 0..4096 and the report promises 0..65535, so values
@@ -157,6 +176,7 @@ defmodule MayonnaiOS.Controller.Report do
   @type t :: %__MODULE__{
           buttons: MapSet.t(atom()),
           directions: MapSet.t(direction()),
+          chorded: boolean(),
           x: 0..0xFFFF,
           y: 0..0xFFFF,
           brake: 0..0x3FF,
@@ -170,6 +190,7 @@ defmodule MayonnaiOS.Controller.Report do
 
   defstruct buttons: MapSet.new(),
             directions: MapSet.new(),
+            chorded: false,
             x: @centre,
             y: @centre,
             brake: 0,
@@ -192,11 +213,18 @@ defmodule MayonnaiOS.Controller.Report do
     btn_tl: 0x0040,
     # R1, the Xbox RB
     btn_tr: 0x0080,
-    # Select, the Xbox View button
+    # Select, the Xbox View button -- and half of the Xbox-button chord
     btn_select: 0x0400,
-    # Start, the Xbox Menu button
+    # Start, the Xbox Menu button -- the other half
     btn_start: 0x0800
   }
+
+  # The Xbox button, which this shell reaches through Select+Start held
+  # together, and the two bits the chord suppresses while it does. See the
+  # moduledoc.
+  @guide 0x1000
+  @view_and_menu 0x0C00
+  @chord [:btn_select, :btn_start]
 
   # evdev atom -> the trigger field it fills. The shell's L2 and R2 are
   # switches, so a press is a fully pulled trigger and a release is a
@@ -680,7 +708,7 @@ defmodule MayonnaiOS.Controller.Report do
   def apply_event(state, {:ev_key, key, value}) do
     cond do
       Map.has_key?(@buttons, key) ->
-        %{state | buttons: toggle(state.buttons, key, value)}
+        update_chord(%{state | buttons: toggle(state.buttons, key, value)})
 
       field = Map.get(@triggers, key) ->
         Map.put(state, field, if(value == 0, do: 0, else: @trigger_full))
@@ -704,6 +732,18 @@ defmodule MayonnaiOS.Controller.Report do
 
   defp toggle(set, member, 0), do: MapSet.delete(set, member)
   defp toggle(set, member, _pressed), do: MapSet.put(set, member)
+
+  # The chord latches when both halves are down and lets go only when both
+  # are up. The latch is what keeps a staggered release honest: without it,
+  # lifting Select a beat before Start would re-press Menu on the way out of
+  # the overlay the chord just opened.
+  defp update_chord(state) do
+    cond do
+      Enum.all?(@chord, &MapSet.member?(state.buttons, &1)) -> %{state | chorded: true}
+      not Enum.any?(@chord, &MapSet.member?(state.buttons, &1)) -> %{state | chorded: false}
+      true -> state
+    end
+  end
 
   # 0..4096 in, 0..65535 out, quantised to steps of 256. The multiplier is 16
   # rather than 65535/4096 so that the ADC's centre, 2048, lands exactly on
@@ -748,7 +788,7 @@ defmodule MayonnaiOS.Controller.Report do
       state.brake::16-little,
       state.accelerator::16-little,
       hat(state.directions)::8,
-      buttons(state.buttons)::binary,
+      buttons(state)::binary,
       0::8
     >>
   end
@@ -777,13 +817,27 @@ defmodule MayonnaiOS.Controller.Report do
     end)
   end
 
-  @doc "The two button bytes, the Xbox A in the low bit of the first."
-  @spec buttons(MapSet.t(atom())) :: binary()
-  def buttons(pressed) do
+  # The two button bytes, the Xbox A in the low bit of the first. The chord
+  # rewrites what the table says: both halves down is the Xbox button and
+  # neither View nor Menu, and while the latch holds, whichever half is
+  # still down on the way out stays silent too.
+  defp buttons(%__MODULE__{} = state) do
     bits =
-      Enum.reduce(pressed, 0, fn key, acc ->
+      Enum.reduce(state.buttons, 0, fn key, acc ->
         Bitwise.bor(acc, Map.get(@buttons, key, 0))
       end)
+
+    bits =
+      cond do
+        Enum.all?(@chord, &MapSet.member?(state.buttons, &1)) ->
+          bits |> Bitwise.band(Bitwise.bnot(@view_and_menu)) |> Bitwise.bor(@guide)
+
+        state.chorded ->
+          Bitwise.band(bits, Bitwise.bnot(@view_and_menu))
+
+        true ->
+          bits
+      end
 
     <<bits::16-little>>
   end

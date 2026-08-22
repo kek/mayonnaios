@@ -317,7 +317,10 @@ pad it knows. The one macOS-specific trap is in the next section.
 What the host receives: the left stick, the D-pad as a hat switch, A/B/X/Y
 by their printed labels, LB and RB from L1 and R1, the triggers fully pulled
 or fully released from L2 and R2 — they are switches on this shell — and
-View and Menu from Select and Start. The right stick, the stick clicks, the
+View and Menu from Select and Start. **Select and Start held together are
+the Xbox button**, which on a Steam Deck is the Steam button; the first
+half-pressed leaks one brief View or Menu press while the chord forms, and
+`MayonnaiOS.Controller.Report` has the account of why that beats a timer. The right stick, the stick clicks, the
 Share button and the Xbox button are declared because the real pad declares
 them, and they rest untouched forever; rumble is accepted from the host and
 dropped, because there is no motor and a refused write reads as a fault

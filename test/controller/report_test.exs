@@ -117,6 +117,54 @@ defmodule MayonnaiOS.Controller.ReportTest do
       assert buttons(press(:btn_start)) == {0x00, 0x08}
     end
 
+    test "Select and Start together are the Xbox button, and nothing else" do
+      state =
+        Report.apply_events(Report.released(), [
+          {:ev_key, :btn_select, 1},
+          {:ev_key, :btn_start, 1}
+        ])
+
+      assert buttons(Report.encode(state)) == {0x00, 0x10}
+    end
+
+    test "the chord suppresses the survivor of a staggered release" do
+      # Letting go of the chord one finger at a time must not press Menu on
+      # the way out; the moduledoc has the account.
+      state =
+        Report.apply_events(Report.released(), [
+          {:ev_key, :btn_select, 1},
+          {:ev_key, :btn_start, 1},
+          {:ev_key, :btn_select, 0}
+        ])
+
+      assert buttons(Report.encode(state)) == {0x00, 0x00}
+    end
+
+    test "once both halves are up, the single buttons are themselves again" do
+      state =
+        Report.apply_events(Report.released(), [
+          {:ev_key, :btn_select, 1},
+          {:ev_key, :btn_start, 1},
+          {:ev_key, :btn_select, 0},
+          {:ev_key, :btn_start, 0},
+          {:ev_key, :btn_start, 1}
+        ])
+
+      assert buttons(Report.encode(state)) == {0x00, 0x08}
+    end
+
+    test "the chord does not swallow bystanders" do
+      state =
+        Report.apply_events(Report.released(), [
+          {:ev_key, :btn_b, 1},
+          {:ev_key, :btn_select, 1},
+          {:ev_key, :btn_start, 1}
+        ])
+
+      # The A button rides along untouched; only View and Menu are rewritten.
+      assert buttons(Report.encode(state)) == {0x01, 0x10}
+    end
+
     test "L2 pulls the brake fully, because a switch has no half way" do
       assert <<_::binary-size(8), 0xFF, 0x03, 0, 0, _::binary>> = press(:btn_tl2)
 
