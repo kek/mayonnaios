@@ -15,16 +15,21 @@ defmodule MayonnaiOS.Diagnostics do
 
   ## Why it opens two input devices
 
-  The gamepad is `event0` and `MayonnaiOS.Launcher` has it. `InputEvent`
+  `MayonnaiOS.Launcher` has the gamepad and the power key. `InputEvent`
   delivers to whichever process opened the device, so the two devices the
-  Launcher does not read are opened here:
+  Launcher does not read are opened here, by name:
 
-      event1  gpio-keys-volume            KEY_VOLUMEDOWN 114, KEY_VOLUMEUP 115
-      event2  H616 Audio Codec Headphone  SW_HEADPHONE_INSERT
+      gpio-keys-volume                 KEY_VOLUMEDOWN 114, KEY_VOLUMEUP 115
+      H616 Audio Codec Headphone Jack  SW_HEADPHONE_INSERT
 
   Both codes were read from `/sys/firmware/devicetree/base/gpio-keys-volume/`
   on the device rather than assumed. They happen to be the obvious ones this
   time; the gamepad's were not, which is the reason for looking.
+
+  No numbers in that table, because the numbers have moved twice and the
+  numbers this module used to name are now other devices -- `event1` is the
+  analog stick and `event2` is the gamepad. `MayonnaiOS.Input` has the current
+  numbering and the argument for not writing it down here.
 
   `MayonnaiOS.Volume` opens the rocker as well, and acts on it. Both readers
   get every event -- evdev is only exclusive to a reader that asks for
@@ -55,12 +60,13 @@ defmodule MayonnaiOS.Diagnostics do
 
   alias MayonnaiOS.Bluetooth.HCISocket
 
-  # Looked up by name at startup, with these as the fallback; see
-  # `MayonnaiOS.Input` for why the numbering is not something to rely on.
+  # Looked up by name at startup, and by name only. These used to carry a
+  # numbered fallback each -- `event1` and `event2` -- and both numbers had
+  # already moved: they are the analog stick and the gamepad now, so the
+  # fallbacks would have counted volume presses on a device that has no keys
+  # and queried a jack switch on one that has no switch. See `MayonnaiOS.Input`.
   @volume_name "gpio-keys-volume"
-  @volume_device "/dev/input/event1"
   @jack_name "H616 Audio Codec Headphone Jack"
-  @jack_device "/dev/input/event2"
 
   # The blob whose absence stops Bluetooth from initialising. See the long
   # comment against BR2_PACKAGE_LINUX_FIRMWARE_RTL_87XX_BT in nerves_defconfig.
@@ -128,8 +134,8 @@ defmodule MayonnaiOS.Diagnostics do
 
   @impl GenServer
   def init(_opts) do
-    open(MayonnaiOS.Input.find(@volume_name, @volume_device))
-    open(MayonnaiOS.Input.find(@jack_name, @jack_device))
+    open(@volume_name)
+    open(@jack_name)
 
     # Without this the fdinfo engine counters stay at zero, which would look
     # exactly like a GPU doing nothing.
@@ -163,10 +169,10 @@ defmodule MayonnaiOS.Diagnostics do
   # One handler for both devices, matching on what the event *is* rather than
   # on which path it came from.
   #
-  # These used to be two clauses keyed on "/dev/input/event1" and
-  # "/dev/input/event2". That worked while those numbers were stable, and
-  # /dev/input numbering is probe order rather than a promise -- adding one
-  # device to the board is enough to move it. The two kinds of event here are
+  # These used to be two clauses keyed on the two devices' numbered paths. That
+  # worked while those numbers were stable, and /dev/input numbering is probe
+  # order rather than a promise -- adding one device to the board is enough to
+  # move it, which has since happened twice. The two kinds of event here are
   # disjoint, a volume key and a jack switch, so the path was never carrying
   # information in the first place.
   def handle_info({:input_event, _device, events}, state) do
@@ -403,26 +409,42 @@ defmodule MayonnaiOS.Diagnostics do
 
   # -- helpers ---------------------------------------------------------------
 
-  defp open(device) do
-    case InputEvent.start_link(device) do
-      {:ok, _pid} ->
-        :ok
-
-      other ->
+  # Takes the driver name rather than a path, so the "there is no such device"
+  # case is a line naming the thing that is missing instead of a number that
+  # would have been some other device's.
+  defp open(name) do
+    case MayonnaiOS.Input.find(name) do
+      nil ->
         # Losing one of these costs a diagnostic, not the boot.
-        Logger.warning("[diagnostics] #{device} unavailable: #{inspect(other)}")
+        Logger.warning("[diagnostics] no #{name} input device; its readings stay blank")
         :error
+
+      device ->
+        case InputEvent.start_link(device) do
+          {:ok, _pid} ->
+            :ok
+
+          other ->
+            Logger.warning("[diagnostics] #{device} unavailable: #{inspect(other)}")
+            :error
+        end
     end
   end
 
-  # evtest exits 10 when the switch is set, 0 when it is not.
+  # evtest exits 10 when the switch is set, 0 when it is not. No jack device
+  # means nil -- "nobody could ask", which is what nil already means for this
+  # field and is not the same as "nothing is plugged in".
   defp query_jack do
-    jack = MayonnaiOS.Input.find(@jack_name, @jack_device)
+    case MayonnaiOS.Input.find(@jack_name) do
+      nil ->
+        nil
 
-    case cmd_status("evtest", ["--query", jack, "EV_SW", "SW_HEADPHONE_INSERT"]) do
-      {:ok, 10} -> true
-      {:ok, 0} -> false
-      _ -> nil
+      jack ->
+        case cmd_status("evtest", ["--query", jack, "EV_SW", "SW_HEADPHONE_INSERT"]) do
+          {:ok, 10} -> true
+          {:ok, 0} -> false
+          _ -> nil
+        end
     end
   end
 

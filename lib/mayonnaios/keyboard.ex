@@ -3,9 +3,9 @@ defmodule MayonnaiOS.Keyboard do
   Drives the launcher from a keyboard, by pretending to be the gamepad.
 
   The handheld's buttons reach `MayonnaiOS.Launcher` as evdev reports from
-  `/dev/input/event0`. A laptop has no such device, so this process subscribes
-  to Scenic's `:key` and `:codepoint` input and re-sends each keystroke in
-  exactly the shape the real driver uses:
+  `gpio-keys-gamepad`, and its power button as one from `axp20x-pek`. A laptop
+  has neither, so this process subscribes to Scenic's `:key` and `:codepoint`
+  input and re-sends each keystroke in exactly the shape the real driver uses:
 
       {:input_event, device, [{:ev_key, :btn_dpad_down, 1}]}
 
@@ -31,7 +31,7 @@ defmodule MayonnaiOS.Keyboard do
       c                   X -- the diagnostics screen
       enter               Menu -- back to the home screen
       backspace           Select
-      s                   Start -- with backspace held, the sleep chord
+      p                   the power button -- sleep, and any key wakes
       escape              Select+Menu, the power-off chord
 
   Arrows and `jk` both move because the arrows are where a hand goes first and
@@ -39,10 +39,18 @@ defmodule MayonnaiOS.Keyboard do
   rather than the letter printed on the shell, because the physical layout has
   no left-to-right mapping onto a keyboard worth guessing at.
 
-  `x` and `v` are also sent, as B and Y, and deliberately do nothing: the
-  Launcher binds neither. They are here so the mapping is complete and so those
-  presses reach the Launcher's unhandled-key logging rather than being dropped
-  silently -- if B or Y ever gains a binding, the keyboard already has it.
+  `x`, `v` and `s` are also sent, as B, Y and Start, and deliberately do
+  nothing: the Launcher binds none of them. They are here so the mapping is
+  complete and so those presses reach the Launcher's unhandled-key logging
+  rather than being dropped silently -- if one of them ever gains a binding,
+  the keyboard already has it. `s` is in that list rather than being the sleep
+  key because sleep left the pad: it was Select+Start, and it is now the power
+  button, which is `p`.
+
+  `p` is the one key here that is not a pad button. It sends `:key_power`, the
+  only key `axp20x-pek` has, and the Launcher reads that node alongside the
+  pad -- so a keystroke that arrives from neither is still handled by exactly
+  the code the device runs.
   """
 
   use GenServer
@@ -87,12 +95,14 @@ defmodule MayonnaiOS.Keyboard do
     "c" => :btn_y,
     # Y, also unbound in the Launcher
     "v" => :btn_x,
-    # Start, which the Launcher does not bind on its own either -- but held
-    # with backspace it is Select+Start, the sleep chord. A codepoint has no
-    # release, and this is the one key where that is worth saying: the chord
-    # works because *Select* is held through the :key path, and `s` only has
-    # to be the press that completes it.
-    "s" => :btn_start
+    # Start, which the Launcher does not bind. It was half of the sleep chord
+    # until the power key existed; see the moduledoc.
+    "s" => :btn_start,
+    # Not a pad button at all: the power button, which on the device arrives
+    # from `axp20x-pek` rather than `gpio-keys-gamepad`. The Launcher opens
+    # both and does not look at which node a report came from, so one
+    # synthetic report is enough here too.
+    "p" => :key_power
   }
 
   # Escape is the chord rather than a single key, because Select+Menu is

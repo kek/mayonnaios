@@ -119,6 +119,24 @@ defmodule MayonnaiOS.LauncherTest do
     end
   end
 
+  describe "the devices it opens" do
+    test "starts on a machine with none, and says so" do
+      # The host path, and the one the `:device` option in every other test
+      # here deliberately steps around. Two lookups happen at boot -- the pad
+      # and whatever device the sleep key is on -- and on a laptop both answer
+      # `nil`. Neither may be opened, and neither may take the boot down:
+      # `File.exists?/1` on a nil raises, which is what a fallback used to
+      # hide by handing over a path that merely did not exist.
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          start_supervised!(Launcher)
+          assert Launcher.selected() == 0
+        end)
+
+      assert log =~ "no input devices found"
+    end
+  end
+
   describe "the D-pad binding" do
     setup do
       # The Launcher is not in the host supervision tree, and there is no

@@ -1,32 +1,50 @@
 defmodule MayonnaiOS.Input do
   @moduledoc """
-  Finding an input device by what it is rather than by what it is numbered.
+  Finding an input device by what it is, and saying so when it is not there.
 
   `/dev/input/eventN` is assigned in probe order, and probe order is not a
-  promise. Three devices on this board were reliably `event0`, `event1` and
-  `event2` for as long as there were only three, and every caller wrote those
-  paths down. Adding a fourth -- the analog stick, once the BSP describes it
-  -- changes the number of things racing to register, and the failure that
-  produces is the worst-shaped one available: the launcher opens `event0`,
-  gets the joystick, and the handheld boots with no buttons and no way to
-  leave whatever is on the screen.
+  promise. It has now moved twice. Three devices were reliably `event0`,
+  `event1` and `event2` for as long as there were only three, and every caller
+  wrote those numbers down; then the BSP grew an `adc-joystick` node, and then
+  `CONFIG_INPUT_AXP20X_PEK` added the power key ahead of it. Read off the
+  device on firmware `3cc86f59`:
 
-  So the device is looked up by the name its driver gives it, which comes
-  from the device tree and changes only when someone changes it on purpose:
+      event0  axp20x-pek                       the power button
+      event1  adc-joystick                     the analog stick, read by nothing
+      event2  gpio-keys-gamepad                the buttons and the D-pad
+      event3  gpio-keys-volume                 the volume rocker
+      event4  H616 Audio Codec Headphone Jack  the jack switch
 
-      gpio-keys-gamepad             the buttons and the D-pad
-      gpio-keys-volume              the volume rocker
-      H616 Audio Codec Headphone Jack   the jack switch
+  Every number in that table is different from the one the same device had two
+  firmware revisions ago. It is here to be read, not to be depended on: what
+  callers ask for is the name, which comes from the device tree and changes
+  only when somebody changes it on purpose.
 
-  ## The fallback is the point
+  ## There is no fallback, and that is the point
 
-  `find/2` takes the path to use when the name is not found, and that path is
-  the one the caller used to hard-code. So this is strictly safer than what
-  it replaces: when enumeration works and the name is there, the answer is
-  right even if the numbering moved; when enumeration finds nothing -- on a
-  laptop, where there is no `/dev/input` at all -- the caller gets exactly
-  the behaviour it had before, which is to try the old path and degrade
-  gracefully when it does not open.
+  `find/2` used to take the numbered path to use when the name was not found --
+  the path each caller had hard-coded before this module existed -- and that
+  read as strictly safer than what it replaced. It was not.
+
+  A fallback only ever runs in the state where the name is absent, and a
+  number reached in that state does not name a worse version of the right
+  device. It names a different device. `event1` is the analog stick: opening it
+  and waiting for `KEY_VOLUMEUP` waits for ever, and every symptom of that is
+  an absence -- the button does nothing, the log says nothing, and the code
+  reads as though the case were handled. That is this project's characteristic
+  failure with a helpful-looking name on it, and it was live in four modules
+  the whole time the numbering was wrong, because a fallback behind a working
+  lookup is never exercised and never noticed.
+
+  It also never did the job it was kept for. A laptop has no `/dev/input` at
+  all, so the fallback there was a path that does not exist handed to a caller
+  that checks `File.exists?/1` before opening it. Nothing on the host path
+  needed the string to look like a device node.
+
+  So `find/1` answers `nil`, and says so out loud: a warning naming the device
+  that is missing and every device that is present. What losing a device costs
+  is the caller's own business -- no rocker is not a failed boot -- but no
+  caller can now reach the wrong one.
 
   There is deliberately no caching. This is called once per process at
   startup, the answer is two file reads, and a cache would be a second thing
@@ -36,28 +54,30 @@ defmodule MayonnaiOS.Input do
   require Logger
 
   @doc """
-  The path of the input device called `name`, or `fallback`.
+  The path of the input device called `name`, or `nil` when there is none.
 
-  Enumeration is wrapped because `InputEvent.enumerate/0` reaches for a port
-  binary that is only built on Linux; on a development machine it can raise
-  rather than return an empty list, and a raise here would take down whichever
-  process was merely trying to find its buttons.
+  The success is logged at info because the boot log is then a record of what
+  the numbering actually was on the firmware that booted, which is the one
+  thing nobody can reconstruct afterwards.
+
+  The failure is logged at warning, naming every device that *is* present,
+  because a name that is not there means a device tree or a kernel config
+  changed underneath this code -- and the only thing worse than a button that
+  does nothing is a button that does nothing while the log stays quiet about
+  which devices the kernel does have.
   """
-  @spec find(String.t(), String.t()) :: String.t()
-  def find(name, fallback) do
-    case Enum.find(enumerate(), fn {_path, info} -> info.name == name end) do
-      {path, _info} ->
-        if path != fallback do
-          # Worth an info line rather than a debug one: this is the moment
-          # the numbering turned out not to be what the code assumed, and it
-          # explains why a later log line names a device nobody configured.
-          Logger.info("[input] #{name} is #{path}, not #{fallback}")
-        end
+  @spec find(String.t()) :: String.t() | nil
+  def find(name) do
+    devices = names()
 
+    case Enum.find(devices, fn {_path, device_name} -> device_name == name end) do
+      {path, _name} ->
+        Logger.info("[input] #{name} is #{path}")
         path
 
       nil ->
-        fallback
+        Logger.warning("[input] no input device named #{name}; present: #{inspect(devices)}")
+        nil
     end
   end
 

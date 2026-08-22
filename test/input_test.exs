@@ -4,10 +4,9 @@ defmodule MayonnaiOS.InputTest do
   alias MayonnaiOS.Input
 
   # There is no /dev/input on the machine these tests run on, which is the
-  # case worth pinning down: the fallback has to be what a caller gets when
-  # enumeration cannot happen at all, because that is the difference between
-  # "the launcher opens the path it always did" and "the launcher crashes at
-  # boot looking for its buttons".
+  # case worth pinning down: a caller that asks for a device by name and is
+  # not on the device has to get an answer it cannot mistake for a device, and
+  # it must not get one by way of a raise at boot.
 
   describe "enumerate/0" do
     test "is a list even where there is nothing to enumerate" do
@@ -21,16 +20,40 @@ defmodule MayonnaiOS.InputTest do
     end
   end
 
-  describe "find/2" do
-    test "falls back to the given path when the name is not there" do
-      assert Input.find("no-such-device", "/dev/input/event0") == "/dev/input/event0"
+  describe "find/1" do
+    test "is nil when the name is not there, and not a path" do
+      # find/2 used to take the number to fall back on. There is nothing to
+      # fall back to now, on purpose: a fallback runs in exactly the state
+      # where the name is absent, and a number reached in that state is some
+      # other device that never sends the key being waited for.
+      assert Input.find("no-such-device") == nil
     end
 
-    test "the fallback is returned verbatim, not normalised or checked" do
-      # Deliberately not File.exists?/1: the caller's job is to open it and
-      # handle the failure, and a find/2 that returned nil for a missing path
-      # would make every call site handle two kinds of nothing.
-      assert Input.find("no-such-device", "/tmp/not-a-device") == "/tmp/not-a-device"
+    test "a real device name is still nil where there is no input layer" do
+      # A laptop, and a device tree that renamed something, get the same
+      # answer. Neither of them has the device, and neither is improved by
+      # being handed a path to open.
+      assert Input.find("gpio-keys-gamepad") == nil
+    end
+  end
+
+  describe "the paths this app is allowed to know" do
+    test "no module hard-codes a numbered input device path" do
+      # The regression this test exists for. A quoted `/dev/input/eventN` in
+      # `lib/` is a fallback growing back, and a fallback is only ever reached
+      # in the state where it names the wrong device: the numbering has moved
+      # twice, and each time every number written down in this app was wrong
+      # for a firmware or two without anything failing.
+      #
+      # It looks for the string a caller would pass rather than for the word
+      # `event0`, because prose about the numbering is fine and `Input`'s own
+      # moduledoc has the table.
+      offenders =
+        "lib/**/*.ex"
+        |> Path.wildcard()
+        |> Enum.filter(&Regex.match?(~r{"/dev/input/event\d}, File.read!(&1)))
+
+      assert offenders == []
     end
   end
 

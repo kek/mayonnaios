@@ -2,7 +2,7 @@ defmodule MayonnaiOS.Dev do
   @moduledoc """
   Buttons for a laptop, so scenes can be driven without the handheld.
 
-  The host has no `/dev/input/event0`, so `MayonnaiOS.Launcher` starts with no
+  The host has no `/dev/input` at all, so `MayonnaiOS.Launcher` starts with no
   device and simply never receives anything. It still handles the messages the
   real driver would send, though, which is all this needs: each function here
   sends one synthetic evdev press and lets the Launcher do exactly what it
@@ -91,7 +91,21 @@ defmodule MayonnaiOS.Dev do
   end
 
   @doc """
+  Press the power button: the backlight goes off, and any press brings it back.
+
+  Not in the table above, because it is not on the pad. On the device this
+  arrives from `axp20x-pek` rather than from the gamepad; the Launcher reads
+  both nodes and does not look at which one a report came from, so one
+  synthetic `:key_power` exercises the same path.
+  """
+  def power, do: press(:key_power)
+
+  @doc """
   Press and hold Select, then Menu: the power-off chord.
+
+  Not the power button. A short press of that is `power/0` above and sleeps; a
+  four-second hold makes the PMIC cut the rail without telling Linux, which is
+  why an orderly shutdown is still a chord. See `MayonnaiOS.Sleep`.
 
   On the device this powers off, so it is spelled out rather than given a
   one-letter name. On the host `Nerves.Runtime.poweroff/0` is a no-op, which
@@ -114,8 +128,8 @@ defmodule MayonnaiOS.Dev do
 
   # One synthetic report, shaped exactly like input_event's. The device string
   # is a lie and deliberately an obvious one: the Launcher ignores it, and a
-  # plausible-looking "/dev/input/event0" in a host session would invite the
-  # reader to believe something is really open.
+  # plausible-looking device node in a host session would invite the reader to
+  # believe something is really open.
   defp send_events(events) do
     send(Launcher, {:input_event, "(MayonnaiOS.Dev)", events})
   end
