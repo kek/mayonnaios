@@ -27,6 +27,15 @@ defmodule MayonnaiOS.Launcher do
   program exits the panel still shows whatever that program left there. The
   viewport has to be told to repaint; `Scenic.ViewPort.set_root/3` does it.
 
+  ## Getting the saves onto the card
+
+  Reaping a program is also the only moment this VM knows that nobody is
+  writing to RetroArch's save files, and on a handheld switched off by pulling
+  its power that moment is worth using: RetroArch flushes the SRAM to the
+  kernel and never fsyncs it. So the two places this module learns that a
+  program has stopped both call `MayonnaiOS.Saves.flush/1`. That module has the
+  reasoning, including why the flush must not run while a program is up.
+
   ## The full set of bindings
 
       D-pad up/down move the menu cursor
@@ -148,6 +157,10 @@ defmodule MayonnaiOS.Launcher do
   @up_button :btn_dpad_up
   @down_button :btn_dpad_down
 
+  # How long after a deliberate stop to fsync the save files. See `do_stop/1`
+  # for why a stop needs a delay and a program exiting on its own does not.
+  @flush_delay 1_000
+
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc """
@@ -198,7 +211,7 @@ defmodule MayonnaiOS.Launcher do
   @impl GenServer
   def init(opts) do
     Enum.each(devices(opts), &watch/1)
-    {:ok, new_state()}
+    {:ok, new_state(opts)}
   end
 
   # The gamepad, plus whatever device the sleep key is on.
@@ -242,7 +255,7 @@ defmodule MayonnaiOS.Launcher do
     if File.exists?(device), do: InputEvent.start_link(device), else: {:error, :enoent}
   end
 
-  defp new_state,
+  defp new_state(opts),
     do: %{
       port: nil,
       app: nil,
@@ -251,6 +264,13 @@ defmodule MayonnaiOS.Launcher do
       held: MapSet.new(),
       scene: :home,
       selected: 0,
+      # Pushing the save files onto the card, at the one moment it is safe to:
+      # after the program that owns them has been reaped. Injectable because
+      # what a test can check is that it happens then and not at other times,
+      # and an fsync itself has no observable result from in here.
+      flush_saves: Keyword.get(opts, :flush_saves, &MayonnaiOS.Saves.flush/0),
+      # How long after a deliberate stop to flush. See `do_stop/1`.
+      flush_delay: Keyword.get(opts, :flush_delay, @flush_delay),
       # Whether the backlight was turned off by the chord. Kept here rather
       # than read back from sysfs on every event, because it is this process
       # that has to decide whether to swallow a press and because the panel
@@ -365,9 +385,28 @@ defmodule MayonnaiOS.Launcher do
   # and a log line that names the wrong binary is worse than none.
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     Logger.info("[launcher] #{name_of(state.running)} exited (#{status})")
+
+    # The program is gone, which is what makes this safe: RetroArch's autosave
+    # hands the SRAM to the kernel and never fsyncs it, so on a device with no
+    # `sync` and no clean shutdown the save it just wrote is only as durable as
+    # the page cache. This is the moment nobody is writing to those files.
+    # MayonnaiOS.Saves has the full account, including why it must not happen
+    # while a program runs.
+    state.flush_saves.()
+
     repaint(state)
     {:noreply, %{state | port: nil, running: nil}}
   end
+
+  # A deliberate stop, one flush_delay later. See `do_stop/1`.
+  def handle_info(:flush_saves, %{port: nil} = state) do
+    state.flush_saves.()
+    {:noreply, state}
+  end
+
+  # Something is running again. Whatever the stop left in the page cache waits
+  # for that program's own exit rather than being fsynced underneath it.
+  def handle_info(:flush_saves, state), do: {:noreply, state}
 
   # Log what the program says, rather than dropping it.
   #
@@ -676,6 +715,18 @@ defmodule MayonnaiOS.Launcher do
     end
 
     _ = try do: Port.close(port), rescue: (_ -> :ok)
+
+    # Closing the port also throws away the exit message, so the clause above
+    # -- where the save flush belongs, because there the program is known to be
+    # gone -- never runs for a stop the player asked for. Hence a delay: one
+    # second after SIGTERM, RetroArch has either honoured it and written its
+    # SRAM, or it is hung and nothing is writing at all. Both are safe to
+    # fsync; fsyncing immediately would race the write itself.
+    #
+    # It is an approximation of "the program is gone" and it is only needed
+    # because this path does not wait for that. A stop path that waits for the
+    # process to actually die should flush there instead and drop the timer.
+    Process.send_after(self(), :flush_saves, state.flush_delay)
 
     Logger.info("[launcher] stopped #{name_of(state.running)}")
     repaint(state)

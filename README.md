@@ -215,6 +215,37 @@ Fixing the bundle would be tidier and is worth doing in
 is versioned separately and installed independently, so relying on it to *not*
 set something is the arrangement that already failed once.
 
+### Saves
+
+RetroArch writes a game's SRAM every ten seconds
+(`autosave_interval`), and this firmware asserts that in the same
+appended config as the core directory — because the device was found with
+`autosave_interval = "0"`, RetroArch's own default, which writes the `.srm`
+only when content closes cleanly. On a handheld with no clean shutdown, that
+means a kill or a pulled cable discards every in-game save made since the ROM
+was loaded. It did, repeatedly, to a Chrono Trigger file.
+
+Ten seconds costs almost nothing in writes: RetroArch compares the SRAM
+against its last copy and writes only when it differs, so the interval decides
+how *soon* a save reaches the card, not how often anything is written.
+
+The setting is scrubbed out of the player's own config at every boot by
+`MayonnaiOS.Cores.clear_persisted_autosave/0`, for the same reason
+`libretro_directory` is: RetroArch persists whatever `--appendconfig` supplied
+as though the player had chosen it, so without the scrub, a value could not be
+changed later by any firmware. Changing the interval is editing one line;
+there is no device to go and repair afterwards. The cost is that this firmware
+owns the setting — changing it in RetroArch's Saving menu does not survive a
+reboot.
+
+RetroArch flushes those writes to the kernel and never fsyncs them, and there
+is no `sync` on this device, so `MayonnaiOS.Saves.flush/1` fsyncs the save
+files when a program the launcher started has exited. Deliberately only then:
+fsyncing while a game runs could catch an autosave between its truncate and
+its write, which is the one way this could destroy the file it exists to
+protect. A cable pulled mid-game is covered by the interval and by f2fs
+writeback, and by nothing else.
+
 ## Using it as a Bluetooth controller
 
 The handheld can be the gamepad instead of the console. Pick **Bluetooth

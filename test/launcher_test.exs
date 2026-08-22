@@ -163,4 +163,72 @@ defmodule MayonnaiOS.LauncherTest do
       Launcher.selected()
     end
   end
+
+  # RetroArch hands its SRAM to the kernel and never fsyncs it, and this device
+  # is switched off by pulling the power. So the launcher fsyncs the saves at
+  # the moments it knows nothing is writing to them -- and, just as important,
+  # at no other moment. See MayonnaiOS.Saves.
+  describe "flushing the saves" do
+    setup do
+      test = self()
+      Application.put_env(:mayonnaios, :programs, [%{path: "/a"}])
+      on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
+
+      start_supervised!(
+        {Launcher,
+         device: "/nonexistent/event0",
+         flush_delay: 5,
+         flush_saves: fn -> send(test, :flushed) end}
+      )
+
+      :ok
+    end
+
+    test "when the program exits on its own" do
+      # state.port is nil here and the message names nil, so this drives the
+      # same clause a real exit drives: it is the reap that triggers the flush.
+      send(Launcher, {nil, {:exit_status, 0}})
+      assert Launcher.running?() == false
+      assert_receive :flushed
+    end
+
+    test "shortly after a deliberate stop, because closing the port loses the exit" do
+      # Pressing Menu closes the port, which throws away the exit message the
+      # clause above waits for. Without the timer, the most ordinary way to
+      # leave a game would be the one that never flushes.
+      port = spawn_sleeper()
+      :sys.replace_state(Launcher, &%{&1 | port: port})
+
+      Launcher.stop_program()
+      assert_receive :flushed, 500
+    end
+
+    test "not while something is running" do
+      # A flush underneath a running program could fsync a save mid-write,
+      # which would make a truncation durable -- the one way this mechanism
+      # could destroy the thing it exists to protect.
+      send(Launcher, :flush_saves)
+      Launcher.selected()
+      assert_receive :flushed
+
+      # The guard is on the port, so with one open there must be no flush.
+      port = spawn_sleeper()
+      :sys.replace_state(Launcher, &%{&1 | port: port})
+
+      send(Launcher, :flush_saves)
+      Launcher.selected()
+      refute_received :flushed
+
+      Launcher.stop_program()
+    end
+
+    # A real OS process for the launcher to hold, so the stop path signals
+    # something that exists rather than a port with no process behind it.
+    defp spawn_sleeper do
+      Port.open({:spawn_executable, System.find_executable("sleep")}, [
+        :exit_status,
+        args: ["30"]
+      ])
+    end
+  end
 end
