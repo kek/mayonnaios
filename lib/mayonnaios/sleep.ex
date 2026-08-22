@@ -18,10 +18,20 @@ defmodule MayonnaiOS.Sleep do
   these cores reach is a bare WFI whether "suspended" or not: a successful
   s2idle would save almost nothing.
 
-  And it would be dangerous. **No button on the front of this device is
-  wakeup-capable** -- only `alarmtimer.0.auto`, `musb-hdrc.2.auto` and
-  `7000000.rtc` have a `power/wakeup` at all. A system suspend that worked
-  would look exactly like a brick in someone's hands.
+  It also used to be dangerous, and that is the half of the analysis that has
+  changed. There is now a button that could bring the board back: the power
+  key's platform device is wakeup-capable and enabled --
+  `/sys/bus/platform/devices/axp20x-pek/power/wakeup` reads `enabled` on
+  firmware `3cc86f59` -- where before only `alarmtimer.0.auto`,
+  `musb-hdrc.2.auto` and `7000000.rtc` had a `power/wakeup` at all, and a
+  suspend that worked would have looked exactly like a brick in someone's
+  hands.
+
+  The wake source is recorded here because it was load-bearing and is now
+  wrong, not because it changes the answer. The other three reasons are the
+  ones that decide it, and all three stand: no `deep`, an s2idle that aborts
+  in rtw88, and no cpuidle driver to make a successful one worth anything. So
+  sleep is still the backlight and nothing else.
 
   ## Why the backlight, and why 0 and 1
 
@@ -63,30 +73,45 @@ defmodule MayonnaiOS.Sleep do
   answer: `MayonnaiOS.Launcher` only starts swallowing button presses if the
   panel really was told to go dark.
 
-  ## The binding, and the power button
+  ## The binding
 
-  Karl asked for the power button, and the power button does not exist as far
-  as Linux is concerned. There are exactly four input devices on this board --
-  `adc-joystick`, `gpio-keys-gamepad`, `gpio-keys-volume` and
-  `H616 Audio Codec Headphone Jack` -- and no power key among them. The button
-  is on the PMIC's PWRON pin; mainline has the driver
-  (`drivers/input/misc/axp20x-pek.c`, which would expose `KEY_POWER` on an
-  input device named `axp20x-pek`), but `CONFIG_INPUT_AXP20X_PEK` appears
-  nowhere in the system repo -- not in `linux/nerves.fragment`, not in
-  `linux/linux-6.18.defconfig`. Enabling it is a one-line kernel config change
-  and a 2-3 hour Buildroot rebuild, and no device-tree change at all, since it
-  is an MFD cell rather than a DT node.
+  Karl asked for the power button, and the power button now exists. It is on
+  the PMIC's PWRON pin, `CONFIG_INPUT_AXP20X_PEK` is set in the system repo's
+  `linux/nerves.fragment`, and `drivers/input/misc/axp20x-pek.c` puts
+  `KEY_POWER` on an input device named `axp20x-pek`. Read off the device on
+  firmware `3cc86f59`:
 
-  Until that rebuild happens the trigger is a chord on the pad, and `@binding`
-  below is one line so that the day the key exists, moving sleep onto it is
-  one line:
+      /dev/input/event0  axp20x-pek  report_info: [ev_key: [:key_power]]
 
-      @binding {"axp20x-pek", "/dev/input/event0", {nil, :key_power}}
+  One key and nothing else on that device, which is what makes this a binding
+  with no modifier. There is no neighbouring button to press by accident, and
+  a key that is alone on its own node cannot be half of a chord.
 
-  `MayonnaiOS.Input.find/2` is what makes that safe in both directions: it
-  looks the device up by the name its driver gives it and falls back to a
-  path, so firmware without the option still finds the pad and the chord keeps
-  working.
+  A short press is this module's. A long one is not, and cannot be made to be:
+  the PMIC's own `shutdown` attribute reads `4000`, so holding the button for
+  four seconds makes the AXP cut the rail in hardware, without asking Linux
+  and without anything being flushed. That is why `MayonnaiOS.Launcher` keeps
+  Select+Menu -- it is still the only *orderly* way to switch this device off.
+
+  ## The chord that used to be here
+
+  Sleep was Select+Start until the power key existed, and that chord is gone
+  rather than kept alongside. The case for keeping both is discoverability
+  insurance, and it does not survive contact with what a second trigger
+  costs: it has to be written down in this moduledoc, in the launcher's
+  binding list, in the README, in `MayonnaiOS.Keyboard` and in the
+  application's supervision comment, and `@binding` below is one tuple
+  precisely so that there is one place where any of that is written down.
+  Undiscoverability was the entire complaint about a chord, and answering it
+  with a chord *and* a button leaves the complaint standing while doubling
+  what a reader has to keep in step. Start goes back to being unbound, like B
+  and Y.
+
+  `MayonnaiOS.Input.find/1` is what makes the move safe: it looks the device
+  up by the name its driver gives it, and firmware without the option gets
+  `nil` and a warning naming every device that is present, rather than a
+  numbered guess that opens the analog stick and waits for `KEY_POWER` for
+  ever.
   """
 
   require Logger
@@ -102,30 +127,23 @@ defmodule MayonnaiOS.Sleep do
   @off "0"
   @on "1"
 
-  # `{device name, path to fall back on, {modifier, key}}`.
+  # `{device name, {modifier, key}}`.
   #
-  # Select+Start. Select because it is already the modifier this launcher uses
-  # and a second modifier would be a second thing to remember; Start because
-  # the launcher binds it to nothing at all, so the chord cannot be half of an
-  # existing action the way Select+X would be, and because Select and Start
-  # are the two recessed buttons in the middle of the shell -- nobody's thumb
-  # is resting on them while playing, which is what "cannot be pressed by
-  # accident" has to mean on a handheld.
+  # The power button, on its own. `nil` for the modifier means the key alone
+  # is the trigger; the chord shape is still supported and still resolved at
+  # compile time below, so sleep moving back onto the pad -- or onto whatever
+  # key the next shell puts it on -- stays a change to this one line.
   #
-  # Not Menu: Select+Menu powers off, and the reason that chord is guarded is
-  # that Menu is the key someone mashes to get out of a game. Not Y, which is
-  # deliberately unbound and stays that way.
-  #
-  # A `nil` modifier means the key alone is the trigger, which is what the
-  # real power button will want.
-  @binding {"gpio-keys-gamepad", "/dev/input/event0", {:btn_select, :btn_start}}
+  # There is no path in here any more. A fallback would be a number, and a
+  # number reached because the name was missing is a different device; see
+  # `MayonnaiOS.Input`.
+  @binding {"axp20x-pek", {nil, :key_power}}
 
   # Taken apart at compile time, so the one line above stays the only place
   # any of it is written down.
   @device_name elem(@binding, 0)
-  @device_fallback elem(@binding, 1)
-  @modifier @binding |> elem(2) |> elem(0)
-  @key @binding |> elem(2) |> elem(1)
+  @modifier @binding |> elem(1) |> elem(0)
+  @key @binding |> elem(1) |> elem(1)
 
   @doc """
   The sysfs file that turns the backlight off and on.
@@ -136,13 +154,16 @@ defmodule MayonnaiOS.Sleep do
   def path, do: Application.get_env(:mayonnaios, :backlight_brightness, @default_path)
 
   @doc """
-  The input device the sleep key arrives on.
+  The input device the sleep key arrives on, or `nil` when there is none.
 
-  Looked up by driver name with a path fallback, because `/dev/input/eventN`
-  is probe order and not a promise. See `MayonnaiOS.Input`.
+  Looked up by driver name and by nothing else, because `/dev/input/eventN` is
+  probe order and not a promise, and a numbered guess would open some other
+  device and wait for a key it never sends. `nil` on a laptop, and on any
+  firmware built without `CONFIG_INPUT_AXP20X_PEK`; `MayonnaiOS.Input.find/1`
+  has already logged which devices there were instead. See `MayonnaiOS.Input`.
   """
-  @spec device() :: String.t()
-  def device, do: Input.find(@device_name, @device_fallback)
+  @spec device() :: String.t() | nil
+  def device, do: Input.find(@device_name)
 
   @doc """
   Whether this press is the sleep trigger, given what is currently held.
@@ -153,9 +174,12 @@ defmodule MayonnaiOS.Sleep do
   @spec trigger?(MapSet.t(atom()), atom()) :: boolean()
   def trigger?(held, key), do: triggered?(held, key)
 
-  # Which of the two shapes this is, is decided when the module is compiled:
-  # a nil modifier -- what the real power key will want -- makes the key alone
-  # the trigger, and then nothing looks at the held set at all.
+  # Which of the two shapes this is, is decided when the module is compiled: a
+  # nil modifier -- which is what the power key wants -- makes the key alone
+  # the trigger, and then nothing looks at the held set at all. The chord
+  # clause is compiled only when `@binding` names a modifier, so a `held` set
+  # is still threaded through `trigger?/2` by every caller: that argument is
+  # what keeps moving the binding back onto the pad a one-line change.
   if @modifier do
     defp triggered?(held, key), do: key == @key and MapSet.member?(held, @modifier)
   else
@@ -163,7 +187,9 @@ defmodule MayonnaiOS.Sleep do
   end
 
   @doc """
-  The chord, for a log line or a help screen that wants to name it.
+  The binding, for a log line or a help screen that wants to name it.
+
+  `{nil, key}` when the key is the whole trigger, which is what it is now.
   """
   @spec binding() :: {atom() | nil, atom()}
   def binding, do: {@modifier, @key}

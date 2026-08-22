@@ -338,6 +338,28 @@ defmodule MayonnaiOS.VolumeTest do
     end
   end
 
+  describe "the device it opens" do
+    test "is looked up by name, and its absence is a line naming the name" do
+      # The rocker was `/dev/input/event1` in this file until the numbering
+      # moved, and by then `event1` was the analog stick -- a device with no
+      # keys on it at all. A fallback to that number is not a degraded volume
+      # control, it is a process waiting for ever for `KEY_VOLUMEUP` from
+      # something that has never sent one, and the only visible symptom is
+      # that the buttons do nothing.
+      #
+      # So there is no number to fall back to, and what makes that better
+      # rather than merely stricter is this log line: it names the device tree
+      # name, which is the thing that would have to change for this to happen.
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          start_supervised!({Volume, mixer: FakeMixer})
+        end)
+
+      assert log =~ "gpio-keys-volume"
+      refute log =~ "/dev/input/event"
+    end
+  end
+
   describe "the rocker" do
     setup do
       # No device: there is no /dev/input here, so Volume degrades to "no

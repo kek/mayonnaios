@@ -116,7 +116,7 @@ defmodule MayonnaiOS.FileManager do
 
   Under a DynamicSupervisor rather than linked to the caller, which is how
   `MayonnaiOS.Controller` starts too. `MayonnaiOS.Launcher` calls this from
-  inside the process that owns `event0`, so a link would mean that a bug in
+  inside the process that owns the gamepad, so a link would mean that a bug in
   here -- a directory that turns into something odd halfway through a listing,
   say -- takes the launcher down with it, and the device then stops answering
   its buttons at all.
@@ -173,7 +173,7 @@ defmodule MayonnaiOS.FileManager do
   @doc """
   Forward an evdev report from the Launcher.
 
-  A cast: this is called from the process holding `event0`, and a directory
+  A cast: this is called from the process holding the gamepad, and a directory
   listing must never be able to make the buttons late. Safe when the app is
   not running, because the launcher's view of that and the actual state can
   differ for as long as it takes to stop.

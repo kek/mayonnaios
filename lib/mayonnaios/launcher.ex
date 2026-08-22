@@ -86,7 +86,7 @@ defmodule MayonnaiOS.Launcher do
       A             launch the selected program
       Menu          go back to the home screen
       X             switch between the menu and diagnostics
-      Select+Start  sleep -- backlight off, and any press wakes it
+      Power         sleep -- backlight off, and any press wakes it
       Select+Menu   power off
 
   These are the buttons as printed on the shell. Two of the atoms above name
@@ -104,9 +104,10 @@ defmodule MayonnaiOS.Launcher do
 
   ## Sleep, and the press that wakes it
 
-  Select+Start turns the backlight off; `MayonnaiOS.Sleep` owns both the
-  mechanism and the choice of keys, including why it is not the power button
-  (Linux cannot see the power button on this board) and why it is not suspend.
+  The power button turns the backlight off; `MayonnaiOS.Sleep` owns both the
+  mechanism and the choice of key, including why it is that button now that
+  Linux can see it, why the Select+Start chord it replaced is gone rather than
+  kept as well, and why sleep is still not suspend.
 
   What belongs here is the other half: while the panel is dark, **the next
   press is consumed**. Waking is not a binding of its own -- any button wakes,
@@ -118,18 +119,34 @@ defmodule MayonnaiOS.Launcher do
   The held set is cleared at the same time, so a key that was down when the
   device woke cannot become half of a chord it was never meant to complete.
 
-  Three limits, all deliberate. The volume rocker does not wake it, because
+  Two limits, both deliberate. The volume rocker does not wake it, because
   `MayonnaiOS.Diagnostics` owns that input device and the Launcher never sees
-  its events. An app that has the buttons keeps them, sleep chord included,
-  for the same reason it keeps Menu -- see below. And a running *program* has
-  its own file descriptor on the pad: it goes on running with the panel dark,
-  and the press that wakes the device reaches it too. Only the launcher's own
-  bindings can be swallowed, which is the half that would have launched
-  something.
+  its events. And a running *program* has its own file descriptor on the pad:
+  it goes on running with the panel dark, and the press that wakes the device
+  reaches it too. Only the launcher's own bindings can be swallowed, which is
+  the half that would have launched something.
 
-  This process owns `event0`, so everything on the gamepad is bound here even
-  when it belongs to something else. `MayonnaiOS.Diagnostics` owns the
-  other two input devices for the same reason in reverse.
+  An app running in this VM used to be a third limit -- it kept every button,
+  the sleep chord included, for the same reason it keeps Menu. That stops with
+  the move onto the power key, and the sleep binding is now taken out of the
+  report before the app sees it. Three reasons, in the order that decides it.
+  The key is not on the pad at all, so this is not the launcher reaching into
+  a button an app might want. `MayonnaiOS.Controller.Report` describes fifteen
+  gamepad keys and `KEY_POWER` is not one of them, so forwarding it means it
+  is dropped on the floor -- and a power button that does nothing while the
+  controller screen is open is exactly the failure this codebase keeps naming.
+  And it was already asymmetric: the sleeping clause below is tested before
+  the app clause, so *waking* has always been the launcher's whoever has the
+  buttons. Sleeping now matches.
+
+  That is a property of a one-key binding rather than of the mechanism. Move
+  `MayonnaiOS.Sleep`'s `@binding` back onto a pad chord and an app loses those
+  keys, which is a reason to leave it on a key no app wants.
+
+  This process owns the gamepad and the power key's device, so everything on
+  the pad is bound here even when it belongs to something else.
+  `MayonnaiOS.Diagnostics` owns the rocker and the jack for the same reason in
+  reverse.
 
   ## Where the menu lives, and why the cursor is here
 
@@ -139,8 +156,9 @@ defmodule MayonnaiOS.Launcher do
   reasons that are both about how this device is put together.
 
   First, the cairo-fb driver delivers no input. The gamepad reaches Elixir
-  only through `InputEvent` on `event0`, which this process opens, so a
-  Scenic scene on this hardware can never receive a D-pad press at all.
+  only through `InputEvent` on the `gpio-keys-gamepad` node, which this
+  process opens, so a Scenic scene on this hardware can never receive a D-pad
+  press at all.
 
   Second, `Scenic.ViewPort.set_root/3` stops the running scene and starts a
   fresh one. This module calls it after every program exit (that is how the
@@ -157,12 +175,12 @@ defmodule MayonnaiOS.Launcher do
 
   alias MayonnaiOS.{Input, Panel, Programs, Sleep}
 
-  # The name the driver gives the gamepad, and the path it has always had.
-  # `MayonnaiOS.Input` prefers the name and falls back to the path, because
-  # /dev/input numbering is probe order and the analog stick adds a fourth
-  # device to the race.
+  # The name the driver gives the gamepad, which is the only thing this module
+  # knows about which device it is. There is no numbered fallback: this used to
+  # be `/dev/input/event0` and that number is the power key now, so a fallback
+  # would have opened the one device on the board with no gamepad buttons on
+  # it. See `MayonnaiOS.Input`.
   @device_name "gpio-keys-gamepad"
-  @device "/dev/input/event0"
 
   # See the moduledoc: this is physical A, not the atom's name.
   @launch_button :btn_b
@@ -291,21 +309,37 @@ defmodule MayonnaiOS.Launcher do
     {:ok, new_state(opts)}
   end
 
-  # The gamepad, plus whatever device the sleep key is on.
+  # The gamepad, plus whatever device the sleep key is on. Two nodes now that
+  # `CONFIG_INPUT_AXP20X_PEK` is enabled: evdev is not a broadcast, so the only
+  # way to see `KEY_POWER` is to have `axp20x-pek` open, and both devices
+  # deliver into the same `handle_info`. `uniq` because a binding back on the
+  # pad would make them the same node again, as they were until this firmware.
   #
-  # Today those are the same node and `uniq` collapses them to one open, which
-  # is why this is not speculation: it is the same single device it has always
-  # been. The day `CONFIG_INPUT_AXP20X_PEK` is enabled, `Sleep.device/0`
-  # resolves to the `axp20x-pek` node instead and the launcher opens both --
-  # evdev is not a broadcast, so the only way to see `KEY_POWER` is to have
-  # that node open, and both devices deliver into the same `handle_info`.
+  # `nil` is dropped rather than opened. A device that is not there by name is
+  # not there, and the alternative -- a number -- is a different device that
+  # never sends the key being waited for. Which device went missing is already
+  # in the log by the time this runs; see `MayonnaiOS.Input.find/1`.
   #
   # An explicit `:device` overrides the lot, which is how the tests and
   # `MayonnaiOS.Dev` drive this with synthetic events.
   defp devices(opts) do
     case Keyword.get(opts, :device) do
-      nil -> Enum.uniq([Input.find(@device_name, @device), Sleep.device()])
-      device -> [device]
+      nil ->
+        case Enum.uniq(Enum.reject([Input.find(@device_name), Sleep.device()], &is_nil/1)) do
+          [] ->
+            # A laptop, where this is ordinary and the synthetic-event path is
+            # the point -- and a device whose kernel lost both nodes, where it
+            # is a disaster. The log line is the same because this process
+            # cannot tell them apart; `Input.find/1` has named what it did see.
+            Logger.warning("[launcher] no input devices found; no buttons are bound")
+            []
+
+          devices ->
+            devices
+        end
+
+      device ->
+        [device]
     end
   end
 
@@ -436,20 +470,20 @@ defmodule MayonnaiOS.Launcher do
   # difference is only in the plumbing. A program reads evdev for itself
   # through udev, so the launcher has nothing to forward; an app runs in this
   # VM and has to be handed the reports, because this process is the one
-  # holding `event0` open and evdev is not a broadcast.
+  # holding the pad open and evdev is not a broadcast.
+  #
+  # The exception is the sleep key, which is held back: it is not a pad button,
+  # no app has a use for it, and a power button that does nothing while the
+  # controller screen is open is worse than an app missing an event it would
+  # have dropped. The moduledoc has the argument.
   #
   # Whole reports go across rather than single events, so a diagonal or a
   # button and a direction pressed in the same kernel report reach the app as
   # one thing and become one HID report.
   def handle_info({:input_event, _device, events}, %{app: app} = state) when app != nil do
-    state =
-      Enum.reduce(events, state, fn
-        {:ev_key, key, 1}, acc -> hold(acc, key)
-        {:ev_key, key, 0}, acc -> release(acc, key)
-        _, acc -> acc
-      end)
+    {state, slept?} = Enum.reduce(events, {state, false}, &app_event/2)
 
-    app.input(events)
+    if not slept?, do: app.input(events)
 
     {:noreply, leave_app(state, events)}
   end
@@ -536,6 +570,29 @@ defmodule MayonnaiOS.Launcher do
   defp hold(state, key), do: %{state | held: MapSet.put(state.held, key)}
   defp release(state, key), do: %{state | held: MapSet.delete(state.held, key)}
 
+  # The held set is folded one event at a time and the trigger is asked after
+  # each press, exactly as the ordinary path does it, so that a `@binding` with
+  # a modifier in it would still see the set the way the user pressed it rather
+  # than the set the whole report leaves behind.
+  #
+  # The whole report is dropped when the sleep key is in it, not just that one
+  # event. A report cannot span two devices and the sleep device carries one
+  # key, so "the report contains the sleep key" and "the report is the sleep
+  # key" are the same statement on this hardware.
+  defp app_event({:ev_key, key, 1}, {state, slept?}) do
+    state = hold(state, key)
+
+    if Sleep.trigger?(state.held, key) do
+      {_result, state} = enter_sleep(state)
+      {state, true}
+    else
+      {state, slept?}
+    end
+  end
+
+  defp app_event({:ev_key, key, 0}, {state, slept?}), do: {release(state, key), slept?}
+  defp app_event(_event, acc), do: acc
+
   # Menu while an app is running. The power-off chord is checked first, for
   # the same reason it is checked first everywhere else: a bare Menu must
   # never be able to switch the device off, and someone holding Select while
@@ -561,12 +618,13 @@ defmodule MayonnaiOS.Launcher do
     %{state | app: nil, running: nil}
   end
 
-  # The sleep chord is tested before any single-key binding, for the reason
+  # The sleep binding is tested before any single-key binding, for the reason
   # the power-off chord is tested before Menu: a modifier that only works when
-  # the other key happens to be unbound is not a modifier, and the next thing
-  # someone does with `MayonnaiOS.Sleep`'s one-line binding is move it onto a
-  # key that *is* bound (`KEY_POWER` is not, but Select+X would be). Asking
-  # `Sleep` first means that keeps working instead of silently doing nothing.
+  # the other key happens to be unbound is not a modifier, and moving
+  # `MayonnaiOS.Sleep`'s one-line binding onto a key that *is* bound is a
+  # change to one tuple. It does not matter today -- `KEY_POWER` is bound to
+  # nothing else and arrives from its own device -- and the ordering is what
+  # keeps that a property of the binding rather than of this function.
   defp press(state, key) do
     if Sleep.trigger?(state.held, key) do
       {_result, state} = enter_sleep(state)
@@ -704,9 +762,11 @@ defmodule MayonnaiOS.Launcher do
     Logger.info("[launcher] Select+Menu: powering off")
 
     # Whether poweroff/0 brings this board down cleanly is the genuinely
-    # unknown part. The PMIC power key is not wired into Linux here
-    # (CONFIG_INPUT_AXP20X_PEK is unset and there is no power-key node), so
-    # this is the only orderly shutdown the device has.
+    # unknown part. This is still the only *orderly* shutdown the device has,
+    # and the arrival of the power key does not change that: a short press is
+    # sleep, and a long one is the PMIC cutting the rail in hardware after the
+    # 4000 ms its `shutdown` attribute reads -- no unmount, no save flushed,
+    # nothing told. So the chord stays, and stays a chord.
     Nerves.Runtime.poweroff()
   end
 

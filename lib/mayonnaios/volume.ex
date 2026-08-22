@@ -110,10 +110,13 @@ defmodule MayonnaiOS.Volume do
 
   alias MayonnaiOS.Audio
 
-  # The name the driver gives the rocker, and the path it has had. Looked up
-  # by name because /dev/input numbering is probe order; see `MayonnaiOS.Input`.
+  # The name the driver gives the rocker, and the only thing this module knows
+  # about which device it is. There is no numbered fallback: this attribute
+  # used to be `/dev/input/event1`, and by the time the power key shipped that
+  # number was the analog stick -- a fallback that opens the stick and waits
+  # for `KEY_VOLUMEUP` is the rocker doing nothing with nothing in the log.
+  # See `MayonnaiOS.Input`.
   @device_name "gpio-keys-volume"
-  @device "/dev/input/event1"
 
   # Read off the hardware, not the device tree: these are the atoms
   # `InputEvent` decodes KEY_VOLUMEUP (115) and KEY_VOLUMEDOWN (114) to, and
@@ -144,15 +147,23 @@ defmodule MayonnaiOS.Volume do
 
   @impl GenServer
   def init(opts) do
-    device = Keyword.get(opts, :device, MayonnaiOS.Input.find(@device_name, @device))
+    # get_lazy, so an injected device does not also run a lookup whose warning
+    # would then be about a device this process was never going to open.
+    device = Keyword.get_lazy(opts, :device, fn -> MayonnaiOS.Input.find(@device_name) end)
 
     case open_device(device) do
       {:ok, _pid} ->
         Logger.info("[volume] watching #{device}: #{Audio.steps()} levels above silence")
 
+      {:error, :no_device} ->
+        # No rocker is not a reason to fail the boot, and this is the loud
+        # half of not having a fallback: the name is in the line, because the
+        # name is the thing that has to change in a device tree for this to
+        # happen. `MayonnaiOS.Input.find/1` has already logged what was there
+        # instead.
+        Logger.warning("[volume] no #{@device_name} input device; the rocker does nothing")
+
       {:error, reason} ->
-        # No rocker is not a reason to fail the boot. Everything else about
-        # the device still works, and `up/0` from IEx still works.
         Logger.warning("[volume] #{device} unavailable: #{inspect(reason)}")
     end
 
@@ -173,6 +184,8 @@ defmodule MayonnaiOS.Volume do
   # port binary is only built on Linux, so `start_link/1` *raises* on a macOS
   # host rather than returning an error, which inside a linked start would
   # take this process down at boot instead of degrading to "no rocker".
+  defp open_device(nil), do: {:error, :no_device}
+
   defp open_device(device) do
     if File.exists?(device), do: InputEvent.start_link(device), else: {:error, :enoent}
   end
