@@ -238,7 +238,17 @@ config :mayonnaios, :programs, [
   # every path from a root key plus checked names rather than from a string.
   # See that module's moduledoc for what the boundary does and does not
   # promise; the symlink caveat is the part worth reading.
-  %{name: "Files", app: MayonnaiOS.FileManager}
+  %{name: "Files", app: MayonnaiOS.FileManager},
+  # The other direction, and it takes hci0 for the same reason, so these two
+  # are mutually exclusive and the launcher's one-app-at-a-time rule is what
+  # enforces it.
+  #
+  # Named "devices" rather than "pairing" deliberately. What it does is list
+  # what is nearby and manage the pairings this device already has; it cannot
+  # connect headphones, because that is A2DP over BR/EDR and there is no
+  # BR/EDR host in this firmware. `MayonnaiOS.Pairing` has the full account,
+  # and the screen says it in the first line rather than in a footnote.
+  %{name: "Bluetooth devices", app: MayonnaiOS.Pairing}
 ]
 
 # The name a host shows in its pairing list, and the icon it draws next to it
