@@ -18,15 +18,8 @@ defmodule MayonnaiOS.Application do
     #
     # Set `config :mayonnaios, autostart_ui: true` once it is known good.
     children =
-      if Application.get_env(:mayonnaios, :autostart_ui, false) do
-        # fbcon owns /dev/fb0 too, and repaints over the UI on every kernel
-        # message. Release it before Scenic draws, or the scene appears for a
-        # few seconds and is then buried under scrolling kernel log.
-        MayonnaiOS.Console.release()
-        [{Scenic, [Application.get_env(:mayonnaios, :viewport)]}]
-      else
-        []
-      end ++
+      [status()] ++
+        viewport() ++
         [controller_sessions(), file_manager_sessions(), pairing_sessions()] ++
         target_children()
 
@@ -35,6 +28,34 @@ defmodule MayonnaiOS.Application do
     opts = [strategy: :one_for_one, name: MayonnaiOS.Supervisor]
     Supervisor.start_link(children, opts)
   end
+
+  defp viewport do
+    if Application.get_env(:mayonnaios, :autostart_ui, false) do
+      # fbcon owns /dev/fb0 too, and repaints over the UI on every kernel
+      # message. Release it before Scenic draws, or the scene appears for a
+      # few seconds and is then buried under scrolling kernel log.
+      MayonnaiOS.Console.release()
+      [{Scenic, [Application.get_env(:mayonnaios, :viewport)]}]
+    else
+      []
+    end
+  end
+
+  # The battery, WiFi and clock readings behind the shared top bar. On the
+  # host as well as on the device, and not in `target_children/0` with the
+  # other pollers, because the UI is run on a laptop during development and a
+  # bar with no reader behind it would spend that whole session saying "no
+  # reading" -- which is true, and not what anyone is trying to look at.
+  #
+  # First in the list, ahead of Scenic, so the bar the root scene mounts has
+  # something to subscribe to at boot. Order is not the only thing keeping
+  # that working -- the bar knocks again whenever its reading has gone stale,
+  # which is also what recovers it if this process is restarted -- but a
+  # subscription that succeeds first time is one less thing to explain.
+  #
+  # It is a poller, not a device: nothing else waits on it, and if it dies the
+  # panel says so rather than going blank.
+  defp status, do: MayonnaiOS.Status
 
   # Empty until someone starts the controller app, and on the host as well as
   # on the device: an empty DynamicSupervisor is one process and no radio, and

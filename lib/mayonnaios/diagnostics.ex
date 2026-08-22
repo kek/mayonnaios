@@ -49,8 +49,6 @@ defmodule MayonnaiOS.Diagnostics do
 
   alias MayonnaiOS.Bluetooth.HCISocket
 
-  @battery "/sys/class/power_supply/axp20x-battery"
-  @usb "/sys/class/power_supply/axp20x-usb"
   # Looked up by name at startup, with these as the fallback; see
   # `MayonnaiOS.Input` for why the numbering is not something to rely on.
   @volume_name "gpio-keys-volume"
@@ -84,6 +82,9 @@ defmodule MayonnaiOS.Diagnostics do
             # same as having asked and got nothing. See probe_bluetooth/0.
             bt_probe: {:error, :not_run},
             ticks: 0
+
+  @typedoc "One reading of everything this collector watches."
+  @type t :: %__MODULE__{}
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -275,17 +276,13 @@ defmodule MayonnaiOS.Diagnostics do
     end
   end
 
-  defp read_battery do
-    %{
-      capacity: read_int("#{@battery}/capacity"),
-      status: read_str("#{@battery}/status"),
-      # Microvolts and microamps; divided for display, not here.
-      voltage_uv: read_int("#{@battery}/voltage_now"),
-      current_ua: read_int("#{@battery}/current_now"),
-      health: read_str("#{@battery}/health"),
-      usb_online: read_int("#{@usb}/online") == 1
-    }
-  end
+  # The parsing lives in `MayonnaiOS.Power` rather than here, because the
+  # status bar reads the same four files and two parsers of one sysfs
+  # directory is how two screens end up disagreeing about the battery with no
+  # way to tell which is lying. This screen keeps the flat shape -- a map with
+  # nils in it -- because it colours each row separately and a partial answer
+  # is worth drawing as long as the missing half is drawn as missing.
+  defp read_battery, do: MayonnaiOS.Power.values()
 
   defp read_thermal do
     "/sys/class/thermal/thermal_zone*"

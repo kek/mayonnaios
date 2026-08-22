@@ -313,7 +313,7 @@ defmodule MayonnaiOS.PairingTest do
       assert "Nothing has advertised yet." in texts
     end
 
-    test "windows the paired hosts so a selection past the eighth is still drawn" do
+    test "windows the paired hosts so a selection past the last visible one is drawn" do
       bonds =
         for i <- 1..12 do
           %{
@@ -336,7 +336,12 @@ defmodule MayonnaiOS.PairingTest do
 
       assert "012:00:00:00:00:00" in texts
       refute "01:00:00:00:00:00" in texts
-      assert "5-12 of 12" in texts
+      # Seven rows, not eight: the shared top bar took 22 px off the top of
+      # this screen and the eighth row's counter would have landed on the
+      # footer rule. The number is here rather than read from the scene on
+      # purpose -- if the window shrinks again, this test is what should
+      # notice.
+      assert "6-12 of 12" in texts
     end
 
     test "a long name is clipped rather than drawn over the footer" do

@@ -21,10 +21,22 @@ defmodule MayonnaiOS.Scene.Diagnostics do
 
   alias Scenic.Graph
   alias MayonnaiOS.{Audio, Diagnostics}
+  alias MayonnaiOS.Scene.StatusBar
   import Scenic.Primitives
 
   @width 640
   @height 480
+
+  # The shared top bar owns the top of the panel on every screen, so the title
+  # starts below it. The height comes from the bar rather than being copied.
+  @status_bar StatusBar.height()
+  @title_y @status_bar + 20
+  @rule_y @status_bar + 30
+
+  # Where the two columns start. The 22 px the bar took came off the top of
+  # both, and the right-hand column is the tight one: its four sections come
+  # to 374 px, which from here ends at 458 on a 480 px panel.
+  @column_y @rule_y + 24
 
   @bg {12, 14, 22}
   @title {235, 238, 245}
@@ -40,11 +52,11 @@ defmodule MayonnaiOS.Scene.Diagnostics do
   @impl Scenic.Scene
   def init(scene, _param, _opts) do
     :timer.send_interval(@refresh_ms, :refresh)
-    {:ok, push_graph(scene, render(snapshot()))}
+    {:ok, push_graph(scene, graph(snapshot()))}
   end
 
   @impl GenServer
-  def handle_info(:refresh, scene), do: {:noreply, push_graph(scene, render(snapshot()))}
+  def handle_info(:refresh, scene), do: {:noreply, push_graph(scene, graph(snapshot()))}
   def handle_info(_msg, scene), do: {:noreply, scene}
 
   # The scene must survive the collector not running -- on the host it never
@@ -65,16 +77,27 @@ defmodule MayonnaiOS.Scene.Diagnostics do
 
   # -- rendering -------------------------------------------------------------
 
-  defp render(nil) do
+  @doc """
+  Build the graph for one `MayonnaiOS.Diagnostics.snapshot/0`, or for `nil`.
+
+  Public for the same reason the other screens' builders are: it needs no
+  viewport, no driver and no framebuffer, so a host test can assert what the
+  panel says -- including that nothing is drawn in the strip the shared top
+  bar owns.
+  """
+  @spec graph(Diagnostics.t() | nil) :: Scenic.Graph.t()
+  def graph(snapshot)
+
+  def graph(nil) do
     base()
     |> text("Diagnostics collector is not running.",
       font_size: 18,
       fill: {:color, @fail},
-      translate: {20, 80}
+      translate: {20, @column_y + 18}
     )
   end
 
-  defp render(s) do
+  def graph(s) do
     base()
     |> column(20, left_rows(s))
     |> column(330, right_rows(s))
@@ -83,15 +106,20 @@ defmodule MayonnaiOS.Scene.Diagnostics do
   defp base do
     Graph.build(font: :roboto, font_size: 14)
     |> rect({@width, @height}, fill: {:color, @bg})
-    |> text("RG40XXV diagnostics", font_size: 20, fill: {:color, @title}, translate: {20, 28})
-    |> rect({@width - 40, 2}, fill: {:color, @head}, translate: {20, 38})
+    |> StatusBar.mount()
+    |> text("RG40XXV diagnostics",
+      font_size: 20,
+      fill: {:color, @title},
+      translate: {20, @title_y}
+    )
+    |> rect({@width - 40, 2}, fill: {:color, @head}, translate: {20, @rule_y})
   end
 
   # Walk a column of entries, advancing a y cursor. Headings get extra space
   # above them, so sections read as sections.
   defp column(graph, x, entries) do
     {graph, _y} =
-      Enum.reduce(entries, {graph, 62}, fn
+      Enum.reduce(entries, {graph, @column_y}, fn
         {:head, label}, {g, y} ->
           {text(g, label, font_size: 14, fill: {:color, @head}, translate: {x, y + 8}), y + 26}
 
