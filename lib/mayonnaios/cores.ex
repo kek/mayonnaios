@@ -77,6 +77,17 @@ defmodule MayonnaiOS.Cores do
   The catalogue lives in config, with the firmware, for the same reason the
   RetroArch spec does: a checksum served from beside the file it describes is
   not evidence of anything.
+
+  ## The one thing in here that is not about cores
+
+  `write_append_config/0` also writes `autosave_interval`, which has nothing
+  to do with cores and everything to do with the mechanism this module already
+  owns: the one file appended after the bundle's, rewritten every boot, paired
+  with a boot-time scrub of the player's config so that nothing it says can
+  outlive it. That pairing is the only way this firmware can assert a RetroArch
+  setting and still be able to take it back, and it exists here because
+  `libretro_directory` needed it first. Splitting it across two modules would
+  mean two writers of one file. See that function.
   """
 
   require Logger
@@ -87,6 +98,11 @@ defmodule MayonnaiOS.Cores do
   # Overridable so the tests can point somewhere writable; the device never
   # needs to.
   @retroarch_config "/root/.config/retroarch/retroarch.cfg"
+
+  # Seconds between SRAM autosaves. The number is argued in
+  # `write_append_config/0`; overridable so a test can assert that the value
+  # travels rather than hard-coding it twice.
+  @autosave_interval 10
 
   @doc """
   Where core bundles are installed, one versioned directory per core.
@@ -118,6 +134,15 @@ defmodule MayonnaiOS.Cores do
   end
 
   @doc """
+  Seconds between SRAM autosaves, as `write_append_config/0` will assert it.
+
+  See that function for why the number is what it is.
+  """
+  def autosave_interval do
+    Application.get_env(:mayonnaios, :retroarch_autosave_interval, @autosave_interval)
+  end
+
+  @doc """
   Remove `libretro_directory` from RetroArch's main config unless it already
   names `dir/0`.
 
@@ -137,19 +162,60 @@ defmodule MayonnaiOS.Cores do
   a pulled power cable would lose the lot.
   """
   def clear_stale_directory(path \\ nil) do
-    path = path || retroarch_config()
+    strip(path || retroarch_config(), "libretro_directory", &stale_directory?/1)
+  end
 
+  @doc """
+  Remove `autosave_interval` from RetroArch's main config, whatever it says.
+
+  This is the other half of the `autosave_interval` that
+  `write_append_config/0` writes, and it is the half that makes the setting
+  removable. The full account of why the setting exists is on that function;
+  this is how it is taken back out.
+
+  Unconditional, unlike `clear_stale_directory/1`, and the asymmetry is the
+  point. A `libretro_directory` that already names `dir/0` is *correct*, so
+  leaving it costs nothing. A persisted `autosave_interval` is never
+  load-bearing: the value that decides the launch is the one in
+  `append_config/0`, which is merged last on every launch and rewritten on
+  every boot. The copy in the player's config is only ever a fossil of a
+  launch that has already happened -- and the one fossil that actually caused
+  today's loss, `autosave_interval = "0"`, is indistinguishable from a value
+  the player chose.
+
+  So it goes, every boot. Which means the day this policy changes, editing the
+  number in `write_append_config/0` -- or deleting the line -- is genuinely
+  enough: the next boot removes the fossil and RetroArch falls back to what
+  the appended file says, or to its own default when the line is gone. No
+  device is left carrying a setting no file in any repository still contains,
+  which is exactly what happened with `libretro_directory` and cost two rounds
+  of debugging to find.
+
+  The price is worth stating plainly: this firmware owns `autosave_interval`.
+  A value set in RetroArch's own Saving menu will not survive a reboot. That
+  is a real loss of control over one setting, accepted because the setting
+  being wrong costs a save file and the person it costs it to is the one who
+  cannot see that it is wrong.
+  """
+  def clear_persisted_autosave(path \\ nil) do
+    strip(path || retroarch_config(), "autosave_interval", &autosave_interval?/1)
+  end
+
+  # One read, one rewrite, for any setting this application takes back out of
+  # the player's config. Shared because the mechanism is the same and the
+  # policy -- which lines go -- is the only thing that differs.
+  defp strip(path, setting, drop?) do
     case File.read(path) do
       {:ok, contents} ->
         {stale, keep} =
           contents
           |> String.split("\n")
-          |> Enum.split_with(&stale_directory?/1)
+          |> Enum.split_with(drop?)
 
         if stale == [] do
           {:ok, :unchanged}
         else
-          rewrite(path, keep, Enum.map(stale, &configured_directory/1))
+          rewrite(path, setting, keep, Enum.map(stale, &value_of(setting, &1)))
         end
 
       {:error, :enoent} ->
@@ -161,12 +227,12 @@ defmodule MayonnaiOS.Cores do
     end
   end
 
-  defp rewrite(path, lines, cleared) do
+  defp rewrite(path, setting, lines, cleared) do
     tmp = path <> ".mayonnaios"
 
     with :ok <- File.write(tmp, Enum.join(lines, "\n")),
          :ok <- File.rename(tmp, path) do
-      Logger.info("[cores] cleared libretro_directory #{inspect(cleared)} from #{path}")
+      Logger.info("[cores] cleared #{setting} #{inspect(cleared)} from #{path}")
       {:ok, {:cleared, cleared}}
     else
       {:error, reason} ->
@@ -176,8 +242,13 @@ defmodule MayonnaiOS.Cores do
     end
   end
 
+  # Any `autosave_interval` at all, whatever it is set to. See
+  # `clear_persisted_autosave/1` for why this one is unconditional and the
+  # directory one is not.
+  defp autosave_interval?(line), do: value_of("autosave_interval", line) != nil
+
   defp stale_directory?(line) do
-    case configured_directory(line) do
+    case value_of("libretro_directory", line) do
       nil -> false
       # Expanded before comparing: RetroArch writes the value back with the
       # home directory abbreviated to `~`, so the string it saves for the
@@ -186,8 +257,14 @@ defmodule MayonnaiOS.Cores do
     end
   end
 
-  defp configured_directory(line) do
-    case Regex.run(~r/^\s*libretro_directory\s*=\s*"?(.*?)"?\s*$/, line) do
+  # One `key = value` line, or nil if this line is not that key.
+  #
+  # Anchored on both sides of the key, which is not fussiness: RetroArch's
+  # config holds `libretro_info_path`, `libretro_log_level`,
+  # `autosave_interval` next to `savestate_auto_save`, and a hundred others,
+  # and a loose match would edit lines this application knows nothing about.
+  defp value_of(setting, line) do
+    case Regex.run(~r/^\s*#{Regex.escape(setting)}\s*=\s*"?(.*?)"?\s*$/, line) do
       [_, value] -> value
       nil -> nil
     end
@@ -316,12 +393,114 @@ defmodule MayonnaiOS.Cores do
   a contradiction of the "configure nothing" rule so much as its enforcement:
   the value written here is the default, and `clear_stale_directory/0`
   deliberately leaves a config naming `dir/0` alone.
+
+  ## The other setting: `autosave_interval`
+
+  The device was found with `autosave_interval = "0"` in the player's config,
+  which is RetroArch's own default and means *never autosave*. With it off,
+  the SRAM `.srm` is written when content closes cleanly and at no other time,
+  so every kill, every hang and every pulled power cable discards the whole
+  session -- including in-game saves the player made at a save point an hour
+  earlier. That is not a hypothetical: it happened repeatedly in one
+  afternoon, to a Chrono Trigger file, while a hung RetroArch was being
+  SIGKILLed to diagnose something else entirely.
+
+  This device cannot rely on a clean close. It is switched off by pulling the
+  power, there is no clean shutdown in normal use, and a program that hangs
+  holding DRM master has to be killed. A save mechanism that only runs on a
+  clean exit is therefore a save mechanism that runs on the good days.
+
+  ### Ten seconds, and what that number actually buys
+
+  `autosave_interval = "10"`. Read the guarantee carefully, because it is
+  narrower than "you lose at most ten seconds of play": SRAM holds what the
+  *game* has written to its battery-backed memory, so what is being protected
+  is the player's own in-game saves, not the walk between them. What ten
+  seconds buys is that an in-game save is on its way to the card about ten
+  seconds later instead of surviving only if RetroArch is allowed to exit
+  cleanly -- which today it was not.
+
+  Ten rather than sixty because the cost is bounded by the game rather than by
+  the clock: RetroArch's autosave thread compares the SRAM against its last
+  copy and writes only when it differs, so a shorter interval does not mean
+  more writes on a card that times out on erase (`mmc_erase: group start error
+  -110`, the reason `/root` is mounted `nodiscard` -- see
+  `MayonnaiOS.AppPartition`). It means the write happens sooner after the
+  game's own save, and 8 KB of `.srm` is one f2fs write either way. Ten
+  rather than one because a burst of SRAM writes -- some games rewrite a
+  checksum region repeatedly -- should coalesce into one write, and because
+  ten seconds of extra exposure is not worth a tenfold write rate in the
+  pathological case.
+
+  That the writes are change-gated is read from RetroArch's autosave thread,
+  not measured here. If it turns out to write unconditionally, the number to
+  change is `@autosave_interval` and nothing else moves.
+
+  What this setting does *not* do is make the write durable. RetroArch flushes
+  the file to the kernel and does not fsync it, so an autosaved `.srm` lives
+  in the page cache until f2fs writes it back on its own schedule -- and this
+  device has no `sync` binary and no clean shutdown. `MayonnaiOS.Saves` is the
+  other half of that, and it is the half that can only run when the program
+  that owns the file is gone.
+
+  ### What was considered and not done: a save state on stop
+
+  `savestate_auto_save = "true"` would write a full machine state when content
+  closes, and `savestate_auto_load` would put the player back exactly where
+  they were. It is rejected, and not narrowly.
+
+  It writes on a *clean close*, which is the code path that already works and
+  the one that was never the problem: a SIGKILLed or unplugged RetroArch does
+  not reach it either. So it adds nothing to the failure being fixed, while
+  adding a multi-megabyte write to every ordinary exit on a card whose erase
+  times out. And a state is tied to the core that wrote it -- upgrade
+  snes9x2010 and the automatic load either fails or, worse, restores something
+  subtly wrong -- so it would make a core upgrade able to break a game that
+  had been fine, in exchange for convenience nobody asked for.
+
+  SRAM is the opposite of that: 8 KB, the format the game itself defined, and
+  portable across cores and RetroArch versions. It is the thing worth making
+  durable.
+
+  ## Why here, and not in the bundle or on the command line
+
+  There is no command line for it -- RetroArch takes settings from config
+  files -- so the only question is which file. It cannot be the bundle's:
+  bundles are separately versioned artifacts, a value one appends is
+  indistinguishable from one the player chose, and RetroArch writes it into
+  the player's own config on exit. That is how `libretro_directory` outlived
+  every file that named it. Anything a bundle asserts, no later bundle can
+  withdraw.
+
+  This file has neither problem, and both halves matter:
+
+    * it is rewritten from this function on every boot, so what it says is
+      whatever this firmware currently says, and
+    * `clear_persisted_autosave/1` takes the setting out of the player's
+      config on every boot, so the copy RetroArch persists on exit is scrubbed
+      before the next launch reads anything.
+
+  Retraction is therefore editing one line in this function. There is no
+  device to go and repair afterwards, which is the property
+  `libretro_directory` did not have.
+
+  One file with two settings rather than a second file with one, because the
+  file has exactly one writer and that is worth keeping. Two modules writing
+  one path is a clobber waiting for the boot order to change; and the
+  `--appendconfig` argument in `config :mayonnaios, :programs` names this path
+  once, so a second file would also mean editing the launch arguments to add
+  it.
   """
   def write_append_config do
     path = append_config()
 
+    contents = """
+    libretro_directory = "#{dir()}"
+    autosave_interval = "#{autosave_interval()}"
+    """
+
     with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(path, "libretro_directory = \"#{dir()}\"\n") do
+         :ok <- File.write(path, contents) do
       :ok
     else
       {:error, reason} ->
@@ -415,7 +594,8 @@ defmodule MayonnaiOS.Cores do
   defmodule Startup do
     @moduledoc """
     Asserts the core arrangement once at boot: RetroArch's config names no core
-    directory, and the default one holds a link per core.
+    directory, carries no `autosave_interval` of its own, and the default core
+    directory holds a link per core.
 
     Cheap -- a listing and a handful of symlinks -- and it is the step that
     makes a RetroArch upgrade not lose the installed cores: `current` has
@@ -438,6 +618,9 @@ defmodule MayonnaiOS.Cores do
 
     def run do
       MayonnaiOS.Cores.clear_stale_directory()
+      # Unconditional, every boot, and that is what makes the autosave setting
+      # editable rather than permanent. See clear_persisted_autosave/1.
+      MayonnaiOS.Cores.clear_persisted_autosave()
       MayonnaiOS.Cores.write_append_config()
       MayonnaiOS.Cores.sync()
     rescue
