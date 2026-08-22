@@ -191,18 +191,21 @@ config :mayonnaios, :programs, [
     # Two files, and the order is the point. `--appendconfig` takes a
     # `|`-separated list and merges each in turn, so the last one wins.
     #
-    # The bundle's config sets `libretro_directory`, which it should not: the
-    # installed one names /root/retroarch/cores, a directory nothing fills, in a
-    # comment referring to a module this project has since renamed away from.
-    # With only that file appended, RetroArch showed an empty core list on every
-    # launch and wrote the bad value back into the player's config on exit --
-    # which `MayonnaiOS.Cores.clear_stale_directory/0` then removed at the next
-    # boot, and the next launch put back. Repaired once per boot, broken once
-    # per launch.
+    # Bundles up to v1.22.2-5 set `libretro_directory` themselves, naming
+    # /root/retroarch/cores -- a directory nothing fills. With only that file
+    # appended, RetroArch showed an empty core list on every launch and wrote
+    # the bad value back into the player's config on exit, which
+    # `MayonnaiOS.Cores.clear_stale_directory/0` then removed at the next boot
+    # and the next launch put back. Repaired once per boot, broken once per
+    # launch.
     #
-    # The second file is written by `MayonnaiOS.Cores.write_append_config/0`
-    # from `Cores.dir/0`, so it names the directory the symlinks actually go
-    # into and cannot drift from it.
+    # v1.22.2-6 sets no directory at all, so for a device that has installed it
+    # there is nothing to argue with. The second file stays anyway, because a
+    # value persisted by an older bundle outlives that bundle and no later
+    # bundle can withdraw it. It is written by
+    # `MayonnaiOS.Cores.write_append_config/0` from `Cores.dir/0`, so it names
+    # the directory the symlinks actually go into, cannot drift from it, and
+    # being last it wins over anything a bundle or an earlier run left behind.
     #
     # The `|` never meets a shell: `Port.open/2` with `:spawn_executable` passes
     # argv straight through, so this is one argument containing a pipe rather
@@ -271,10 +274,10 @@ config :mayonnaios, bundle_root: "/root/bundles"
 config :mayonnaios, :bundles, %{
   retroarch: %{
     name: "retroarch",
-    version: "1.22.2-5",
+    version: "1.22.2-6",
     url:
-      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-5/retroarch-1.22.2-aarch64.tar.gz",
-    sha256: "170fb96020d67a0cff05b988721939aee94b35b845874b3d21fae427ad691b3c"
+      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-6/retroarch-1.22.2-aarch64.tar.gz",
+    sha256: "2f2542dc0f812a5e922aad738d32ea0d53f831ba2dde7083786e96d1fce189b4"
   }
 }
 
@@ -379,19 +382,19 @@ config :mayonnaios, :cores, %{
     name: "snes9x2010",
     label: "Super Nintendo — Snes9x 2010",
     systems: ["snes"],
-    version: "1.22.2-5",
+    version: "1.22.2-6",
     url:
-      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-5/snes9x2010-1.22.2-aarch64.tar.gz",
-    sha256: "d7d189fa421cf1221fd3de1986630c98308310435309f5e70448c2931b6a6528"
+      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-6/snes9x2010-1.22.2-aarch64.tar.gz",
+    sha256: "9a492c7414330d07929d322bb3b643312eb3bafb7386543484d04b393abb7e85"
   },
   "2048": %{
     name: "2048",
     label: "2048",
     systems: [],
-    version: "1.22.2-5",
+    version: "1.22.2-6",
     url:
-      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-5/2048-1.22.2-aarch64.tar.gz",
-    sha256: "3e2d49b55c36a540ccec01e7f63da59d369c0e49a901b82526157777fe2c09b7"
+      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-6/2048-1.22.2-aarch64.tar.gz",
+    sha256: "c6eba3f077baf5fe56766d8213424c38d5ff0787488d4fac455d4ff96ba86518"
   }
 }
 
