@@ -33,7 +33,7 @@ defmodule MayonnaiOS.Programs do
   @type program :: %{
           name: String.t(),
           path: String.t() | nil,
-          app: module() | nil,
+          app: module() | {module(), term()} | nil,
           args: [String.t()],
           installed?: boolean()
         }
@@ -42,12 +42,27 @@ defmodule MayonnaiOS.Programs do
   The configured programs, normalized and stat'd.
 
   Pass `configured` to bypass the application environment; that is what the
-  tests do, and it is the seam a future directory scan appends to.
+  tests do, and it is the seam a directory scan appends to -- which is now
+  not hypothetical: installed graphical pickles append their rows here, so
+  they appear on the menu the moment they land, with no restart and no
+  config change. Config first, pickles after, because the firmware's own
+  entries are the stable part of the menu.
   """
   @spec list([map() | keyword()] | nil) :: [program()]
   def list(configured \\ nil) do
-    entries = configured || Application.get_env(:mayonnaios, :programs, [])
+    entries = configured || Application.get_env(:mayonnaios, :programs, []) ++ pickles()
     Enum.map(entries, &normalize/1)
+  end
+
+  # The rows for installed pickles that asked for a face (the "ui"
+  # capability). Re-read from disk on every call like everything else here,
+  # and behind a rescue because the menu must survive anything the pickles
+  # directory contains -- a broken manifest is Pickles' problem to report,
+  # not the home screen's problem to crash on.
+  defp pickles do
+    MayonnaiOS.Pickles.program_rows()
+  rescue
+    _ -> []
   end
 
   @doc """
@@ -74,6 +89,21 @@ defmodule MayonnaiOS.Programs do
   def step(programs, index, delta), do: Integer.mod(index + delta, length(programs))
 
   defp normalize(entry) when is_list(entry), do: entry |> Map.new() |> normalize()
+
+  # A pickle's row: the app module is shared and the argument names which
+  # pickle, so the launcher's app plumbing works unchanged with one adapter
+  # for all of them. Cannot be missing for the same reason a module cannot:
+  # the row exists because the manifest was just read off the disk.
+  defp normalize(%{app: {module, arg}} = entry) when is_atom(module) do
+    %{
+      name: Map.get(entry, :name) || inspect({module, arg}),
+      path: nil,
+      app: {module, arg},
+      args: [],
+      needs_udev: false,
+      installed?: true
+    }
+  end
 
   # An app is a module in this firmware rather than a binary on the disk:
   # `MayonnaiOS.Controller` is the one there is. It cannot be missing the way

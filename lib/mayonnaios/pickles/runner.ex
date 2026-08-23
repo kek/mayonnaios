@@ -36,7 +36,7 @@ defmodule MayonnaiOS.Pickles.Runner do
 
   require Logger
 
-  alias MayonnaiOS.Pickles.{Sandbox, Store}
+  alias MayonnaiOS.Pickles.{Frame, Sandbox, Store}
 
   @min_interval 250
   @max_timers 16
@@ -100,7 +100,11 @@ defmodule MayonnaiOS.Pickles.Runner do
           status: :starting,
           log: [],
           timers: %{},
-          next_timer: 1
+          next_timer: 1,
+          # The attached UI, when a scene is showing this pickle. One at
+          # most: there is one panel.
+          scene: nil,
+          scene_ref: nil
         }
 
         # The chunk and on_start run in handle_continue rather than here:
@@ -142,7 +146,9 @@ defmodule MayonnaiOS.Pickles.Runner do
         if Sandbox.function?(lua, fname) do
           case Sandbox.exec(fn -> Sandbox.call(lua, fname, args) end) do
             {:ok, results, lua} ->
-              {:reply, {:ok, results}, %{state | lua: lua}}
+              state = %{state | lua: lua}
+              push_frame(state)
+              {:reply, {:ok, results}, state}
 
             {:error, reason} ->
               {:reply, {:error, reason}, log(state, "#{fname}: #{inspect(reason)}")}
@@ -165,6 +171,62 @@ defmodule MayonnaiOS.Pickles.Runner do
     }
 
     {:reply, info, state}
+  end
+
+  # -- the ui protocol ---------------------------------------------------------
+  #
+  # MayonnaiOS.Scene.Pickle attaches by message rather than by call so that a
+  # scene starting up cannot deadlock against a runner mid-exec; the first
+  # frame arrives when the runner gets to it. Frames flow one way -- the
+  # runner execs on_draw and pushes {:pickle_frame, frame} -- after attach,
+  # after every button, action and timer tick, and when the script asks via
+  # mayo.ui.redraw(). Buttons arrive here as messages from
+  # MayonnaiOS.Pickles.App, so the launcher's input loop never waits on Lua.
+
+  @impl true
+  def handle_info({:ui_attach, pid}, state) do
+    if state.scene_ref, do: Process.demonitor(state.scene_ref, [:flush])
+    ref = Process.monitor(pid)
+    state = %{state | scene: pid, scene_ref: ref}
+    push_frame(state)
+    {:noreply, state}
+  end
+
+  def handle_info({:ui_detach, pid}, %{scene: pid} = state) do
+    Process.demonitor(state.scene_ref, [:flush])
+    {:noreply, %{state | scene: nil, scene_ref: nil}}
+  end
+
+  def handle_info({:ui_detach, _stale_pid}, state), do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{scene_ref: ref} = state) do
+    {:noreply, %{state | scene: nil, scene_ref: nil}}
+  end
+
+  def handle_info({:ui_button, button, pressed?}, state) do
+    state =
+      case state do
+        %{status: :running, lua: lua} ->
+          if Sandbox.function?(lua, "on_button") do
+            case Sandbox.exec(fn -> Sandbox.call(lua, "on_button", [button, pressed?]) end) do
+              {:ok, _results, lua} -> %{state | lua: lua}
+              {:error, reason} -> log(state, "on_button: #{inspect(reason)}")
+            end
+          else
+            state
+          end
+
+        _ ->
+          state
+      end
+
+    push_frame(state)
+    {:noreply, state}
+  end
+
+  def handle_info(:pickle_redraw, state) do
+    push_frame(state)
+    {:noreply, state}
   end
 
   @impl true
@@ -206,6 +268,8 @@ defmodule MayonnaiOS.Pickles.Runner do
               log(state, "timer #{timer.fname}: #{inspect(reason)}")
           end
 
+        push_frame(state)
+
         case timer.kind do
           :every ->
             Process.send_after(self(), {:pickle_tick, id}, timer.ms)
@@ -246,5 +310,38 @@ defmodule MayonnaiOS.Pickles.Runner do
   defp log(state, msg) do
     entry = %{at: DateTime.utc_now(), msg: msg}
     %{state | log: Enum.take([entry | state.log], @max_log)}
+  end
+
+  # Exec on_draw and send the attached scene a frame, or the reason there is
+  # none. The Lua state on_draw produces is discarded on purpose: a draw is a
+  # question, and a script that mutates in its answer would behave
+  # differently depending on how often the panel asks. State changes belong
+  # in on_button, actions and timers -- each of which ends here anyway.
+  defp push_frame(%{scene: nil}), do: :ok
+
+  defp push_frame(%{scene: scene} = state) do
+    result =
+      case state do
+        %{status: :running, lua: lua} ->
+          if Sandbox.function?(lua, "on_draw") do
+            case Sandbox.exec(fn -> Sandbox.call(lua, "on_draw", []) end, 5_000) do
+              {:ok, [list | _], _lua} -> Frame.build(list)
+              {:ok, [], _lua} -> {:error, "on_draw() returned nothing"}
+              {:error, reason} -> {:error, "on_draw: #{inspect(reason)}"}
+            end
+          else
+            {:error, "the script defines no on_draw()"}
+          end
+
+        %{status: status} ->
+          {:error, "not running: #{inspect(status)}"}
+      end
+
+    case result do
+      {:error, message} -> send(scene, {:pickle_frame_error, message})
+      frame -> send(scene, {:pickle_frame, frame})
+    end
+
+    :ok
   end
 end

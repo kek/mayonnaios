@@ -33,7 +33,7 @@ A pickle is a directory with a manifest and a script, shipped as a `.tar.gz`:
   name it is installed under.
 - `capabilities` -- what the sandbox will grant. Anything not listed simply
   does not exist inside the script. Unknown names fail the install.
-  Known: `http`, `lan`, `storage`, `timers`.
+  Known: `http`, `lan`, `storage`, `timers`, `ui`.
 - `hosts` -- optional list of hostnames; when present, `http` is limited to
   exactly these.
 - `autostart` -- start at boot, and right after install.
@@ -118,6 +118,48 @@ reinstalled or upgraded.
 Intervals are clamped to ≥ 250 ms; at most 16 timers. A callback that
 errors is logged and the timer keeps ticking -- an unreachable lamp should
 be retried, and a repeating log line is a report.
+
+### `"ui"` -- a face on the panel
+
+A pickle with `ui` appears as a row on the launcher menu. Pressing A puts
+its face on the screen; Menu takes the face off -- **the pickle keeps
+running** either way, because a ui pickle is still a background app, just
+one you can look at.
+
+The face is two functions the script defines:
+
+```lua
+count = 0
+
+function on_button(button, pressed)
+  if pressed and button == "a" then count = count + 1 end
+end
+
+function on_draw()
+  return {
+    {kind = "rect", x = 0, y = 0, w = mayo.ui.width, h = mayo.ui.height, color = "black"},
+    {kind = "text", x = 40, y = 60, text = "pressed " .. count, size = 32, color = "yellow"},
+  }
+end
+```
+
+- `on_draw()` returns a *display list*: an array of tables, each
+  `{kind = "text" | "rect" | "line" | "circle", ...}`. Text takes `x, y,
+  text, size, color`; rect `x, y, w, h, color, fill`; line `x1, y1, x2, y2,
+  color, width`; circle `x, y, r, color, fill`. Colors are names from a
+  fixed palette (`white black red green blue yellow orange purple cyan
+  magenta gray brown pink lime navy teal gold`, plus `dark_gray` and
+  `light_gray`); anything else renders white. Invalid entries are counted
+  on screen rather than silently dropped. At most 256 ops per frame.
+  `on_draw` should not change state -- what it computes beyond the return
+  value is discarded.
+- `on_button(button, pressed)` gets the names on the plastic: `a b x y up
+  down left right l1 r1 l2 r2 select start`, with `pressed` true on press
+  and false on release. Menu never arrives -- it is how the player leaves.
+
+The panel repaints after every button, action call and timer tick, and
+whenever the script asks with `mayo.ui.redraw()`. `mayo.ui.width` and
+`mayo.ui.height` are the panel size (640x480).
 
 ### What is not there
 
