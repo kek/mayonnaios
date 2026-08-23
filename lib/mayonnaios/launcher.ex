@@ -821,13 +821,16 @@ defmodule MayonnaiOS.Launcher do
   defp poweroff(state, how) do
     Logger.info("[launcher] #{how}: powering off")
 
-    # Whether poweroff/0 brings this board down cleanly is the genuinely
-    # unknown part. This is the only *orderly* shutdown the device has, and
-    # the arrival of the power key does not change that: a short press is
-    # sleep, and a long one is the PMIC cutting the rail in hardware after the
-    # 4000 ms its `shutdown` attribute reads -- no unmount, no save flushed,
-    # nothing told. Two ways to ask for it -- the Select+Menu chord and the
-    # menu row -- and one function they both reach.
+    # Orderly, and verified on the hardware to actually cut power -- which
+    # it did not always: the kernel's power-off wrote a register the AXP717
+    # does not have, the write was silently dropped, and every "power off"
+    # fell through PSCI into a watchdog reboot. The BSP's linux patch 0003
+    # (SOFT_PWROFF, 0x27) is what closed that; if power off ever regresses
+    # into a reboot again, start there. The power button is unchanged: a
+    # short press is sleep, and a long one is the PMIC cutting the rail in
+    # hardware after 4000 ms with nothing flushed. Two ways to ask for the
+    # orderly one -- the Select+Menu chord and the menu row -- and one
+    # function they both reach.
     state.poweroff.()
     state
   end
