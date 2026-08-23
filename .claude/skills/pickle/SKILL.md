@@ -27,6 +27,13 @@ API function returns.
    - `lan` — raw TCP/UDP to private addresses (lamps, hubs, TVs)
    - `storage` — KV that survives restarts and reinstalls
    - `timers` — periodic callbacks
+   - `ui` — a face on the panel: the pickle becomes a launcher menu row.
+     Define `on_draw()` returning a display list (`{kind="text"|"rect"|
+     "line"|"circle", ...}`, named colors, 640×480) and `on_button(button,
+     pressed)` with plastic names (`a b x y up down left right l1 r1 l2 r2
+     select start`; Menu never arrives — it exits). Repaint is automatic
+     after buttons/actions/timers, or on `mayo.ui.redraw()`. `on_draw` must
+     not change state. Full contract in `docs/pickles.md`.
    Set `"autostart": true` for anything meant to be running by default —
    it also makes every deploy start the new code immediately.
 

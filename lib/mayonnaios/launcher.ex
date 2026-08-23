@@ -483,7 +483,7 @@ defmodule MayonnaiOS.Launcher do
   def handle_info({:input_event, _device, events}, %{app: app} = state) when app != nil do
     {state, slept?} = Enum.reduce(events, {state, false}, &app_event/2)
 
-    if not slept?, do: app.input(events)
+    if not slept?, do: app_module(app).input(events)
 
     {:noreply, leave_app(state, events)}
   end
@@ -613,10 +613,20 @@ defmodule MayonnaiOS.Launcher do
   defp stop_app(%{app: nil} = state), do: state
 
   defp stop_app(%{app: app} = state) do
-    app.stop()
+    app_module(app).stop()
     Logger.info("[launcher] stopped #{name_of(state.running)}")
     %{state | app: nil, running: nil}
   end
+
+  # An app is a module, or a module carrying which of its many it is this
+  # time -- `{MayonnaiOS.Pickles.App, "paint"}` is the row for the pickle
+  # called paint. The argument matters once, at start; stop, input and scene
+  # are conversations with the module about its current tenant.
+  defp app_module({module, _arg}), do: module
+  defp app_module(module), do: module
+
+  defp app_start({module, arg}), do: module.start(arg)
+  defp app_start(module), do: module.start()
 
   # The sleep binding is tested before any single-key binding, for the reason
   # the power-off chord is tested before Menu: a modifier that only works when
@@ -802,23 +812,23 @@ defmodule MayonnaiOS.Launcher do
   # impenetrable without one. The scene is shown either way, and the error
   # travels to it as the scene's start argument, the same route the home
   # scene's cursor takes.
-  defp start_program(%{app: module} = program, state) when is_atom(module) and module != nil do
+  defp start_program(%{app: app} = program, state) when app != nil do
     Logger.info("[launcher] starting #{program.name}")
 
     state =
-      case module.start() do
+      case app_start(app) do
         {:ok, _pid} ->
-          %{state | app: module, running: program, app_error: nil}
+          %{state | app: app, running: program, app_error: nil}
 
         {:error, {:already_started, _pid}} ->
-          %{state | app: module, running: program, app_error: nil}
+          %{state | app: app, running: program, app_error: nil}
 
         {:error, reason} ->
           Logger.warning("[launcher] #{program.name} would not start: #{inspect(reason)}")
           %{state | app: nil, running: nil, app_error: reason}
       end
 
-    state = %{state | scene: {:app, module}}
+    state = %{state | scene: {:app, app}}
     repaint(state)
     state
   end
@@ -1048,7 +1058,7 @@ defmodule MayonnaiOS.Launcher do
   # An app names its own scene, so the launcher does not have to know about
   # any of them. The start argument carries why it did not start, which is nil
   # in the ordinary case.
-  defp show({:app, module}, state), do: set_root(module.scene(), %{error: state.app_error})
+  defp show({:app, app}, state), do: set_root(app_module(app).scene(), %{error: state.app_error})
 
   # The cursor travels as the scene's start argument. Deliberately only the
   # index: the scene calls `Programs.list/0` itself, so no list is copied into

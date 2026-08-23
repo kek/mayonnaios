@@ -95,9 +95,11 @@ firmware and install the same way games do:
     curl -T hello.tar.gz http://nerves.local/api/pickles/hello
 
 What a pickle can touch is declared in its manifest and enforced by the
-sandbox: HTTP, the local network, a small persistent store, timers -- and
-nothing else. [docs/pickles.md](docs/pickles.md) is the guide to writing
-one; the `pickle` Claude skill in `.claude/skills/` automates the whole
+sandbox: HTTP, the local network, a small persistent store, timers, the
+panel -- and nothing else. A pickle with the `ui` capability appears on the
+launcher menu and draws on the screen; the others run headless.
+[docs/pickles.md](docs/pickles.md) is the guide to writing one; the
+`pickle` Claude skill in `.claude/skills/` automates the whole
 develop-and-deploy loop.
 
 ### The second card slot

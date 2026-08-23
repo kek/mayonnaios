@@ -47,7 +47,10 @@ defmodule MayonnaiOS.Pickles do
   def sessions do
     children = [
       {Registry, keys: :unique, name: @registry},
-      {DynamicSupervisor, name: @jar, strategy: :one_for_one}
+      {DynamicSupervisor, name: @jar, strategy: :one_for_one},
+      # The launcher's handle on graphical pickles: which one is on the
+      # panel, and the input path to it.
+      MayonnaiOS.Pickles.App
     ]
 
     %{
@@ -129,6 +132,17 @@ defmodule MayonnaiOS.Pickles do
   Status and recent log of `name`, or `{:error, :not_running}`.
   """
   def info(name), do: Runner.info(name)
+
+  @doc """
+  Launcher rows for the installed pickles that have a face -- the "ui"
+  capability. `MayonnaiOS.Programs.list/1` appends these to the menu, so a
+  graphical pickle appears there the moment it is installed.
+  """
+  def program_rows do
+    for %{capabilities: caps, name: name} <- Store.list(root()), "ui" in caps do
+      %{name: name, app: {MayonnaiOS.Pickles.App, name}}
+    end
+  end
 
   defdelegate jsonable(term), to: Sandbox
 

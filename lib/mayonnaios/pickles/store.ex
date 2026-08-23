@@ -50,7 +50,7 @@ defmodule MayonnaiOS.Pickles.Store do
   decided by `MayonnaiOS.Pickles.Sandbox`, not by anything in the archive.
   """
 
-  @known_capabilities ~w(http lan storage timers)
+  @known_capabilities ~w(http lan storage timers ui)
 
   @type manifest :: %{
           name: String.t(),

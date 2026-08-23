@@ -26,6 +26,8 @@ defmodule MayonnaiOS.Pickles.Sandbox do
       "storage"   mayo.storage.get/set/delete -- a small KV store that
                   survives reinstalls
       "timers"    mayo.timer.every/once -- named callbacks on a clock
+      "ui"        mayo.ui.redraw, mayo.ui.width/height -- a face on the
+                  panel, see MayonnaiOS.Pickles.Frame
 
   A capability the manifest did not request is simply absent, so calling it
   is an ordinary Lua error naming the nil field -- which is the report the
@@ -112,6 +114,15 @@ defmodule MayonnaiOS.Pickles.Sandbox do
         %{
           "every" => api(fn args -> mayo_timer(owner, :every, args) end),
           "once" => api(fn args -> mayo_timer(owner, :once, args) end)
+        }
+      end)
+      |> grant(manifest, "ui", fn ->
+        {w, h} = MayonnaiOS.Pickles.Frame.panel_size()
+
+        %{
+          "redraw" => api(fn _ -> mayo_redraw(owner) end),
+          "width" => w,
+          "height" => h
         }
       end)
 
@@ -560,6 +571,16 @@ defmodule MayonnaiOS.Pickles.Sandbox do
     :json.decode(body)
   rescue
     _ -> :error
+  end
+
+  # -- ui --
+
+  # Repaints happen on their own after every button, action and timer tick;
+  # this is for the script that changed something outside those moments and
+  # wants the panel to say so now.
+  defp mayo_redraw(owner) do
+    send(owner, :pickle_redraw)
+    [true]
   end
 
   # -- timers --
