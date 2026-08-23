@@ -272,6 +272,34 @@ autosave between its truncate and its write, which is the one way this could
 destroy the file it exists to protect. A cable pulled mid-game is covered by
 the interval and by f2fs writeback, and by nothing else.
 
+## Game streaming (Moonlight)
+
+Moonlight Embedded streams a Sunshine or GeForce host to the handheld —
+decoded in software on the A53s and drawn through SDL on the same KMS stack
+RetroArch uses. It installs the same way RetroArch does, as a bundle:
+
+    iex> MayonnaiOS.Bundle.install(MayonnaiOS.Bundle.spec(:moonlight))
+
+The menu row exists before the bundle does; until the install it renders as
+not installed.
+
+First run is a one-time SSH session, because two things exist only on the
+player's side of the fence. Pairing prints a PIN that must be typed into the
+host, and the stream cannot start without the host's address — which no
+bundle can know, so the launcher passes a config file the player creates:
+
+    /root/bundles/moonlight/current/bin/moonlight pair <host>
+    mkdir -p /root/.config/moonlight
+    cp /root/bundles/moonlight/current/share/moonlight/moonlight.conf \
+       /root/.config/moonlight/moonlight.conf
+    echo 'address = <host>' >> /root/.config/moonlight/moonlight.conf
+
+The template carries the hardware-dictated defaults — 720p30, h264, modest
+bitrate — and says what to lower first if decode cannot keep up. None of this
+has been run on the handheld yet; the
+[`mayonnaios_apps`](https://github.com/kek/mayonnaios_apps) README lists what
+only hardware can answer, the gamepad mapping under SDL first among them.
+
 ## Using it as a Bluetooth controller
 
 The handheld can be the gamepad instead of the console. Pick **Bluetooth

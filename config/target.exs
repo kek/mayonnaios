@@ -224,6 +224,30 @@ config :mayonnaios, :programs, [
     ],
     needs_udev: true
   },
+  # Game streaming from a Sunshine or GeForce host, decoded in software on
+  # the A53s and drawn through SDL on the same KMS stack RetroArch uses.
+  # Until the bundle is installed this is a visible, unlaunchable row --
+  # `MayonnaiOS.Programs` stats the path on every render.
+  #
+  # -config names the player's own file rather than the bundle's, because the
+  # one thing a stream cannot start without is the host's address, and no
+  # bundle can know it. The file does not exist until the player creates it
+  # over SSH -- the same session in which they pair, since pairing prints a
+  # PIN that must be typed into the host:
+  #
+  #     /root/bundles/moonlight/current/bin/moonlight pair <host>
+  #     cp /root/bundles/moonlight/current/share/moonlight/moonlight.conf \
+  #        /root/.config/moonlight/moonlight.conf
+  #     echo 'address = <host>' >> /root/.config/moonlight/moonlight.conf
+  #
+  # The bundle's template carries the hardware-dictated defaults (720p30,
+  # h264, SDL) and comments on what to lower first if decode cannot keep up.
+  %{
+    name: "Moonlight",
+    path: "/root/bundles/moonlight/current/bin/moonlight",
+    args: ["stream", "-config", "/root/.config/moonlight/moonlight.conf"],
+    needs_udev: true
+  },
   %{name: "Spinning cube (kmscube)", path: "/usr/bin/kmscube"},
   %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]},
   # An app rather than a program: a module in this firmware, started in this
@@ -320,6 +344,16 @@ config :mayonnaios, :bundles, %{
     url:
       "https://github.com/kek/mayonnaios_apps/releases/download/v1.22.2-7/retroarch-1.22.2-aarch64.tar.gz",
     sha256: "fcfeafdf307afac56666a3c9f5004880bee3b9326401a720fe269338ce80824c"
+  },
+  # The sha256 is the one CI printed for the tarball it attached to the
+  # moonlight-v2.7.1-1 release -- the release asset, not a local build, since
+  # two builds of the same sources are not byte-identical across machines.
+  moonlight: %{
+    name: "moonlight",
+    version: "2.7.1-1",
+    url:
+      "https://github.com/kek/mayonnaios_apps/releases/download/moonlight-v2.7.1-1/moonlight-2.7.1-aarch64.tar.gz",
+    sha256: "9208fc553210f82cb07828cd13e7d16609ec0734d540a36ceb33e17af44147db"
   }
 }
 
