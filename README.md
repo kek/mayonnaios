@@ -198,7 +198,7 @@ file it describes is not evidence of anything.
 RetroArch's own online core updater is compiled out of this build. The libretro
 buildbot's cores are linked against a different glibc and sysroot and will not
 load here; cores for this device are cross-built in
-[`mayonnaios_apps`](https://github.com/kek/mayonnaios_apps) against the same
+[`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) against the same
 sysroot as the rest of the system.
 
 ### Where cores end up
@@ -235,7 +235,7 @@ merges its files in order, last one winning.
 `MayonnaiOS.Cores.write_append_config/0` generates it from `MayonnaiOS.Cores.dir/0`
 at boot, so it always names the directory the symlinks actually go into.
 Fixing the bundle would be tidier and is worth doing in
-[`mayonnaios_apps`](https://github.com/kek/mayonnaios_apps) — but a bundle
+[`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) — but a bundle
 is versioned separately and installed independently, so relying on it to *not*
 set something is the arrangement that already failed once.
 
@@ -297,7 +297,7 @@ bundle can know, so the launcher passes a config file the player creates:
 The template carries the hardware-dictated defaults — 720p30, h264, modest
 bitrate — and says what to lower first if decode cannot keep up. None of this
 has been run on the handheld yet; the
-[`mayonnaios_apps`](https://github.com/kek/mayonnaios_apps) README lists what
+[`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) README lists what
 only hardware can answer, the gamepad mapping under SDL first among them.
 
 ## Using it as a Bluetooth controller
@@ -573,4 +573,4 @@ deciding one at a time whether each is worth having.
 |---|---|
 | [`nerves_system_rg40xxv`](https://github.com/kek/nerves_system_rg40xxv) | The Buildroot BSP: kernel, device tree, U-Boot, fwup layout. |
 | `mayonnaios` | This one: the OTP release and the bundle mechanism. |
-| [`mayonnaios_apps`](https://github.com/kek/mayonnaios_apps) | Cross-builds the native apps — RetroArch and its cores, Moonlight — against the system’s own sysroot; publishes checksummed tarballs. |
+| [`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) | Cross-builds the native apps — RetroArch and its cores, Moonlight — against the system’s own sysroot; publishes checksummed tarballs. |
