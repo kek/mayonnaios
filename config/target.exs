@@ -308,10 +308,10 @@ config :mayonnaios, pickles_root: "/root/pickles"
 config :mayonnaios, :bundles, %{
   retroarch: %{
     name: "retroarch",
-    version: "1.22.2-6",
+    version: "1.22.2-7",
     url:
-      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-6/retroarch-1.22.2-aarch64.tar.gz",
-    sha256: "2f2542dc0f812a5e922aad738d32ea0d53f831ba2dde7083786e96d1fce189b4"
+      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-7/retroarch-1.22.2-aarch64.tar.gz",
+    sha256: "fcfeafdf307afac56666a3c9f5004880bee3b9326401a720fe269338ce80824c"
   }
 }
 
