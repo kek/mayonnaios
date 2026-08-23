@@ -1,0 +1,7 @@
+{
+  "name": "hello",
+  "version": "1.0.0",
+  "description": "The worked example from docs/pickles.md: actions, a timer, storage, logging.",
+  "capabilities": ["storage", "timers"],
+  "autostart": false
+}

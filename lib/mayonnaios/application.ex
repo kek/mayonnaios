@@ -20,7 +20,7 @@ defmodule MayonnaiOS.Application do
     children =
       [status()] ++
         viewport() ++
-        [controller_sessions(), file_manager_sessions(), pairing_sessions()] ++
+        [controller_sessions(), file_manager_sessions(), pairing_sessions(), pickle_sessions()] ++
         target_children()
 
     # See https://elixir.hexdocs.pm/Supervisor.html
@@ -77,6 +77,12 @@ defmodule MayonnaiOS.Application do
   # `MayonnaiOS.Bluetooth.Host`'s registered name, which is a reason the panel
   # can print.
   defp pairing_sessions, do: MayonnaiOS.Pairing.sessions()
+
+  # The registry and DynamicSupervisor running pickles live under, empty
+  # until one is started. Everywhere for the same reason as the others: the
+  # web API and the console should fail with "no such pickle" on a laptop,
+  # not with "no such supervisor".
+  defp pickle_sessions, do: MayonnaiOS.Pickles.sessions()
 
   # List all child processes to be supervised
   if Mix.target() == :host do
@@ -144,6 +150,11 @@ defmodule MayonnaiOS.Application do
         # installed core bundles. Before the web server, so the first page
         # load reports what is really there.
         MayonnaiOS.Cores.Startup,
+
+        # Starts the pickles whose manifests ask for it. After the partition
+        # repair (their code and state live there), before the web server, so
+        # the first page load reports what is really running.
+        MayonnaiOS.Pickles.Startup,
 
         # The upload page. Last of the services because nothing else waits on
         # it: a device with no web server is still a console, and one whose

@@ -2,6 +2,11 @@ import Config
 
 # Add configuration that is only needed when running on the host here.
 
+# Pickles on the host go under the working directory rather than /root, so
+# `iex -S mix` can exercise the whole install/run loop on a laptop. Tests
+# override this per-test with a tmp directory.
+config :mayonnaios, pickles_root: ".pickles"
+
 config :nerves_runtime,
   kv_backend:
     {Nerves.Runtime.KVBackend.InMemory,

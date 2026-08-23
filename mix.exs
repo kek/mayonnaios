@@ -66,6 +66,12 @@ defmodule MayonnaiOS.MixProject do
       {:bandit, "~> 1.6"},
       {:plug, "~> 1.16"},
 
+      # The Pickle engine: sandboxed Lua scriptapps. Luerl is Lua implemented
+      # in pure Erlang -- no NIF, nothing to cross-compile, and a script that
+      # crashes takes down one BEAM process instead of the VM. Chosen over
+      # embedding real Lua for exactly those reasons.
+      {:luerl, "~> 1.5"},
+
       # Scenic.
       #
       # scenic_driver_local comes from git, not Hex, and that is deliberate.

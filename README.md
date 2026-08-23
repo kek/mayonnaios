@@ -32,6 +32,9 @@ Software:
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
 - A web UI for uploading games from a phone
+- Pickles: small sandboxed Lua apps, installed over the network like games,
+  for things like controlling lamps on the LAN or polling a web API. See
+  [docs/pickles.md](docs/pickles.md)
 - Sleep on the power button: the backlight goes off and any button brings it
   back. Not suspend — only `s2idle` exists here, it aborts inside rtw88's SDIO
   suspend handler, and with no cpuidle driver the cores are in a bare WFI
@@ -82,6 +85,20 @@ oversight.
 
 Use plain `scp` and not `scp -O`, which forces a legacy protocol that needs an
 `scp` binary the device does not have.
+
+### Pickles
+
+Small Lua apps -- lamp remotes, API pollers -- run sandboxed inside the
+firmware and install the same way games do:
+
+    tar -czf hello.tar.gz -C pickles/hello .
+    curl -T hello.tar.gz http://nerves.local/api/pickles/hello
+
+What a pickle can touch is declared in its manifest and enforced by the
+sandbox: HTTP, the local network, a small persistent store, timers -- and
+nothing else. [docs/pickles.md](docs/pickles.md) is the guide to writing
+one; the `pickle` Claude skill in `.claude/skills/` automates the whole
+develop-and-deploy loop.
 
 ### The second card slot
 

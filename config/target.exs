@@ -279,6 +279,11 @@ config :mayonnaios, bond_path: "/root/bluetooth/bonds.bin"
 # -- is mounted nodev but not noexec, so binaries there can actually run.
 config :mayonnaios, bundle_root: "/root/bundles"
 
+# Where pickles -- sandboxed Lua apps, see MayonnaiOS.Pickles -- are
+# installed. Same partition as bundles and for the same reason: content, not
+# firmware.
+config :mayonnaios, pickles_root: "/root/pickles"
+
 # Bundles this device knows how to install, by name.
 #
 # The SHA-256 is the trust anchor and it lives here, in the firmware, rather
