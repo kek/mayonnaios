@@ -67,7 +67,7 @@ defmodule MayonnaiOS.Cores do
   cores to match this device's glibc and sysroot -- which they do not, because
   this system is built from its own Buildroot.
 
-  Cores are therefore built by `retroarch-rg40xxv` against the same sysroot as
+  Cores are therefore built by `coldcuts` against the same sysroot as
   everything else and published as their own small tarballs, and installed
   here by the mechanism already proven for RetroArch itself: fetch, verify the
   SHA-256 *before* unpacking, install to a versioned directory, move a
