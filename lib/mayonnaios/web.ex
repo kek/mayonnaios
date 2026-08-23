@@ -50,7 +50,7 @@ defmodule MayonnaiOS.Web do
 
   use Plug.Router
 
-  alias MayonnaiOS.{Cores, Library}
+  alias MayonnaiOS.{Cores, Library, Pickles}
 
   plug(:match)
   # No Plug.Parsers. See the moduledoc: bodies are streamed, never parsed
@@ -152,8 +152,135 @@ defmodule MayonnaiOS.Web do
     end
   end
 
+  # -- pickles ----------------------------------------------------------------
+  #
+  # The deploy loop for sandboxed Lua apps; see MayonnaiOS.Pickles. The same
+  # trust model as everything above: anything on the network can install one,
+  # and the containment is the sandbox the script runs in, not this door.
+
+  get "/api/pickles" do
+    json(conn, 200, %{"pickles" => Enum.map(Pickles.list(), &Pickles.jsonable/1)})
+  end
+
+  put "/api/pickles/:name" do
+    # Read whole rather than streamed, unlike ROMs: a pickle is a few KB of
+    # Lua and its ceiling is 5 MB, so the temp file is for :erl_tar (which
+    # wants a name), not for memory.
+    case read_all(conn, 5_000_000) do
+      {:ok, body, conn} ->
+        tarball = stage_upload(name, body)
+
+        result = Pickles.install(name, tarball)
+        File.rm(tarball)
+
+        case result do
+          {:ok, manifest} -> json(conn, 201, Pickles.jsonable(manifest))
+          {:error, reason} -> json(conn, status_for(reason), %{"error" => inspect(reason)})
+        end
+
+      {:error, :too_large, conn} ->
+        json(conn, 413, %{"error" => "too_large"})
+    end
+  end
+
+  delete "/api/pickles/:name" do
+    case Pickles.delete(name) do
+      :ok -> json(conn, 200, %{"deleted" => true})
+      {:error, reason} -> json(conn, status_for(reason), %{"error" => inspect(reason)})
+    end
+  end
+
+  post "/api/pickles/:name/start" do
+    case Pickles.start(name) do
+      {:ok, _pid} -> json(conn, 200, %{"running" => true})
+      {:error, reason} -> json(conn, status_for(reason), %{"error" => inspect(reason)})
+    end
+  end
+
+  post "/api/pickles/:name/stop" do
+    case Pickles.stop(name) do
+      :ok -> json(conn, 200, %{"running" => false})
+      {:error, reason} -> json(conn, status_for(reason), %{"error" => inspect(reason)})
+    end
+  end
+
+  # Call a function the pickle's script defined. The body is a JSON array of
+  # arguments, or empty for none. This endpoint is what makes a pickle a
+  # remote control: the phone, the console and the Claude skill all press the
+  # same button.
+  post "/api/pickles/:name/call/:fname" do
+    case read_all(conn, 64_000) do
+      {:ok, body, conn} ->
+        case decode_args(body) do
+          {:ok, args} ->
+            case Pickles.call(name, fname, args) do
+              {:ok, results} ->
+                json(conn, 200, %{"results" => Pickles.jsonable(results)})
+
+              {:error, reason} ->
+                json(conn, status_for(reason), %{"error" => inspect(reason)})
+            end
+
+          :error ->
+            json(conn, 400, %{"error" => "body must be a JSON array of arguments"})
+        end
+
+      {:error, :too_large, conn} ->
+        json(conn, 413, %{"error" => "too_large"})
+    end
+  end
+
+  get "/api/pickles/:name/log" do
+    case Pickles.info(name) do
+      {:error, reason} ->
+        json(conn, status_for(reason), %{"error" => inspect(reason)})
+
+      info ->
+        json(conn, 200, Pickles.jsonable(info))
+    end
+  end
+
   match _ do
     send_resp(conn, 404, "not found")
+  end
+
+  # Read a bounded body into memory; anything over the cap answers 413.
+  defp read_all(conn, limit, acc \\ []) do
+    case Plug.Conn.read_body(conn, length: limit, read_length: limit) do
+      {:ok, chunk, conn} ->
+        body = IO.iodata_to_binary([acc, chunk])
+
+        if byte_size(body) <= limit do
+          {:ok, body, conn}
+        else
+          {:error, :too_large, conn}
+        end
+
+      {:more, _chunk, conn} ->
+        {:error, :too_large, conn}
+
+      {:error, _reason} ->
+        {:error, :too_large, conn}
+    end
+  end
+
+  defp stage_upload(name, body) do
+    dir = Path.join(Pickles.root(), ".tmp")
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "upload-#{name}.tar.gz")
+    File.write!(path, body)
+    path
+  end
+
+  defp decode_args(""), do: {:ok, []}
+
+  defp decode_args(body) do
+    case :json.decode(body) do
+      args when is_list(args) -> {:ok, args}
+      _ -> :error
+    end
+  rescue
+    _ -> :error
   end
 
   defp json(conn, status, body) do
@@ -170,6 +297,26 @@ defmodule MayonnaiOS.Web do
   defp status_for(:too_large), do: 413
   defp status_for(:enoent), do: 404
   defp status_for(:unknown_core), do: 404
+  defp status_for(:not_running), do: 409
+  defp status_for(:no_such_function), do: 404
+  defp status_for(:timeout), do: 504
+
+  defp status_for(reason)
+       when reason in [
+              :bad_member,
+              :not_a_tarball,
+              :no_manifest,
+              :bad_manifest,
+              :bad_main,
+              :bad_hosts,
+              :name_mismatch,
+              :unknown_capability,
+              :no_main
+            ],
+       do: 400
+
+  # Pickle errors carry their detail as tuples; the status comes from the tag.
+  defp status_for(reason) when is_tuple(reason), do: status_for(elem(reason, 0))
   defp status_for(_), do: 500
 
   defp elem_or(reason) when is_atom(reason), do: reason
