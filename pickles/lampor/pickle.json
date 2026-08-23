@@ -1,0 +1,8 @@
+{
+  "name": "lampor",
+  "version": "1.0.0",
+  "description": "Local control of Tuya wifi lamps (protocol 3.3): on/off, brightness, all at once, with a lamp list on the panel.",
+  "main": "main.lua",
+  "capabilities": ["lan", "storage", "timers", "ui"],
+  "autostart": true
+}
