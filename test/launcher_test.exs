@@ -109,6 +109,25 @@ defmodule MayonnaiOS.LauncherTest do
       assert "not installed" in texts(graph)
     end
 
+    test "an action entry is an ordinary, always-installed row" do
+      assert [entry] = Programs.list([%{name: "Power off", action: :poweroff}])
+      assert entry.installed?
+      assert entry.action == :poweroff
+
+      assert "Power off" in texts(Home.graph([entry], 0))
+      refute "not installed" in texts(Home.graph([entry], 0))
+    end
+
+    test "the power-off question is on the panel only while it is being asked" do
+      programs = Programs.list([%{name: "Power off", action: :poweroff}])
+
+      asked = texts(Home.graph(programs, 0, true))
+      assert Enum.any?(asked, &(&1 =~ "Power off? Y switches off"))
+
+      idle = texts(Home.graph(programs, 0))
+      refute Enum.any?(idle, &(&1 =~ "Y switches off"))
+    end
+
     # Every text primitive's string, so a test can assert what the panel says
     # rather than only that a graph exists.
     defp texts(graph) do
@@ -178,6 +197,66 @@ defmodule MayonnaiOS.LauncherTest do
     defp press(key) do
       send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 1}]})
       # selected/0 is a call, so it is ordered behind the cast above.
+      Launcher.selected()
+    end
+  end
+
+  describe "the Power off row" do
+    setup do
+      # A real program above it, so the tests can also show that cancelling
+      # does not leak the cancelling press into a launch.
+      programs = [%{path: "/a"}, %{name: "Power off", action: :poweroff}]
+      Application.put_env(:mayonnaios, :programs, programs)
+      on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
+
+      test = self()
+
+      start_supervised!(
+        {Launcher, device: "/nonexistent/event0", poweroff: fn -> send(test, :powered_off) end}
+      )
+
+      # Onto the Power off row.
+      tap(:btn_dpad_down)
+      :ok
+    end
+
+    test "A only asks; Y answers" do
+      tap(:btn_b)
+      refute_received :powered_off
+
+      tap(:btn_x)
+      assert_receive :powered_off
+    end
+
+    test "any other button keeps the device on, and Y afterwards is nothing" do
+      tap(:btn_b)
+      tap(:btn_a)
+
+      # The question is gone, so the button that would have answered it is
+      # back to being unbound.
+      tap(:btn_x)
+      refute_received :powered_off
+    end
+
+    test "the cancelling press is swallowed, not dispatched" do
+      tap(:btn_b)
+      # A again would launch whatever the cursor is on if it were dispatched;
+      # here it may only cancel. Y proving the question is gone also proves
+      # no second question was opened.
+      tap(:btn_b)
+      tap(:btn_x)
+      refute_received :powered_off
+    end
+
+    test "Y with no question pending is unbound" do
+      tap(:btn_x)
+      refute_received :powered_off
+    end
+
+    defp tap(key) do
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 1}]})
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 0}]})
+      # A call, so both casts above have been handled before the test asserts.
       Launcher.selected()
     end
   end

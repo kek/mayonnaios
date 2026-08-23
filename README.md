@@ -40,6 +40,10 @@ Software:
   back. Not suspend — only `s2idle` exists here, it aborts inside rtw88's SDIO
   suspend handler, and with no cpuidle driver the cores are in a bare WFI
   either way, so a successful one would save almost nothing
+- Orderly power off, two ways: the Select+Menu chord, and a **Power off** row
+  at the bottom of the menu — A asks, Y answers, anything else keeps it on,
+  which is the file manager's delete rule applied to the other irreversible
+  thing on the device
 
 ## Building and flashing
 

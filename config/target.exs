@@ -255,7 +255,13 @@ config :mayonnaios, :programs, [
   # connect headphones, because that is A2DP over BR/EDR and there is no
   # BR/EDR host in this firmware. `MayonnaiOS.Pairing` has the full account,
   # and the screen says it in the first line rather than in a footnote.
-  %{name: "Bluetooth devices", app: MayonnaiOS.Pairing}
+  %{name: "Bluetooth devices", app: MayonnaiOS.Pairing},
+  # Neither a program nor an app: a verb of the launcher's own. Selecting it
+  # asks rather than acts -- Y answers, anything else cancels -- and it ends
+  # in the same `Nerves.Runtime.poweroff/0` the Select+Menu chord reaches.
+  # Last on purpose: the off switch belongs at the end of a list you scroll,
+  # not next to the thing you launch every day.
+  %{name: "Power off", action: :poweroff}
 ]
 
 # The name a host shows in its pairing list, and the icon it draws next to it

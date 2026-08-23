@@ -86,6 +86,7 @@ defmodule MayonnaiOS.Launcher do
       A             launch the selected program
       Menu          go back to the home screen
       X             switch between the menu and diagnostics
+      Y             answer the Power off row's question, and nothing else
       Power         sleep -- backlight off, and any press wakes it
       Select+Menu   power off
 
@@ -99,8 +100,15 @@ defmodule MayonnaiOS.Launcher do
   of this" across two keys depending on which kind of thing you were in.
 
   Select+Menu still powers off, so the chord is checked before the plain
-  press. Power off is a chord rather than a button because it is not undoable
-  and this is a handheld that gets carried in a pocket.
+  press. The chord was the only power-off for a long time, on the argument
+  that switching off is not undoable and this is a handheld that gets carried
+  in a pocket; the menu now also has a Power off row, and the same argument
+  shapes how the row answers. Pressing A on it does nothing but put a
+  question on the bottom line; Y -- the button that did not ask -- switches
+  off, and any other press takes the question down and is swallowed, so a
+  cancel cannot also launch what the cursor is on. That is the file manager's
+  delete rule, applied to the other irreversible thing on the device. Both
+  routes end in the same `Nerves.Runtime.poweroff/0`.
 
   ## Sleep, and the press that wakes it
 
@@ -205,10 +213,14 @@ defmodule MayonnaiOS.Launcher do
   # enough here, which is the same lesson as A and B and was available the
   # whole time; it just was not applied twice.
   #
-  # Y (:btn_x) is deliberately unbound. It played the audio test while audio
+  # Y (:btn_x) has no plain binding. It played the audio test while audio
   # was the open question on this board; that is answered, and a key on a
   # handheld that makes a noise when pressed by accident is not worth keeping
   # for a check that belongs in IEx. `MayonnaiOS.Audio.run/0` still does it.
+  # Its one job now is answering the Power off row's question -- the same
+  # "Y is the second verb" it has in `MayonnaiOS.Files`, and only while the
+  # question is on the panel.
+  @confirm_button :btn_x
   @diagnostics_button :btn_y
 
   # Menu, doing double duty: alone it is the way back to the home screen,
@@ -388,6 +400,15 @@ defmodule MayonnaiOS.Launcher do
       held: MapSet.new(),
       scene: :home,
       selected: 0,
+      # Whether the Power off row has asked its question and is waiting for
+      # Y. Armed by `start_program/2`, answered or dismissed by `press/2`,
+      # and never true while anything is running -- the row can only be
+      # activated from an idle menu.
+      confirming: false,
+      # What actually switches the device off, injectable because the real
+      # one cannot be called on a laptop and a confirmation flow nobody can
+      # test is a confirmation flow that silently rots.
+      poweroff: Keyword.get(opts, :poweroff, &Nerves.Runtime.poweroff/0),
       # The seam the stop path is tested against: signalling an OS process and
       # asking whether it is still there. Injectable because the one case that
       # matters most cannot be produced for real -- a process that survives
@@ -613,8 +634,7 @@ defmodule MayonnaiOS.Launcher do
   defp leave_app(state, events) do
     if Enum.any?(events, &match?({:ev_key, @home_button, 1}, &1)) do
       if MapSet.member?(state.held, @poweroff_modifier) do
-        poweroff()
-        state
+        poweroff(state, "Select+Menu")
       else
         state |> stop_app() |> go_home()
       end
@@ -649,12 +669,30 @@ defmodule MayonnaiOS.Launcher do
   # nothing else and arrives from its own device -- and the ordering is what
   # keeps that a property of the binding rather than of this function.
   defp press(state, key) do
-    if Sleep.trigger?(state.held, key) do
-      {_result, state} = enter_sleep(state)
-      state
-    else
-      bound(state, key)
+    cond do
+      Sleep.trigger?(state.held, key) ->
+        {_result, state} = enter_sleep(state)
+        state
+
+      state.confirming ->
+        answer_poweroff(state, key)
+
+      true ->
+        bound(state, key)
     end
+  end
+
+  # The Power off row's question, answered the way `MayonnaiOS.Files` answers
+  # a delete: A asked, so A cannot also be the answer. Y -- and only Y --
+  # switches off; anything else keeps the device on, is swallowed rather than
+  # dispatched, and takes the question off the panel. Swallowed matters: the
+  # cancelling press must not also launch whatever the cursor is on.
+  defp answer_poweroff(state, @confirm_button), do: poweroff(state, "the menu")
+
+  defp answer_poweroff(state, _key) do
+    state = %{state | confirming: false}
+    show(:home, state)
+    state
   end
 
   # Entering sleep only counts if the backlight write landed. A dark-panel
@@ -692,8 +730,7 @@ defmodule MayonnaiOS.Launcher do
   # someone reaches for to get out of a game.
   defp bound(state, @home_button) do
     if MapSet.member?(state.held, @poweroff_modifier) do
-      poweroff()
-      state
+      poweroff(state, "Select+Menu")
     else
       go_home(state)
     end
@@ -781,16 +818,18 @@ defmodule MayonnaiOS.Launcher do
     %{state | scene: next}
   end
 
-  defp poweroff do
-    Logger.info("[launcher] Select+Menu: powering off")
+  defp poweroff(state, how) do
+    Logger.info("[launcher] #{how}: powering off")
 
     # Whether poweroff/0 brings this board down cleanly is the genuinely
-    # unknown part. This is still the only *orderly* shutdown the device has,
-    # and the arrival of the power key does not change that: a short press is
+    # unknown part. This is the only *orderly* shutdown the device has, and
+    # the arrival of the power key does not change that: a short press is
     # sleep, and a long one is the PMIC cutting the rail in hardware after the
     # 4000 ms its `shutdown` attribute reads -- no unmount, no save flushed,
-    # nothing told. So the chord stays, and stays a chord.
-    Nerves.Runtime.poweroff()
+    # nothing told. Two ways to ask for it -- the Select+Menu chord and the
+    # menu row -- and one function they both reach.
+    state.poweroff.()
+    state
   end
 
   # Three outcomes, logged apart from each other on purpose. "Nothing
@@ -813,6 +852,16 @@ defmodule MayonnaiOS.Launcher do
 
   defp start_program(%{installed?: false} = program, state) do
     Logger.warning("[launcher] #{program.path} not installed")
+    state
+  end
+
+  # The Power off row. Not a program and not an app: pressing A here only
+  # asks, and the repaint puts the question on the panel. `press/2` owns the
+  # answer -- Y switches off, anything else keeps the device on -- because A
+  # opened the question and the answer must not be the button that asked.
+  defp start_program(%{action: :poweroff}, state) do
+    state = %{state | confirming: true}
+    show(:home, state)
     state
   end
 
@@ -1077,7 +1126,9 @@ defmodule MayonnaiOS.Launcher do
   # index: the scene calls `Programs.list/0` itself, so no list is copied into
   # a scene start on every keypress, and the two cannot disagree about order
   # because both derive from the same config.
-  defp show(_home, state), do: set_root(default_scene(), %{selected: state.selected})
+  defp show(_home, state) do
+    set_root(default_scene(), %{selected: state.selected, confirming: state.confirming})
+  end
 
   defp set_root(nil, _param), do: :ok
 
