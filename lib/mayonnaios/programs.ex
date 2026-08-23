@@ -34,6 +34,7 @@ defmodule MayonnaiOS.Programs do
           name: String.t(),
           path: String.t() | nil,
           app: module() | {module(), term()} | nil,
+          action: atom() | nil,
           args: [String.t()],
           installed?: boolean()
         }
@@ -99,6 +100,7 @@ defmodule MayonnaiOS.Programs do
       name: Map.get(entry, :name) || inspect({module, arg}),
       path: nil,
       app: {module, arg},
+      action: nil,
       args: [],
       needs_udev: false,
       installed?: true
@@ -115,11 +117,30 @@ defmodule MayonnaiOS.Programs do
   # process and takes the screen away from it; an app is `start/0` and
   # `stop/0` on a supervisor in this VM, and the two have nothing in common
   # but a row on a menu.
+  # An action is a verb of the launcher's own rather than anything to run:
+  # today only `:poweroff`. There is no path to stat and no module that could
+  # be absent, so it is always "installed" -- a menu that can lose its off
+  # switch to a config typo would fail exactly the way a dropped entry does,
+  # invisibly. What the verb *does* is entirely `MayonnaiOS.Launcher`'s;
+  # this module only carries the atom.
+  defp normalize(%{action: action} = entry) when is_atom(action) and not is_nil(action) do
+    %{
+      name: Map.get(entry, :name) || Atom.to_string(action),
+      path: nil,
+      app: nil,
+      action: action,
+      args: [],
+      needs_udev: false,
+      installed?: true
+    }
+  end
+
   defp normalize(%{app: module} = entry) when is_atom(module) and not is_nil(module) do
     %{
       name: Map.get(entry, :name) || inspect(module),
       path: nil,
       app: module,
+      action: nil,
       args: [],
       needs_udev: false,
       installed?: true
@@ -131,6 +152,7 @@ defmodule MayonnaiOS.Programs do
       name: Map.get(entry, :name) || Path.basename(path),
       path: path,
       app: nil,
+      action: nil,
       args: Map.get(entry, :args, []),
       # Programs that read input through udev; see MayonnaiOS.Udev. Carried
       # through explicitly because this function rebuilds the map rather than
@@ -159,6 +181,7 @@ defmodule MayonnaiOS.Programs do
       name: "#{inspect(entry)} (no :path)",
       path: nil,
       app: nil,
+      action: nil,
       args: [],
       needs_udev: false,
       installed?: false

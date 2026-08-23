@@ -90,8 +90,9 @@ defmodule MayonnaiOS.Sleep do
   A short press is this module's. A long one is not, and cannot be made to be:
   the PMIC's own `shutdown` attribute reads `4000`, so holding the button for
   four seconds makes the AXP cut the rail in hardware, without asking Linux
-  and without anything being flushed. That is why `MayonnaiOS.Launcher` keeps
-  Select+Menu -- it is still the only *orderly* way to switch this device off.
+  and without anything being flushed. That is why the orderly ways off --
+  `MayonnaiOS.Launcher`'s Select+Menu chord and the menu's Power off row --
+  exist and stay off this button.
 
   ## The chord that used to be here
 

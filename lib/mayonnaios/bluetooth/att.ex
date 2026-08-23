@@ -32,8 +32,8 @@ defmodule MayonnaiOS.Bluetooth.ATT do
 
   The ATT MTU starts at 23 bytes on LE -- 20 bytes of payload once the
   notification header is subtracted -- and stays there unless the client asks
-  for more. That is enough for a five-byte report and not enough for an
-  eighty-byte report descriptor, which is why Read Blob exists and why the
+  for more. That is enough for a sixteen-byte report and not enough for a
+  283-byte report descriptor, which is why Read Blob exists and why the
   server has to implement it: a client reading the Report Map at the default
   MTU gets the first 22 bytes and then asks for the rest by offset.
   """

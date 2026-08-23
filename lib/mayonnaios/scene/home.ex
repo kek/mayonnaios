@@ -70,7 +70,9 @@ defmodule MayonnaiOS.Scene.Home do
         _ -> 0
       end
 
-    {:ok, push_graph(scene, graph(Programs.list(), selected))}
+    confirming = match?(%{confirming: true}, param)
+
+    {:ok, push_graph(scene, graph(Programs.list(), selected, confirming))}
   end
 
   @doc """
@@ -81,10 +83,10 @@ defmodule MayonnaiOS.Scene.Home do
   empty list, one entry, and a selection at the last index -- the three
   shapes that would otherwise only be found by looking at the device.
   """
-  @spec graph([Programs.program()], integer()) :: Scenic.Graph.t()
-  def graph(programs, selected \\ 0)
+  @spec graph([Programs.program()], integer(), boolean()) :: Scenic.Graph.t()
+  def graph(programs, selected \\ 0, confirming \\ false)
 
-  def graph([], _selected) do
+  def graph([], _selected, _confirming) do
     base()
     |> text("No programs configured.",
       font_size: 20,
@@ -98,7 +100,7 @@ defmodule MayonnaiOS.Scene.Home do
     )
   end
 
-  def graph(programs, selected) do
+  def graph(programs, selected, confirming) do
     count = length(programs)
     selected = Integer.mod(selected, count)
 
@@ -118,6 +120,20 @@ defmodule MayonnaiOS.Scene.Home do
 
     graph
     |> position(start, count)
+    |> confirm(confirming)
+  end
+
+  # The Power off row's question, on the bottom line the way the file
+  # manager's bottom line names its second verb. Amber, because it is the
+  # panel asking for a decision rather than describing a state.
+  defp confirm(graph, false), do: graph
+
+  defp confirm(graph, true) do
+    text(graph, "Power off? Y switches off. Any other button keeps it on.",
+      font_size: 16,
+      fill: {:color, @wait},
+      translate: {20, @height - 16}
+    )
   end
 
   defp base do

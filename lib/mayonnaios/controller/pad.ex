@@ -11,15 +11,17 @@ defmodule MayonnaiOS.Controller.Pad do
 
   ## Only changes go out
 
-  A report is sent when the encoded five bytes differ from the last five sent.
-  Not on every evdev report, and not on a timer.
+  A report is sent when the encoded sixteen bytes differ from the last
+  sixteen sent. Not on every evdev report, and not on a timer.
 
   HID input reports are edge-driven by design: the host holds the last state
   it was given until it is given another. So a repeat carries no information,
   and sending one costs a connection event that a button press might have
   used instead. Sending only on change also makes the auto-repeat the kernel
   generates for a held button free -- it folds into a state that is already
-  what was last sent, and nothing goes out.
+  what was last sent, and nothing goes out. The analog stick leans on this
+  too: `MayonnaiOS.Controller.Report` quantises the axes, so ADC noise folds
+  into an unchanged report here rather than a stream of notifications.
 
   ## Everything is released on the way out
 
@@ -59,7 +61,13 @@ defmodule MayonnaiOS.Controller.Pad do
   def input(events), do: GenServer.cast(__MODULE__, {:input, events})
 
   @doc "What is held right now, as the host would see it."
-  @spec state() :: %{pressed: [atom()], directions: [atom()], bytes: binary()}
+  @spec state() :: %{
+          pressed: [atom()],
+          directions: [atom()],
+          axes: %{x: non_neg_integer(), y: non_neg_integer()},
+          triggers: %{brake: non_neg_integer(), accelerator: non_neg_integer()},
+          bytes: binary()
+        }
   def state, do: GenServer.call(__MODULE__, :state)
 
   @impl true
@@ -92,6 +100,8 @@ defmodule MayonnaiOS.Controller.Pad do
      %{
        pressed: MapSet.to_list(state.report.buttons),
        directions: MapSet.to_list(state.report.directions),
+       axes: %{x: state.report.x, y: state.report.y},
+       triggers: %{brake: state.report.brake, accelerator: state.report.accelerator},
        bytes: Report.encode(state.report)
      }, state}
   end

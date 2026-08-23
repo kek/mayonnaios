@@ -26,15 +26,19 @@ defmodule MayonnaiOS.Bluetooth.HOGP do
   layout that matches what those hosts see every day is a layout their code
   paths have been tested against.
 
-  ## The PnP ID is not borrowed
+  ## The PnP ID is Microsoft's, on purpose
 
-  Vendor 0x1209 is pid.codes, the identifier set aside for open-source
-  hardware that has no USB-IF membership, and 0x4D4F is unregistered within
-  it. Picking a real vendor's numbers here -- Microsoft's, say -- would make
-  Steam apply that controller's button mapping to this one, which is a worse
-  outcome than being unrecognised: an unrecognised gamepad gets the generic
-  mapping, which is correct, while a misrecognised one gets a layout that is
-  wrong in a way that looks like the device is faulty.
+  Vendor 0x045E, product 0x0B13: the Xbox Wireless Controller with the BLE
+  firmware. This used to be pid.codes numbers and a paragraph here about how
+  borrowing a real vendor's would get the borrowed controller's mapping
+  applied to a layout that was not its -- which was true, and is exactly the
+  mechanism now being used on purpose: `MayonnaiOS.Controller.Report` carries
+  that controller's descriptor and report layout byte for byte, so the fixed
+  belief these numbers trigger in SDL, macOS and the Steam Deck is a correct
+  belief. Its moduledoc has the full account of the reversal. The numbers,
+  the name, the manufacturer string and the report format are one identity
+  and change together or not at all -- a device that is half one thing is
+  recognised as neither.
 
   ## Everything in the HID service needs encryption
 
@@ -84,15 +88,24 @@ defmodule MayonnaiOS.Bluetooth.HOGP do
   # and some hosts write it unconditionally.
   @report_protocol <<0x01>>
 
-  # See the moduledoc. Source 0x02 is the USB Implementer's Forum's numbering.
-  @pnp <<0x02, 0x1209::16-little, 0x4D4F::16-little, 0x0100::16-little>>
+  # See the moduledoc. Source 0x02 is the USB Implementer's Forum's numbering,
+  # 0x045E is Microsoft, 0x0B13 is the Xbox Wireless Controller on its BLE
+  # firmware, and 0x0509 is that firmware's version as the real pad reports it.
+  @pnp <<0x02, 0x045E::16-little, 0x0B13::16-little, 0x0509::16-little>>
 
-  # Zero, and that is a value rather than a placeholder: the Report Reference
-  # descriptor uses 0 to mean "the report map declares no report IDs, and this
-  # is the only report of its type". `MayonnaiOS.Controller.Report` has the
-  # account of why declaring an ID cost more than it bought.
-  @report_id 0
+  # The IDs the report map declares: input report 1 and the rumble output
+  # report 3, which is the 1914's numbering. Notifications still carry no ID
+  # byte -- over HOGP the ID lives here, in each characteristic's Report
+  # Reference descriptor. `MayonnaiOS.Controller.Report` has the account of
+  # why an ID stopped being the hazard it was for the unrecognised pad.
+  @report_id 1
+  @rumble_report_id 3
   @input_report 0x01
+  @output_report 0x02
+
+  # What a rumble write looks like before a host sends one. Eight bytes to
+  # match the report the map declares, all zero: no actuators enabled.
+  @rumble_at_rest <<0, 0, 0, 0, 0, 0, 0, 0>>
 
   @doc "The report ID the report reference descriptor and the report map agree on."
   @spec report_id() :: non_neg_integer()
@@ -132,7 +145,7 @@ defmodule MayonnaiOS.Bluetooth.HOGP do
        ]},
       {:service, @device_information,
        [
-         {@manufacturer_name, [:read], value: "MayonnaiOS"},
+         {@manufacturer_name, [:read], value: "Microsoft"},
          {@pnp_id, [:read], value: @pnp}
        ]},
       {:service, @battery_service,
@@ -164,11 +177,24 @@ defmodule MayonnaiOS.Bluetooth.HOGP do
           descriptors: [
             {@cccd, [read: :encrypted, write: :encrypted]},
             # Which report in the map this characteristic carries, and in
-            # which direction. Report ID 0 -- the map declares none -- and
-            # Input. A host that finds a report characteristic with no
-            # reference descriptor cannot match it to the report map and
-            # ignores it.
+            # which direction: report ID 1, Input. A host that finds a report
+            # characteristic with no reference descriptor cannot match it to
+            # the report map and ignores it.
             {@report_reference, [value: <<@report_id, @input_report>>, read: :encrypted]}
+          ]},
+         # The rumble output report the descriptor declares. Writes are
+         # accepted -- `MayonnaiOS.Bluetooth.GATT` stores nothing and reports
+         # a `:written_static` event nobody listens for -- because there is
+         # no motor, and because refusing the write would make a host's HID
+         # layer mark the whole device faulty where ignoring it only makes
+         # the rumble silent. Declared after the input report so that
+         # `find_handle/2`, which takes the first match, keeps finding input.
+         {@report, [:read, :write, :write_without_response],
+          value: @rumble_at_rest,
+          read: :encrypted,
+          write: :encrypted,
+          descriptors: [
+            {@report_reference, [value: <<@rumble_report_id, @output_report>>, read: :encrypted]}
           ]}
        ]}
     ]

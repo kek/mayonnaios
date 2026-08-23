@@ -7,11 +7,11 @@ defmodule MayonnaiOS.Bluetooth.L2CAP do
   does -- attributes on 0x0004, signalling on 0x0005, pairing on 0x0006. What
   is left is framing, and framing is where a stack quietly loses bytes.
 
-  ## Why reassembly is not optional even for five-byte reports
+  ## Why reassembly is not optional even for sixteen-byte reports
 
-  The reports this device sends are eight bytes of L2CAP payload and will
+  The reports this device sends are nineteen bytes of L2CAP payload and will
   never be fragmented. The *responses* are a different matter: the HID report
-  descriptor is around eighty bytes, and the controller's ACL payload limit on
+  descriptor is 283 bytes, and the controller's ACL payload limit on
   this part is likely to be twenty-seven. So a host reading the Report Map
   gets a response that must be split, and a host that has raised the ATT MTU
   can send us a write that arrives split.

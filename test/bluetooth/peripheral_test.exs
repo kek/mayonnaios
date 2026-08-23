@@ -175,7 +175,10 @@ defmodule MayonnaiOS.Bluetooth.PeripheralTest do
       att(<<0x0A, handle::16-little>>)
 
       assert <<0x0B, value::binary>> = expect_pdu(0x0004)
-      assert value == Report.descriptor()
+      # A 247-byte MTU truncates the 283-byte descriptor at MTU - 1; the rest
+      # is Read Blob's job and the blob test above proves it. What this test
+      # is about is the 246 bytes crossing several 27-byte ACL packets whole.
+      assert value == binary_part(Report.descriptor(), 0, 246)
       assert byte_size(value) > 27
     end
 

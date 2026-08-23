@@ -27,8 +27,9 @@ Software:
 
 - Scenic UI: a launcher and a diagnostics readout, drawn on the CPU into
   `/dev/fb0`
-- A Bluetooth LE gamepad, so the handheld can be the controller for a Steam
-  Deck or a PC — a whole BLE HID stack in Elixir, with no BlueZ in the image
+- A Bluetooth LE gamepad that presents as an Xbox Wireless Controller, so a
+  Steam Deck, a Mac or a PC recognises it with no mapping step — a whole BLE
+  HID stack in Elixir, with no BlueZ in the image
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
 - A web UI for uploading games from a phone
@@ -39,6 +40,10 @@ Software:
   back. Not suspend — only `s2idle` exists here, it aborts inside rtw88's SDIO
   suspend handler, and with no cpuidle driver the cores are in a bare WFI
   either way, so a successful one would save almost nothing
+- Orderly power off, two ways: the Select+Menu chord, and a **Power off** row
+  at the bottom of the menu — A asks, Y answers, anything else keeps it on,
+  which is the file manager's delete rule applied to the other irreversible
+  thing on the device
 
 ## Building and flashing
 
@@ -270,10 +275,23 @@ the interval and by f2fs writeback, and by nothing else.
 ## Using it as a Bluetooth controller
 
 The handheld can be the gamepad instead of the console. Pick **Bluetooth
-controller** in the launcher and it advertises itself as a BLE HID gamepad;
-pair from a Steam Deck, a Windows machine, a phone or anything else that
-speaks HID over GATT, and every button goes there instead of to the launcher.
-Menu comes back.
+controller** in the launcher and it advertises itself as an Xbox Wireless
+Controller — Microsoft's numbers, the real pad's name, and that pad's HID
+descriptor byte for byte; pair from a Steam Deck, a Mac, a Windows machine, a
+phone or anything else that speaks HID over GATT, and every button and the
+stick go there instead of to the launcher. Menu comes back.
+
+The identity is the point. An earlier firmware said honestly who it was, and
+this section was a page of workarounds for what that honesty cost: SDL
+matches controllers against a database keyed by vendor and product numbers,
+an unlisted device is a joystick rather than a gamepad, and a game that asks
+only for gamepads saw nothing at all — with Steam on macOS unable to bridge
+the gap, because it has no virtual controller there to bridge it with.
+Claiming the identity of the one pad every host tests against gets all of
+those code paths for free: recognised on sight, correct glyphs, no mapping
+step. `MayonnaiOS.Controller.Report` has the full account, including why the
+borrowed layout must be byte-exact and the test that pins all 283 bytes of
+it against a capture from a real pad.
 
 The panel shows how far along it is, because the four stages all look
 identical from the other machine — a controller that does nothing:
@@ -288,86 +306,77 @@ stops at *paired*, the host has not decided the device is a gamepad.
 
 ### Pairing
 
-**Steam Deck**: Settings → Bluetooth, and it appears as `MayonnaiOS
-Controller` with a gamepad icon. Steam Input treats it as a generic
-controller, so the buttons want mapping once, per game or globally.
+**Steam Deck**: Settings → Bluetooth, and it appears as `Xbox Wireless
+Controller` with a gamepad icon. SteamOS knows exactly what that is: Xbox
+glyphs, working defaults, nothing to map.
 
 **Windows**: Settings → Bluetooth & devices → Add device → Bluetooth. It
-pairs without a code — see below for why there is no code — and shows up in
-`joy.cpl` as a 10-button gamepad with a hat switch.
+pairs without a code — see below for why there is no code — and comes up as
+an Xbox controller.
 
-The D-pad is a hat switch and nothing else. It was briefly also reported as
-a pair of X/Y axes, so that games which only read a stick would work; on a
-Mac that made Steam take the axes for a stick and drive the mouse pointer
-with them, so a D-pad press moved the character *and* the cursor at once.
-One control declared twice gets consumed twice.
+**macOS**: System Settings → Bluetooth. The GameController framework has
+first-class Xbox support, so anything built on it — Steam included — sees a
+pad it knows. The one macOS-specific trap is in the next section.
 
-**Changing the report descriptor means re-pairing.** A host reads it once,
-when it pairs, and caches it forever after — so a firmware update that
-changes the button layout does nothing at all until the device is removed on
-the host and `MayonnaiOS.Controller.unpair()` has run here. Reports parsed
-against a stale descriptor are worse than no change: the bytes have moved
-underneath the host.
+What the host receives: the left stick, the D-pad as a hat switch, A/B/X/Y
+by their printed labels, LB and RB from L1 and R1, the triggers fully pulled
+or fully released from L2 and R2 — they are switches on this shell — and
+View and Menu from Select and Start. **Select and Start held together are
+the Xbox button**, which on a Steam Deck is the Steam button; the first
+half-pressed leaks one brief View or Menu press while the chord forms, and
+`MayonnaiOS.Controller.Report` has the account of why that beats a timer. The right stick, the stick clicks, the
+Share button and the Xbox button are declared because the real pad declares
+them, and they rest untouched forever; rumble is accepted from the host and
+dropped, because there is no motor and a refused write reads as a fault
+where a silent one reads as a dead motor.
+
+**This firmware update means re-pairing, on every host.** A host reads the
+report descriptor once, when it pairs, and caches it forever after — so a
+host paired with the previous firmware's three-byte pad will parse the new
+sixteen-byte reports against the old layout and report garbage with total
+confidence. Remove the device on the host and run
+`MayonnaiOS.Controller.unpair()` here; the same applies to any future
+descriptor change.
 
 ### When a game does not see it
 
-Pairing and connecting are one thing; a game deciding this is a controller
-is another, and the second is entirely up to the host.
+On macOS, check that Steam — or the game — has **Input Monitoring**
+permission, in System Settings → Privacy & Security. Enumerating HID devices
+needs no permission on macOS but *receiving input from them* does, so an
+application without it shows the controller in its device list and then
+behaves as though every button were stuck up. Steam has to be quit
+completely and reopened after the permission is granted. This looks exactly
+like a broken controller and is not one — the browser gamepad testers work
+throughout, because the browser has the permission.
 
-On macOS, check first that Steam has **Input Monitoring** permission, in
-System Settings → Privacy & Security. Enumerating HID devices needs no
-permission on macOS but *receiving input from them* does, so an application
-without it shows the controller in its device list and then behaves as
-though every button were stuck up. Steam has to be quit completely and
-reopened after the permission is granted. This looks exactly like a broken
-controller and is not one — the browser gamepad testers work throughout,
-because the browser has the permission.
+Everything else this section used to prescribe — Steam's generic-gamepad
+switch, per-game keyboard bindings, hand-rolled `SDL_GAMECONTROLLERCONFIG`
+lines — was the cost of not being recognised, and went with the cause. What
+is still true: a game with no controller support at all still has none, and
+Steam Input on macOS still cannot fabricate a virtual controller for such a
+game. It never could; this device just no longer needs it to.
 
-Steam also has a switch for generic gamepads in its controller settings, and
-it is not on by default. Without it an unrecognised pad reaches Steam's desktop
-layout — which is what moves the mouse and types arrow keys — rather than
-the game. With it on, the pad can be given a layout like any other
-controller.
+### What claiming the identity costs
 
-A game that uses SDL, which is most of them, needs more than that. SDL's
-controller API matches a device against a database keyed by its USB vendor
-and product numbers, and this device's are not in it — so SDL sees a
-joystick rather than a game controller, and a game that only asks for game
-controllers sees nothing at all.
+The previous firmware refused to borrow a real controller's numbers, and the
+reason it wrote down was correct: a host with a driver for the claimed pad
+stops reading the descriptor and parses reports against that pad's fixed
+layout, so any deviation is scrambled buttons the host is certain are
+correct. That is an argument against claiming the numbers while shipping
+your own layout. It is not an argument against shipping the layout too,
+which is what this firmware does — the drivers' fixed belief is now a
+correct belief, and the test suite holds the descriptor byte-for-byte
+against a capture from a real pad, so a drift is a failing test rather than
+a scrambled A button.
 
-### On macOS, Steam Input cannot bridge that gap
-
-This one is worth knowing before spending an evening on it. If the pad
-drives Steam's Big Picture interface but no game responds, nothing is
-broken and no amount of Steam configuration will change it.
-
-Steam Input feeds a game by emulating a controller the game already
-understands — an Xbox pad through a driver on Windows, a virtual device
-through uinput on Linux. macOS offers Steam neither, so for a game that does
-not integrate the Steam Input API directly, Steam's only outputs are
-keyboard and mouse. Turning "Enable Steam Input" on for such a game changes
-nothing, because there is no virtual controller for it to switch on.
-
-Two things work, and both are configured on the Mac rather than here:
-
-- Bind the pad to the game's *keyboard* controls in its Steam controller
-  configuration. Keyboard emulation is the output path macOS does allow.
-- Give the game an SDL mapping. `gamepadtool` generates the whole
-  `SDL_GAMECONTROLLERCONFIG` line by asking you to press each button; it
-  goes in the game's launch options, and the game's own SDL then sees a
-  proper gamepad with Steam uninvolved. The same line submitted to SDL's
-  community database fixes it everywhere, permanently, for anyone.
-
-Claiming a well-known controller's vendor and product numbers would also
-work, and for the same reason — it makes SDL recognise the device without
-Steam in the middle. `MayonnaiOS.Bluetooth.HOGP` deliberately does not.
-Where the impersonated controller has a driver rather than just a database
-entry, as Xbox and PlayStation pads do, the host stops reading this
-device's descriptor altogether and parses its reports against that
-controller's fixed layout — so the whole report format would have to be
-reproduced, and a mistake in it produces scrambled buttons that the host is
-certain are correct. An SDL mapping reaches the same place without any of
-that, and without a device that lies about what it is.
+What is genuinely given up: the device now says it is something it is not,
+to hosts and to anyone reading a Bluetooth device list, and controls it does
+not have — the right stick, rumble — are promised and permanently inert. A
+host that someday probes deeper than any known host does, say for firmware
+versions over Microsoft's accessory protocol, will find the seams; nothing
+on macOS, SteamOS, Windows or a phone does that today. The trade is written
+down here rather than left implicit, because it was made on purpose and the
+thing bought with it is the section above shrinking to one paragraph.
 
 Pairing is *Just Works*: no passkey, no confirmation, exactly like every
 commercial BLE gamepad. That means no protection against someone active on
@@ -388,7 +397,7 @@ reports a broken device.
     iex> MayonnaiOS.Controller.start()
     iex> MayonnaiOS.Controller.status()
     %{advertising: true, connected: false, encrypted: false, subscribed: false,
-      name: "MayonnaiOS Controller", address: "...", sent: 0,
+      name: "Xbox Wireless Controller", address: "...", sent: 0,
       dropped: %{disconnected: 0, unencrypted: 0, unsubscribed: 0, no_credits: 0},
       ...}
     iex> MayonnaiOS.Controller.stop()
@@ -503,29 +512,6 @@ The web UI runs on the host as well — point `:rom_roots` and the other paths a
 a scratch directory and start `MayonnaiOS.Web` under a supervisor.
 
 ## Not done yet
-
-**The analog stick.** Linux can see it now and nothing in this firmware
-reads it. The BSP side is done — the `adc-joystick` driver is built, the node
-is in the device tree, and there is an ADC driver behind it — which is a
-change from what this section used to say, and the correction is worth
-recording: it claimed the driver was absent and the node did not exist, and it
-went on claiming it after both had shipped, because nothing in this repository
-looks at the stick and so nothing here noticed. Read off the device on
-firmware `3cc86f59`:
-
-    /dev/input/event1  adc-joystick  ev_abs: [abs_x: 0..4096, abs_y: 0..4096]
-
-Live values, centred at about 2050 on both axes. What is left is on this side.
-The Bluetooth report descriptor gains X and Y axes fed by `ABS_X` and `ABS_Y`,
-taking the report from three bytes back to five, and the `adc-joystick` node
-has to be opened alongside the gamepad — `MayonnaiOS.Launcher` already opens
-two devices for exactly this reason (the pad and the power key) and would open
-a third, forwarding all of it to the app.
-
-Worth being precise about why those axes are correct when the ones removed in
-the commit before this were a bug: the axes that had to go were the *D-pad*
-reported a second time, so one press moved a character and a mouse cursor at
-once. A stick reporting stick positions is not that.
 
 **Pairing devices *to* the handheld.** The controller app is this device
 advertising itself to a host — the peripheral role. Scanning for headphones or

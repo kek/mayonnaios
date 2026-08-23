@@ -524,7 +524,7 @@ defmodule MayonnaiOS.Bluetooth.GATT do
   # The largest ATT PDU this server will send or receive. Chosen to fit in a
   # single ACL fragment on a controller with the common 27-byte LE payload is
   # *not* the goal -- fragmentation handles that -- but a large MTU costs a
-  # buffer per connection and buys nothing for five-byte reports. 247 is the
+  # buffer per connection and buys nothing for sixteen-byte reports. 247 is the
   # number that fits an extended data-length packet exactly, and is what most
   # peripherals ask for.
   defp server_mtu, do: 247
