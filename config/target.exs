@@ -303,7 +303,7 @@ config :mayonnaios, pickles_root: "/root/pickles"
 #
 #     iex> MayonnaiOS.Bundle.install(MayonnaiOS.Bundle.spec(:retroarch))
 #
-# Built by github.com/kek/coldcuts against this system's own staging
+# Built by github.com/kek/mayonnaios_apps against this system's own staging
 # sysroot, so the sonames match what the rootfs ships.
 #
 # `version` must change whenever the tarball does, and it is the *release*
@@ -318,7 +318,7 @@ config :mayonnaios, :bundles, %{
     name: "retroarch",
     version: "1.22.2-7",
     url:
-      "https://github.com/kek/coldcuts/releases/download/v1.22.2-7/retroarch-1.22.2-aarch64.tar.gz",
+      "https://github.com/kek/mayonnaios_apps/releases/download/v1.22.2-7/retroarch-1.22.2-aarch64.tar.gz",
     sha256: "fcfeafdf307afac56666a3c9f5004880bee3b9326401a720fe269338ce80824c"
   }
 }
@@ -426,7 +426,7 @@ config :mayonnaios, :cores, %{
     systems: ["snes"],
     version: "1.22.2-6",
     url:
-      "https://github.com/kek/coldcuts/releases/download/v1.22.2-6/snes9x2010-1.22.2-aarch64.tar.gz",
+      "https://github.com/kek/mayonnaios_apps/releases/download/v1.22.2-6/snes9x2010-1.22.2-aarch64.tar.gz",
     sha256: "9a492c7414330d07929d322bb3b643312eb3bafb7386543484d04b393abb7e85"
   },
   "2048": %{
@@ -434,7 +434,8 @@ config :mayonnaios, :cores, %{
     label: "2048",
     systems: [],
     version: "1.22.2-6",
-    url: "https://github.com/kek/coldcuts/releases/download/v1.22.2-6/2048-1.22.2-aarch64.tar.gz",
+    url:
+      "https://github.com/kek/mayonnaios_apps/releases/download/v1.22.2-6/2048-1.22.2-aarch64.tar.gz",
     sha256: "c6eba3f077baf5fe56766d8213424c38d5ff0787488d4fac455d4ff96ba86518"
   }
 }
