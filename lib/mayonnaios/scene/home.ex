@@ -72,7 +72,13 @@ defmodule MayonnaiOS.Scene.Home do
 
     confirming = match?(%{confirming: true}, param)
 
-    {:ok, push_graph(scene, graph(Programs.list(), selected, confirming))}
+    obituary =
+      case param do
+        %{obituary: %{} = obituary} -> obituary
+        _ -> nil
+      end
+
+    {:ok, push_graph(scene, graph(Programs.list(), selected, confirming, obituary))}
   end
 
   @doc """
@@ -83,10 +89,10 @@ defmodule MayonnaiOS.Scene.Home do
   empty list, one entry, and a selection at the last index -- the three
   shapes that would otherwise only be found by looking at the device.
   """
-  @spec graph([Programs.program()], integer(), boolean()) :: Scenic.Graph.t()
-  def graph(programs, selected \\ 0, confirming \\ false)
+  @spec graph([Programs.program()], integer(), boolean(), map() | nil) :: Scenic.Graph.t()
+  def graph(programs, selected \\ 0, confirming \\ false, obituary \\ nil)
 
-  def graph([], _selected, _confirming) do
+  def graph([], _selected, _confirming, _obituary) do
     base()
     |> text("No programs configured.",
       font_size: 20,
@@ -100,7 +106,7 @@ defmodule MayonnaiOS.Scene.Home do
     )
   end
 
-  def graph(programs, selected, confirming) do
+  def graph(programs, selected, confirming, obituary) do
     count = length(programs)
     selected = Integer.mod(selected, count)
 
@@ -120,20 +126,55 @@ defmodule MayonnaiOS.Scene.Home do
 
     graph
     |> position(start, count)
-    |> confirm(confirming)
+    |> notice(confirming, obituary)
   end
+
+  # The bottom of the panel carries one notice at a time. The power-off
+  # question wins over an obituary: it is the panel asking for a decision,
+  # and the obituary keeps -- it is still in the Launcher's state, and comes
+  # back the moment the question is answered.
+  defp notice(graph, true, _obituary), do: confirm(graph, true)
+  defp notice(graph, false, obituary), do: obituary(graph, obituary)
 
   # The Power off row's question, on the bottom line the way the file
   # manager's bottom line names its second verb. Amber, because it is the
   # panel asking for a decision rather than describing a state.
-  defp confirm(graph, false), do: graph
-
   defp confirm(graph, true) do
     text(graph, "Power off? Y switches off. Any other button keeps it on.",
       font_size: 16,
       fill: {:color, @wait},
       translate: {20, @height - 16}
     )
+  end
+
+  # Why the last program died, quoted from its own last words. The headline
+  # is amber like the power-off question -- the panel reporting, not asking --
+  # and the quoted lines are dim so the reason reads before the evidence.
+  # Status nil is a spawn that raised rather than a program that exited; the
+  # words are then the exception's, and "exited" would be a lie.
+  defp obituary(graph, nil), do: graph
+
+  defp obituary(graph, %{name: name, status: status, lines: lines}) do
+    headline =
+      case status do
+        nil -> "#{name} would not start. B clears this."
+        status -> "#{name} exited (#{status}). B clears this."
+      end
+
+    lines
+    # Two lines and 88 characters: what fits above the headline at this font
+    # without climbing into the menu's last row.
+    |> Enum.take(-2)
+    |> Enum.reverse()
+    |> Enum.with_index()
+    |> Enum.reduce(graph, fn {line, up}, g ->
+      text(g, String.slice(line, 0, 88),
+        font_size: 14,
+        fill: {:color, @dim},
+        translate: {20, @height - 36 - up * 18}
+      )
+    end)
+    |> text(headline, font_size: 16, fill: {:color, @wait}, translate: {20, @height - 16})
   end
 
   defp base do

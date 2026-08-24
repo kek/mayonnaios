@@ -238,6 +238,16 @@ defmodule MayonnaiOS.Launcher do
   @up_button :btn_dpad_up
   @down_button :btn_dpad_down
 
+  # Physical B, which is BTN_SOUTH and therefore InputEvent's :btn_a -- the
+  # table at the top of this module is the authority. Bound only to clear the
+  # obituary line, which is also every other screen's "back" gesture, so the
+  # button does what the hand expects.
+  @back_button :btn_a
+
+  # How many of a program's last lines the obituary keeps. Three is what the
+  # panel has room to draw without pushing into the menu rows.
+  @obituary_lines 3
+
   # How long a stop waits for the program to go, per signal. See `do_stop/1`.
   #
   # SIGTERM gets the larger share because a program that honours it has work to
@@ -301,6 +311,16 @@ defmodule MayonnaiOS.Launcher do
   which is the part worth testing.
   """
   def selected, do: GenServer.call(__MODULE__, :selected)
+
+  @doc """
+  Why the last program died, or nil.
+
+  `%{name: name, status: status, lines: lines}` after a program exits nonzero
+  (`status` is the exit status) or refuses to spawn (`status` is nil and
+  `lines` is the spawn error). The home scene draws it; B clears it. Public
+  so a console can read the same thing the panel shows.
+  """
+  def obituary, do: GenServer.call(__MODULE__, :obituary)
 
   @doc """
   Sleep and wake without pressing anything, and ask which it is.
@@ -405,6 +425,16 @@ defmodule MayonnaiOS.Launcher do
       # and never true while anything is running -- the row can only be
       # activated from an idle menu.
       confirming: false,
+      # The last few lines the running program wrote, kept so that if it dies
+      # they can be put on the panel and not only in the ring logger. Reset
+      # on every launch; capped, because a chatty program earns no more rows.
+      output: [],
+      # Why the last program died, or nil. Set when a program exits nonzero
+      # or refuses to spawn, drawn by the home scene, cleared by B or by the
+      # next launch. It exists because a program that exits in its first
+      # hundred milliseconds is indistinguishable from "nothing happened"
+      # from the couch -- Moonlight without its config file taught that.
+      obituary: nil,
       # What actually switches the device off, injectable because the real
       # one cannot be called on a laptop and a confirmation flow nobody can
       # test is a confirmation flow that silently rots.
@@ -454,6 +484,8 @@ defmodule MayonnaiOS.Launcher do
   end
 
   def handle_call(:selected, _from, state), do: {:reply, state.selected, state}
+
+  def handle_call(:obituary, _from, state), do: {:reply, state.obituary, state}
   def handle_call(:asleep?, _from, state), do: {:reply, state.asleep, state}
 
   def handle_call(:sleep, _from, state) do
@@ -546,6 +578,13 @@ defmodule MayonnaiOS.Launcher do
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     Logger.info("[launcher] #{name_of(state.running)} exited (#{status})")
 
+    # A nonzero exit becomes an obituary before the repaint, so the menu that
+    # comes back says what just happened instead of merely coming back. Zero
+    # is a program that meant to exit -- quitting RetroArch from its own menu
+    # -- and gets no banner. Deliberate stops never reach this clause at all:
+    # `await_exit/3` consumes their exit message itself.
+    state = %{state | obituary: obituary(state, status)}
+
     # Released before the repaint, and in that order: the repaint *is* a write
     # to the framebuffer, and it is only allowed because the program that
     # owned it is gone. This is the moment the display comes back.
@@ -560,7 +599,7 @@ defmodule MayonnaiOS.Launcher do
     # before this clause returns, so the panel comes back first.
     state.flush_saves.()
 
-    {:noreply, %{state | port: nil, running: nil}}
+    {:noreply, %{state | port: nil, running: nil, output: []}}
   end
 
   # Log what the program says, rather than dropping it.
@@ -579,21 +618,37 @@ defmodule MayonnaiOS.Launcher do
   # Trimmed and length-capped because a chatty program should not be able to
   # push everything else out of a fixed-size ring buffer.
   def handle_info({port, {:data, data}}, %{port: port} = state) do
-    log_output(state, data)
-    {:noreply, state}
+    {:noreply, log_output(state, data)}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
 
+  # What the panel will say about a program that died. Status zero is a
+  # program that meant to exit and merits nothing; anything else is paired
+  # with the last lines it wrote, because "exited (1)" without its dying
+  # words is a riddle and with them is usually the whole diagnosis.
+  defp obituary(_state, 0), do: nil
+
+  defp obituary(state, status),
+    do: %{name: name_of(state.running), status: status, lines: state.output}
+
   # Trimmed and length-capped because a chatty program should not be able to
   # push everything else out of a fixed-size ring buffer. Shared with the stop
-  # path, which reads the same pipe while it waits for the program to die.
+  # path, which reads the same pipe while it waits for the program to die --
+  # that caller drops the returned state, which is fine: a deliberate stop
+  # writes no obituary, so its tail of output is never read.
+  #
+  # Returns the state with the last few lines retained, which is what the
+  # obituary quotes if the program then exits nonzero.
   defp log_output(state, data) do
-    data
-    |> String.split("\n", trim: true)
-    |> Enum.each(fn line ->
-      Logger.info("[#{program_name(state)}] #{String.slice(line, 0, 300)}")
-    end)
+    lines =
+      data
+      |> String.split("\n", trim: true)
+      |> Enum.map(&String.slice(&1, 0, 300))
+
+    Enum.each(lines, fn line -> Logger.info("[#{program_name(state)}] #{line}") end)
+
+    %{state | output: Enum.take(state.output ++ lines, -@obituary_lines)}
   end
 
   # The running program's name, for log lines. Falls back to "program" rather
@@ -722,6 +777,7 @@ defmodule MayonnaiOS.Launcher do
   defp bound(state, @diagnostics_button), do: toggle_scene(state)
   defp bound(state, @up_button), do: move(state, -1)
   defp bound(state, @down_button), do: move(state, +1)
+  defp bound(state, @back_button), do: dismiss_obituary(state)
 
   # Menu: back to the home screen, or -- with Select held -- power off.
   #
@@ -742,6 +798,26 @@ defmodule MayonnaiOS.Launcher do
     # this board's device tree has been wrong before -- if up and down feel
     # swapped, this is the line that says which atom the hardware really sent.
     Logger.debug("[launcher] unhandled key #{inspect(key)}")
+    state
+  end
+
+  # B takes the obituary off the panel. Only that: with nothing to clear the
+  # button stays effectively unbound, so an idle B press does not tear down
+  # and rebuild the scene the way an unguarded repaint would.
+  #
+  # The repaint is gated the same way `move/2` gates its own: only when the
+  # menu is the thing on screen. A B pressed during a game reaches here (the
+  # pad is this process's), and the state clears either way -- only the write
+  # waits, and the exit-time repaint draws whatever the state then says.
+  defp dismiss_obituary(%{obituary: nil} = state), do: state
+
+  defp dismiss_obituary(state) do
+    state = %{state | obituary: nil}
+
+    if state.port == nil and state.scene == :home do
+      show(:home, state)
+    end
+
     state
   end
 
@@ -941,7 +1017,10 @@ defmodule MayonnaiOS.Launcher do
           args: program.args
         ])
 
-      %{state | port: port, running: program}
+      # A fresh spawn clears the previous obituary and starts a fresh tail of
+      # output: whatever the panel says when this program exits should be
+      # about this program.
+      %{state | port: port, running: program, obituary: nil, output: []}
     rescue
       e ->
         Logger.warning("[launcher] #{program.path} would not start: #{Exception.message(e)}")
@@ -951,6 +1030,17 @@ defmodule MayonnaiOS.Launcher do
         # screen to explain why -- the worst failure in this file, because it
         # looks exactly like a dead device.
         Panel.release()
+
+        # And the reason goes on the panel, not only in the log: a spawn that
+        # raised has status nil and the exception's message for last words.
+        # The repaint is safe -- the hold was just released -- and needed,
+        # because unlike an exit there is no later :exit_status to trigger one.
+        state = %{
+          state
+          | obituary: %{name: program.name, status: nil, lines: [Exception.message(e)]}
+        }
+
+        repaint(state)
         state
     end
   end
@@ -1130,7 +1220,11 @@ defmodule MayonnaiOS.Launcher do
   # a scene start on every keypress, and the two cannot disagree about order
   # because both derive from the same config.
   defp show(_home, state) do
-    set_root(default_scene(), %{selected: state.selected, confirming: state.confirming})
+    set_root(default_scene(), %{
+      selected: state.selected,
+      confirming: state.confirming,
+      obituary: state.obituary
+    })
   end
 
   defp set_root(nil, _param), do: :ok

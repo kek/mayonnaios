@@ -128,6 +128,34 @@ defmodule MayonnaiOS.LauncherTest do
       refute Enum.any?(idle, &(&1 =~ "Y switches off"))
     end
 
+    test "an obituary quotes the program's dying words" do
+      programs = Programs.list([%{path: "/a"}])
+      obituary = %{name: "Moonlight", status: 1, lines: ["Can't open configuration file"]}
+
+      says = texts(Home.graph(programs, 0, false, obituary))
+      assert Enum.any?(says, &(&1 =~ "Moonlight exited (1)"))
+      assert Enum.any?(says, &(&1 =~ "Can't open configuration file"))
+
+      idle = texts(Home.graph(programs, 0))
+      refute Enum.any?(idle, &(&1 =~ "exited"))
+    end
+
+    test "a spawn that raised says would not start, not exited" do
+      obituary = %{name: "Doom", status: nil, lines: ["enoent"]}
+      says = texts(Home.graph(Programs.list([%{path: "/a"}]), 0, false, obituary))
+
+      assert Enum.any?(says, &(&1 =~ "Doom would not start"))
+      refute Enum.any?(says, &(&1 =~ "exited"))
+    end
+
+    test "the power-off question outranks the obituary" do
+      obituary = %{name: "Moonlight", status: 1, lines: ["nope"]}
+      says = texts(Home.graph(Programs.list([%{path: "/a"}]), 0, true, obituary))
+
+      assert Enum.any?(says, &(&1 =~ "Power off?"))
+      refute Enum.any?(says, &(&1 =~ "exited"))
+    end
+
     # Every text primitive's string, so a test can assert what the panel says
     # rather than only that a graph exists.
     defp texts(graph) do
@@ -456,6 +484,84 @@ defmodule MayonnaiOS.LauncherTest do
       assert Launcher.stop_program() == :ok
       refute Launcher.running?()
       assert gone?(os_pid)
+    end
+  end
+
+  # A program that exits in its first hundred milliseconds is invisible from
+  # the couch -- the panel flashes and the menu is back, with the reason only
+  # in the ring logger. These run real processes for the same reason the stop
+  # tests do: the thing asserted is what an exit status and a pipe actually
+  # deliver, and a fake delivers whatever the test wants to hear.
+  describe "why a program died" do
+    alias MayonnaiOS.Panel
+
+    setup do
+      on_exit(fn ->
+        Panel.release()
+        Application.delete_env(:mayonnaios, :programs)
+      end)
+
+      :ok
+    end
+
+    defp run(script) do
+      Application.put_env(:mayonnaios, :programs, [
+        %{name: "sh", path: "/bin/sh", args: ["-c", script]}
+      ])
+
+      start_supervised!({Launcher, device: "/nonexistent/event0"})
+      Launcher.launch()
+    end
+
+    defp reaped?(attempts \\ 500) do
+      cond do
+        not Launcher.running?() -> true
+        attempts == 0 -> false
+        true -> Process.sleep(10) && reaped?(attempts - 1)
+      end
+    end
+
+    test "a nonzero exit leaves an obituary quoting the last lines" do
+      run("echo one; echo nope; exit 3")
+      assert reaped?()
+
+      assert %{name: "sh", status: 3, lines: lines} = Launcher.obituary()
+      assert "nope" in lines
+    end
+
+    test "a clean exit leaves nothing" do
+      run("echo fine; exit 0")
+      assert reaped?()
+      assert Launcher.obituary() == nil
+    end
+
+    test "a deliberate stop leaves nothing, whatever the exit status" do
+      # SIGTERM ends this shell with a nonzero status; the point is that a
+      # stop the user asked for is not a death worth reporting.
+      run("while :; do sleep 1; done")
+      assert Launcher.stop_program() == :ok
+      assert Launcher.obituary() == nil
+    end
+
+    test "B takes it off, the D-pad leaves it alone" do
+      run("exit 5")
+      assert reaped?()
+      assert %{status: 5} = Launcher.obituary()
+
+      tap_key(:btn_dpad_down)
+      assert %{status: 5} = Launcher.obituary()
+
+      # Physical B is BTN_SOUTH, which InputEvent reports as :btn_a -- the
+      # launcher moduledoc's table is the authority on that swap.
+      tap_key(:btn_a)
+      assert Launcher.obituary() == nil
+    end
+
+    defp tap_key(key) do
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 1}]})
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 0}]})
+      # A call, so both casts above have been handled before the test asserts.
+      Launcher.selected()
     end
   end
 
