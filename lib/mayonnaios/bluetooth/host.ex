@@ -57,9 +57,15 @@ defmodule MayonnaiOS.Bluetooth.Host do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.Bluetooth.{Credits, HCI, HCISocket}
+  alias MayonnaiOS.Bluetooth.{Credits, HCI, HCISocket, Serdev}
 
   @command_timeout 5_000
+
+  # How long to keep answering :ebusy with another attempt after a rebind, and
+  # how often. See `open_when_ready/2`; the firmware download it waits out was
+  # measured at 840 ms on this part.
+  @setup_timeout 3_000
+  @setup_poll 100
 
   # Used only until LE Read Buffer Size answers. Small enough to be safe on
   # any controller, and never used to send anything before that answer.
@@ -79,6 +85,11 @@ defmodule MayonnaiOS.Bluetooth.Host do
 
   Fails with the bind error when the controller is not there or is already
   owned; `MayonnaiOS.Bluetooth.HCISocket`'s moduledoc has what each one means.
+
+  One of them is answered rather than reported. `:enodev` on hci0 means the
+  Realtek serdev did not produce a device at boot, so this rebinds the driver
+  and opens again before giving up -- see `MayonnaiOS.Bluetooth.Serdev`, and
+  `open/1` below for the boundaries on it.
   """
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -179,13 +190,71 @@ defmodule MayonnaiOS.Bluetooth.Host do
   def init(opts) do
     Process.flag(:trap_exit, true)
 
-    case HCISocket.open(Keyword.get(opts, :dev, 0)) do
+    case open(Keyword.get(opts, :dev, 0)) do
       {:ok, socket} ->
         state = %__MODULE__{socket: socket}
         {:ok, poll(state)}
 
       {:error, reason} ->
         {:stop, reason}
+    end
+  end
+
+  # `:enodev` is the one bind error this device can recover from by itself. It
+  # means the Realtek serdev never produced hci0, and rebinding the driver
+  # produces it -- `MayonnaiOS.Bluetooth.Serdev` has the account of the boot
+  # failure that makes this worth doing, and of why it is done here rather
+  # than in `HCISocket.open/1`: the diagnostics probe goes through that
+  # function and is meant to report the device, not repair it.
+  #
+  # Once, and only for hci0. A device number other than zero is somebody
+  # else's controller, and nothing here knows how that one is attached.
+  defp open(0 = dev) do
+    case HCISocket.open(dev) do
+      {:error, :enodev} -> revive_and_open(dev)
+      other -> other
+    end
+  end
+
+  defp open(dev), do: HCISocket.open(dev)
+
+  defp revive_and_open(dev) do
+    case Serdev.revive() do
+      :ok ->
+        open_when_ready(dev, @setup_timeout)
+
+      {:error, reason} ->
+        Logger.error(
+          "[host] hci0 is missing and the rebind did not bring it back: #{inspect(reason)}"
+        )
+
+        # The original reason rather than the rebind's. What the screen and the
+        # log are both about is a controller that is not there, and `:enodev`
+        # is the sentence the controller scene already knows how to say.
+        {:error, :enodev}
+    end
+  end
+
+  # The firmware download runs *after* hci0 is registered and holds
+  # `HCI_SETUP` while it does, so the bind answers `:ebusy` until it finishes
+  # -- 840 ms on this part, measured from the first RTL line to the fw version
+  # in `dmesg`. So this one path waits `:ebusy` out.
+  #
+  # Only this path. An ordinary start that meets `:ebusy` has met something
+  # that powered the controller up through mgmt, which waiting does not fix
+  # and which `MayonnaiOS.Bluetooth.HCISocket` has the escape hatch for. The
+  # last attempt is deliberately not swallowed: whatever it answers is what
+  # the caller gets.
+  defp open_when_ready(dev, remaining) when remaining <= 0, do: HCISocket.open(dev)
+
+  defp open_when_ready(dev, remaining) do
+    case HCISocket.open(dev) do
+      {:error, :ebusy} ->
+        Process.sleep(@setup_poll)
+        open_when_ready(dev, remaining - @setup_poll)
+
+      other ->
+        other
     end
   end
 
