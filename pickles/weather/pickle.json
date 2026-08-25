@@ -1,0 +1,9 @@
+{
+  "name": "weather",
+  "version": "1.0.0",
+  "description": "Weather for a place you name: current conditions and a four-day outlook on the panel, from Open-Meteo.",
+  "main": "main.lua",
+  "capabilities": ["http", "storage", "timers", "ui"],
+  "hosts": ["api.open-meteo.com", "geocoding-api.open-meteo.com"],
+  "autostart": true
+}
