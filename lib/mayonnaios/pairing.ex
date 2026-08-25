@@ -81,8 +81,10 @@ defmodule MayonnaiOS.Pairing do
 
   The failure reasons are the bind errors in
   `MayonnaiOS.Bluetooth.HCISocket`, plus `{:already_started, pid}` from `Host`
-  when the controller app has hci0. Nothing retries; the reason goes to the
-  panel.
+  when the controller app has hci0. Nothing retries, with the one exception
+  `Host` makes for `:enodev` -- it rebinds the serdev driver once and opens
+  again, so a missing hci0 is recovered here as well as in the controller app.
+  See `MayonnaiOS.Bluetooth.Serdev`. Otherwise the reason goes to the panel.
   """
   @spec start(keyword()) :: {:ok, pid()} | {:error, term()}
   def start(opts \\ []) do

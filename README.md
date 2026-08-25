@@ -460,6 +460,29 @@ While the app runs it holds hci0, so `MayonnaiOS.Diagnostics.probe_bluetooth/0`
 answers `:eusers` until it is stopped. That is the same device being used for
 something, not a fault.
 
+### When hci0 is not there at all
+
+`:enodev` is a fault, and an intermittent one. The Bluetooth half of the
+RTL8821CS is UART-attached, so the kernel binds `hci_uart_h5` to a serdev
+child of `serial@5000400` and that bind is what produces hci0, eleven seconds
+into an ordinary boot. Once, on 2026-08-25, it did not: the driver was bound,
+`/sys/class/bluetooth` was empty, and `dmesg` for the whole boot carried not
+one RTL line — no probe error, no timeout, nothing to read. Both Bluetooth
+apps then fail to start with `:enodev`, which from the couch is a menu entry
+that does nothing.
+
+Rebinding the driver fixes it, and `MayonnaiOS.Bluetooth.Host` now does that
+once before reporting `:enodev`, so the device recovers without a reboot and
+without SSH. `MayonnaiOS.Bluetooth.Serdev` has the account. By hand it is:
+
+```elixir
+iex> MayonnaiOS.Bluetooth.Serdev.revive()
+:ok
+```
+
+Why the bring-up occasionally no-ops in silence is not understood. The
+recovery is verified; the cause is still open.
+
 What is deliberately not implemented is LE Secure Connections; a central that
 asks for it is answered with a pairing response that does not offer it, and
 every host tested falls back to legacy pairing. A host in Secure Connections

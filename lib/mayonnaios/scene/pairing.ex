@@ -374,8 +374,8 @@ defmodule MayonnaiOS.Scene.Pairing do
   defp explain(:enodev) do
     [
       {"", "There is no hci0 at all.", @label},
-      {"", "The Realtek firmware did not load;", @dim},
-      {"", "dmesg at boot says why.", @dim}
+      {"", "Rebinding the driver did not bring", @dim},
+      {"", "it back either. dmesg over SSH.", @dim}
     ]
   end
 
