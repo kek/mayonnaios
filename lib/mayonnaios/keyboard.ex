@@ -78,6 +78,13 @@ defmodule MayonnaiOS.Keyboard do
   @named_keys %{
     key_up: :btn_dpad_up,
     key_down: :btn_dpad_down,
+    # Left and right are not bound by the Launcher, whose menu is a single
+    # column -- they are here for the apps it hands the buttons to.
+    # `MayonnaiOS.FileManager` pages a screenful at a time with them, and
+    # without these a directory of a few hundred ROMs can only be walked one
+    # row at a time on the host.
+    key_left: :btn_dpad_left,
+    key_right: :btn_dpad_right,
     # Menu: home
     key_enter: :btn_mode,
     key_backspace: :btn_select
@@ -86,6 +93,10 @@ defmodule MayonnaiOS.Keyboard do
   @characters %{
     "k" => :btn_dpad_up,
     "j" => :btn_dpad_down,
+    # The other half of the vim pair, for the same reason as key_left/key_right
+    # above: the arrow keys and these two are interchangeable everywhere.
+    "h" => :btn_dpad_left,
+    "l" => :btn_dpad_right,
     # A: launch
     "z" => :btn_b,
     # B, which the Launcher does not bind -- listed so the mapping is complete
