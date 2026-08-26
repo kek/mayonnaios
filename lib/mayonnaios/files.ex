@@ -1,12 +1,12 @@
 defmodule MayonnaiOS.Files do
   @moduledoc """
-  The filesystem as the file manager is allowed to see it: a fixed set of
+  The filesystem as the panel's file columns are allowed to see it: a fixed set of
   roots, names that are checked rather than cleaned, and writes that are
   fsynced before they count as done.
 
-  This module is the whole boundary. `MayonnaiOS.FileManager` holds a cursor
-  and `MayonnaiOS.Scene.FileManager` draws it; neither of them ever builds a
-  path.
+  This module is the whole boundary. `MayonnaiOS.Browser` holds the cursors
+  and the clipboard and `MayonnaiOS.Scene.Home` draws them; neither of them
+  ever builds a path.
 
   ## What is reachable, and why nothing else is
 

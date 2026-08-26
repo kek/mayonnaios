@@ -50,13 +50,13 @@ defmodule MayonnaiOS.Panel do
 
   Only a program launched as an external OS process -- a `path:` entry in
   `config :mayonnaios, :programs` -- takes the display. An *app* (`app:`,
-  e.g. `MayonnaiOS.FileManager`, `MayonnaiOS.Pairing`,
+  e.g. `MayonnaiOS.Top`, `MayonnaiOS.Pairing`,
   `MayonnaiOS.Controller`) is a Scenic scene in this VM: it draws through the
   same viewport as everything else and takes nothing away from it. Apps must
   therefore keep the bar ticking, and they never hold.
 
   Getting that distinction wrong is a bug in both directions: a hold that
-  covers apps freezes the clock on the file manager, and a hold that misses a
+  covers apps freezes the clock on the pairing screen, and a hold that misses a
   program hangs the device in a game. The launcher's one-at-a-time rule keeps
   the two apart -- it will not launch a program while an app is up, and an
   app's scene is replaced on the way out -- so no app scene is ever alive

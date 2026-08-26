@@ -84,14 +84,25 @@ defmodule MayonnaiOS.Launcher do
       D-pad up/down   move the cursor in the focused column
       D-pad right     open the selected entry as another column
       D-pad left      close a column
-      A               open the selected entry, or launch it
-      B               close a column; first, clear an obituary
-      Y               cycle how many columns are drawn -- 1, 2, 3 -- and
-                      answer the Power off row's question while it is asked
+      L1 / R1         page the focused column a screenful at a time
+      A               open the selected entry, launch it, or -- on a file --
+                      show what can be done with it
+      B               close a column or sheet; first, clear an obituary
+      Y               the second verb, and the panel says what it is: the
+                      actions sheet in a directory, the delete on its
+                      confirmation, remove-a-character in the rename editor,
+                      and the answer to the Power off row's question
       Menu            go back to the home screen, at its root column
       X               switch between the menu and diagnostics
       Power           sleep -- backlight off, and any press wakes it
       Select+Menu     power off
+
+  While the browser has a sheet up -- actions, a delete confirmation, the
+  rename editor -- `MayonnaiOS.Browser.busy?/1` is true and every pad button
+  is routed to `Browser.overlay_input/2` instead of the bindings above, so a
+  D-pad press cannot both move a caret and a cursor. Menu and the power-off
+  chord stay the launcher's even then, because "put me back where I started"
+  must not depend on what is on the panel.
 
   These are the buttons as printed on the shell. Two of the atoms above name
   the opposite button; see the note on the attributes below.
@@ -108,7 +119,7 @@ defmodule MayonnaiOS.Launcher do
   answers as well. Pressing A on it does nothing but put a
   question on the bottom line; Y -- the button that did not ask -- switches
   off, and any other press takes the question down and is swallowed, so a
-  cancel cannot also launch what the cursor is on. That is the file manager's
+  cancel cannot also launch what the cursor is on. That is the browser's
   delete rule, applied to the other irreversible thing on the device. Both
   routes end in the same `Nerves.Runtime.poweroff/0`.
 
@@ -210,13 +221,13 @@ defmodule MayonnaiOS.Launcher do
   #
   # So :btn_y below really is the X button.
   #
-  # Y (:btn_x) has two jobs, and the panel says which is on. While the Power
-  # off row's question is up it is the answer -- the same "Y is the second
-  # verb" it has in `MayonnaiOS.Files`, and the confirming clause is tested
-  # before the plain bindings so the two can never fire together. The rest of
-  # the time it cycles how many columns the browser draws: 1, 2, 3.
+  # Y (:btn_x) is the second verb, and the panel says what it is. While the
+  # Power off row's question is up it is the answer -- the confirming clause
+  # is tested before everything else here, so that can never collide -- and
+  # otherwise it belongs to the browser: the actions sheet in a directory,
+  # the delete on a confirmation, remove-a-character in the rename editor.
   @confirm_button :btn_x
-  @columns_button :btn_x
+  @actions_button :btn_x
   @diagnostics_button :btn_y
 
   # Menu, doing double duty: alone it is the way back to the home screen,
@@ -239,6 +250,13 @@ defmodule MayonnaiOS.Launcher do
   # commits -- so walking the tree with the directions cannot start a game.
   @left_button :btn_dpad_left
   @right_button :btn_dpad_right
+
+  # The shoulders page the focused column a screenful at a time. Autorepeat
+  # is dropped on this menu (each move re-roots the viewport), so a directory
+  # of two hundred ROMs needs a faster step than one row per press, and the
+  # shoulders are the two buttons a handheld rests fingers on anyway.
+  @page_up_button :btn_tl
+  @page_down_button :btn_tr
 
   # Physical B, which is BTN_SOUTH and therefore InputEvent's :btn_a -- the
   # table at the top of this module is the authority. Bound only to clear the
@@ -744,10 +762,41 @@ defmodule MayonnaiOS.Launcher do
       state.confirming ->
         answer_poweroff(state, key)
 
+      Browser.busy?(state.browser) ->
+        overlay(state, key)
+
       true ->
         bound(state, key)
     end
   end
+
+  # A sheet has the buttons: the actions list, a delete confirmation, or the
+  # rename editor. Everything goes to the browser except the two things that
+  # must mean the same wherever they are pressed -- the power-off chord, and
+  # Menu as the way home. The sleep key was already tested above.
+  defp overlay(state, @home_button) do
+    if MapSet.member?(state.held, @poweroff_modifier) do
+      poweroff(state, "Select+Menu")
+    else
+      go_home(state)
+    end
+  end
+
+  defp overlay(state, key) do
+    browse(state, Browser.overlay_input(state.browser, semantic(key)))
+  end
+
+  # The browser speaks verbs, not scan codes: it should not have to know that
+  # this board's device tree swaps A/B and X/Y, and `:other` still matters --
+  # on the delete confirmation any unnamed button cancels.
+  defp semantic(@up_button), do: :up
+  defp semantic(@down_button), do: :down
+  defp semantic(@left_button), do: :left
+  defp semantic(@right_button), do: :right
+  defp semantic(@launch_button), do: :a
+  defp semantic(@back_button), do: :b
+  defp semantic(@confirm_button), do: :y
+  defp semantic(_key), do: :other
 
   # The Power off row's question, answered the way `MayonnaiOS.Files` answers
   # a delete: A asked, so A cannot also be the answer. Y -- and only Y --
@@ -791,7 +840,9 @@ defmodule MayonnaiOS.Launcher do
   defp bound(state, @down_button), do: move(state, +1)
   defp bound(state, @left_button), do: browse(state, Browser.ascend(state.browser))
   defp bound(state, @right_button), do: browse(state, Browser.descend(state.browser))
-  defp bound(state, @columns_button), do: browse(state, Browser.cycle_columns(state.browser))
+  defp bound(state, @page_up_button), do: browse(state, Browser.page(state.browser, :up))
+  defp bound(state, @page_down_button), do: browse(state, Browser.page(state.browser, :down))
+  defp bound(state, @actions_button), do: browse(state, Browser.open_actions(state.browser))
   defp bound(state, @back_button), do: back(state)
 
   # Menu: back to the home screen, or -- with Select held -- power off.
@@ -931,15 +982,20 @@ defmodule MayonnaiOS.Launcher do
   end
 
   # A on the browser: a category, a root or a directory opens as another
-  # column; a program, a pickle or a verb starts. A plain file is the one
-  # kind of leaf with nothing to start, and A on it does nothing -- the file
-  # manager app at the top of the Files column is where files are acted on.
+  # column; a program, a pickle or a verb starts; a file opens its actions
+  # sheet, because "open" on the one kind of thing that cannot be entered or
+  # run means "what can be done with it".
+  #
+  # The busy clause is for `launch/0` from a console -- a pad press with a
+  # sheet up never reaches here, `press/2` routes it first.
   defp do_launch(%{port: nil, app: nil} = state) do
     node = Browser.selected(state.browser)
 
     cond do
+      Browser.busy?(state.browser) -> browse(state, Browser.overlay_input(state.browser, :a))
       Browser.expandable?(node) -> browse(state, Browser.descend(state.browser))
       match?(%{kind: :program}, node) -> start_program(node.program, state)
+      match?(%{kind: :file}, node) -> browse(state, Browser.open_actions(state.browser))
       true -> state
     end
   end

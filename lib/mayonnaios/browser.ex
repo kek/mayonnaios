@@ -2,7 +2,7 @@ defmodule MayonnaiOS.Browser do
   @moduledoc """
   The launcher's menu as a column browser: a stack of levels, NeXTSTEP-style,
   where the first column is the categories and every descent opens another
-  column to the right.
+  column to the right. The panel draws the deepest three.
 
   A pure data structure with no process. `MayonnaiOS.Launcher` holds one of
   these in its own state -- the same place the flat cursor used to live, and
@@ -21,7 +21,6 @@ defmodule MayonnaiOS.Browser do
 
     * a `:path` entry is a game or program to run -- **Games**
     * a pickle's row (`{MayonnaiOS.Pickles.App, name}`) -- **Pickles**
-    * the file manager app -- the first row of **Files**, above the roots
     * any other app, and every `:action` -- **Settings**
 
   Settings also carries two rows of the launcher's own, Diagnostics and
@@ -30,26 +29,47 @@ defmodule MayonnaiOS.Browser do
   `MayonnaiOS.Launcher` owns what every verb does, this module only names
   them.
 
-  ## Files is the same tree, continued
+  ## Files is the same tree, continued -- and it is *the* file manager
 
   Descending into Files lists the roots `MayonnaiOS.Files.places/0` offers,
   and descending into a root just keeps browsing: every directory is another
   column. All of it goes through `MayonnaiOS.Files` locations -- a root key
   plus checked names -- so this module never assembles a path, and nothing
-  outside the configured roots is reachable from the panel. Browsing here is
-  looking; the file manager app (the first row of the column) is where
-  delete, rename, copy and move live, with their confirmations.
+  outside the configured roots is reachable from the panel.
 
   A directory is read once, when its column is opened. The listing is a
   snapshot: cheap to move a cursor over, and refreshed by closing and
-  reopening the column rather than by re-reading the disk on every press.
+  reopening the column -- or by the operation that just changed it, which
+  re-reads the column it acted on.
 
-  ## Columns are a view setting, not a place
+  ## The verbs, and the sheets they live behind
 
-  `columns` says how many of the deepest levels the panel draws -- 1, 2 or 3
-  -- and `cycle_columns/1` steps through them. It changes nothing about where
-  the cursor is: the model is always the full stack, and the scene shows the
-  tail of it.
+  Inside a directory column, Y (and A on a file) opens the **actions sheet**:
+  what can be done to the selected entry, plus pasting whatever the clipboard
+  holds. The sheet is drawn as one more column, because in this UI "a list to
+  pick from" and "a column" are the same thing.
+
+  Copy and move are a clipboard, because there is no keyboard: pick an entry
+  up, walk anywhere in the tree, and the sheet there offers to put it down.
+  Nothing overwrites -- `MayonnaiOS.Files` refuses an existing destination --
+  and a move clears the clipboard because the source is gone, while a copy
+  keeps it, so the same ROM can be put on both cards.
+
+  Deleting takes two presses on two different buttons: the sheet's Delete
+  opens a confirmation naming the full path, and only Y -- not A, the button
+  that asked -- deletes. A device that is switched off by pulling its power
+  has no undo and no trash, so a second press of the same button is not a
+  confirmation, it is a double-press waiting to happen.
+
+  Renaming needs text and this handheld has none, so the rename editor is a
+  character picker: left and right move the caret, up and down change the
+  character under it, Y removes it, A saves. Slow and real -- the alternative
+  is a rename verb that cannot be reached from the device.
+
+  While a sheet, a confirmation or the rename editor is up, `busy?/1` is true
+  and the Launcher routes every button through `overlay_input/2` instead of
+  the navigation bindings, so a D-pad press cannot both move a caret and a
+  cursor.
   """
 
   alias MayonnaiOS.{Files, Pickles, Programs}
@@ -66,14 +86,44 @@ defmodule MayonnaiOS.Browser do
           title: String.t(),
           entries: [node_()],
           cursor: non_neg_integer(),
-          note: String.t() | nil
+          note: String.t() | nil,
+          location: Files.location() | nil,
+          readable?: boolean(),
+          space: map() | nil
         }
 
-  @typedoc "The whole browser: a stack of levels and how many to draw."
-  @type t :: %{levels: [level()], columns: 1..3}
+  @typedoc "What has captured the buttons, if anything."
+  @type overlay ::
+          nil
+          | {:actions, [%{id: atom(), label: String.t()}], non_neg_integer()}
+          | {:confirm, %{location: Files.location(), entry: map(), name: String.t()}}
+          | {:rename, %{name: String.t(), chars: [String.t()], caret: non_neg_integer()}}
 
-  # The visible-column settings the shortcut cycles through, in order.
-  @column_settings [1, 2, 3]
+  @typedoc "The whole browser: a stack of levels, a clipboard, and one overlay."
+  @type t :: %{
+          levels: [level()],
+          clipboard: %{mode: :copy | :move, location: Files.location(), name: String.t()} | nil,
+          message: {:ok | :error, String.t()} | nil,
+          overlay: overlay()
+        }
+
+  # How many of the deepest levels the panel draws. Fixed: three columns is
+  # the NeXT shape, and a view setting someone can lose is a view setting
+  # someone has to find again.
+  @columns 3
+
+  # One screen. The scene shows ten rows; paging by ten keeps the shoulder
+  # buttons and the scene in step without either reading the other.
+  @page 10
+
+  # What the rename editor can type. Not every character a filesystem accepts
+  # -- a picker with a thousand entries is not a picker -- but every character
+  # a ROM, a save or a directory on this device actually uses.
+  @alphabet String.graphemes(
+              "abcdefghijklmnopqrstuvwxyz" <>
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZ" <>
+                "0123456789" <> ".-_ ()[]&'!+,"
+            )
 
   @doc """
   A fresh browser: the root column, cursor on the first category.
@@ -81,9 +131,9 @@ defmodule MayonnaiOS.Browser do
   Reads nothing off the disk -- the root column is fixed -- so it is safe to
   build at boot, before anything is mounted.
   """
-  @spec new(keyword()) :: t()
-  def new(opts \\ []) do
-    %{levels: [root_level()], columns: Keyword.get(opts, :columns, 2)}
+  @spec new() :: t()
+  def new do
+    %{levels: [root_level()], clipboard: nil, message: nil, overlay: nil}
   end
 
   @doc "How many levels are open."
@@ -97,11 +147,23 @@ defmodule MayonnaiOS.Browser do
     Enum.at(entries, cursor)
   end
 
+  @doc "The deepest column: the one the cursor lives in."
+  @spec focused(t()) :: level()
+  def focused(%{levels: levels}), do: List.last(levels)
+
+  @doc """
+  Whether an overlay -- the actions sheet, a delete confirmation, the rename
+  editor -- has the buttons. While this is true, `overlay_input/2` is the
+  only input that belongs here.
+  """
+  @spec busy?(t()) :: boolean()
+  def busy?(%{overlay: overlay}), do: overlay != nil
+
   @doc """
   Move the cursor in the deepest column, wrapping at both ends.
 
-  Wrapping rather than clamping because the D-pad is the only way to move:
-  the last row of a long column is one press up from the first.
+  Wrapping rather than clamping because a single press is the only way to
+  step: the last row of a long column is one press up from the first.
   """
   @spec move(t(), integer()) :: t()
   def move(%{levels: levels} = browser, delta) do
@@ -114,9 +176,28 @@ defmodule MayonnaiOS.Browser do
   end
 
   @doc """
+  Move the cursor a screenful, clamping at the ends.
+
+  Clamping, unlike `move/2`: a page that wrapped would mean paging near the
+  end of a long directory and landing back at the top, which reads as the
+  browser having lost its place.
+  """
+  @spec page(t(), :up | :down) :: t()
+  def page(browser, direction) do
+    %{entries: entries, cursor: cursor} = level = focused(browser)
+    delta = if direction == :up, do: -@page, else: @page
+
+    case length(entries) do
+      0 -> browser
+      count -> put_last(browser, %{level | cursor: (cursor + delta) |> max(0) |> min(count - 1)})
+    end
+  end
+
+  @doc """
   Whether descending into this node opens another column.
 
-  The other kinds are leaves: a program is launched, a file is only named.
+  The other kinds are leaves: a program is launched, a file gets its actions
+  sheet.
   """
   @spec expandable?(node_() | nil) :: boolean()
   def expandable?(%{kind: kind}), do: kind in [:category, :place, :dir]
@@ -126,16 +207,16 @@ defmodule MayonnaiOS.Browser do
   Open the selected node as a new column.
 
   A leaf, or an empty column, leaves the browser unchanged -- the caller can
-  compare and skip the repaint. This is the one function that reads the disk:
-  a place or a directory is listed here, once, and the listing becomes the
-  new column.
+  compare and skip the repaint. This is the one navigation that reads the
+  disk: a place or a directory is listed here, once, and the listing becomes
+  the new column.
   """
   @spec descend(t()) :: t()
   def descend(%{levels: levels} = browser) do
     node = selected(browser)
 
     if expandable?(node) do
-      %{browser | levels: levels ++ [expand(node)]}
+      %{browser | levels: levels ++ [expand(node)], message: nil}
     else
       browser
     end
@@ -144,61 +225,337 @@ defmodule MayonnaiOS.Browser do
   @doc "Close the deepest column. At the root there is nothing to close."
   @spec ascend(t()) :: t()
   def ascend(%{levels: [_root]} = browser), do: browser
-  def ascend(%{levels: levels} = browser), do: %{browser | levels: Enum.drop(levels, -1)}
 
-  @doc "Back to the root column, keeping the column-count setting."
-  @spec reset(t()) :: t()
-  def reset(browser), do: %{browser | levels: [root_level()]}
-
-  @doc "The next visible-column setting: 1, 2, 3, and round again."
-  @spec cycle_columns(t()) :: t()
-  def cycle_columns(%{columns: columns} = browser) do
-    index = Enum.find_index(@column_settings, &(&1 == columns)) || 1
-
-    %{
-      browser
-      | columns: Enum.at(@column_settings, Integer.mod(index + 1, length(@column_settings)))
-    }
+  def ascend(%{levels: levels} = browser) do
+    %{browser | levels: Enum.drop(levels, -1), message: nil}
   end
 
   @doc """
-  The levels the panel should draw: the deepest ones, at most `columns`.
+  Back to the root column. The clipboard survives -- carrying a file across
+  the tree is what it is for -- and any overlay does not.
+  """
+  @spec reset(t()) :: t()
+  def reset(browser) do
+    %{browser | levels: [root_level()], message: nil, overlay: nil}
+  end
+
+  @doc """
+  The levels the panel should draw: the deepest ones, at most three.
 
   The head of the result is the leftmost column and the last is the focused
   one -- the only one whose cursor the D-pad moves.
   """
   @spec visible(t()) :: [level()]
-  def visible(%{levels: levels, columns: columns}) do
-    Enum.take(levels, -min(columns, length(levels)))
+  def visible(%{levels: levels}) do
+    Enum.take(levels, -min(@columns, length(levels)))
   end
 
   @doc """
   The titles of every open level, root first, for the breadcrumb line.
 
-  The panel draws all of them even when only the deepest columns fit, so a
-  one-column view still says where it is.
+  The panel draws all of them even when only the deepest columns fit, so the
+  line still says where you are when the root has scrolled off.
   """
   @spec trail(t()) :: [String.t()]
   def trail(%{levels: levels}), do: Enum.map(levels, & &1.title)
+
+  # -- the actions sheet --------------------------------------------------------
+
+  @doc """
+  Open the actions sheet for the current selection and clipboard.
+
+  Only inside a directory column -- the categories and the programs have no
+  file verbs -- and only when there is something to offer: with nothing
+  selected and nothing held, the message says so instead of an empty sheet.
+  """
+  @spec open_actions(t()) :: t()
+  def open_actions(browser) do
+    cond do
+      focused(browser).location == nil ->
+        browser
+
+      actions_for(browser) == [] ->
+        %{browser | message: {:ok, "Nothing to do here."}}
+
+      true ->
+        %{browser | overlay: {:actions, actions_for(browser), 0}, message: nil}
+    end
+  end
+
+  @doc """
+  The actions offered for the current selection and clipboard.
+
+  Public because it is the part worth testing without a panel: which verbs
+  are on offer is the whole safety story of the sheet -- a directory must not
+  be offered a copy it cannot do, and paste must appear only when something
+  is held and the column can take it.
+  """
+  @spec actions_for(t()) :: [map()]
+  def actions_for(browser) do
+    paste_actions(browser.clipboard, focused(browser).readable?) ++
+      selection_actions(selected(browser))
+  end
+
+  defp paste_actions(nil, _readable?), do: []
+
+  defp paste_actions(%{mode: mode, name: name}, true) do
+    [
+      %{id: :paste, label: "#{verb(mode)} #{name} here"},
+      %{id: :forget, label: "Forget #{name}"}
+    ]
+  end
+
+  defp paste_actions(%{name: name}, false) do
+    [%{id: :forget, label: "Forget #{name}"}]
+  end
+
+  defp verb(:copy), do: "Paste a copy of"
+  defp verb(:move), do: "Move"
+
+  defp selection_actions(%{kind: kind, name: name, entry: entry}) when kind in [:file, :dir] do
+    copy =
+      if entry.type == :regular and entry.link == nil do
+        [%{id: :copy, label: "Copy #{name}"}]
+      else
+        []
+      end
+
+    copy ++
+      [
+        %{id: :move, label: "Move #{name}"},
+        %{id: :rename, label: "Rename #{name}"},
+        %{id: :delete, label: "Delete #{name}"}
+      ]
+  end
+
+  defp selection_actions(_node), do: []
+
+  # -- overlay input ------------------------------------------------------------
+
+  @doc """
+  One button, while an overlay has them.
+
+  `button` is the launcher's translation -- `:up`, `:down`, `:left`,
+  `:right`, `:a`, `:b`, `:y`, or `:other` for anything else it holds open.
+  The rules are the file manager's classics: on the confirmation **only Y
+  deletes** and every other button -- A included, deliberately -- backs out;
+  in the rename editor the D-pad belongs to the caret.
+  """
+  @spec overlay_input(t(), atom()) :: t()
+  def overlay_input(%{overlay: {:actions, actions, cursor}} = browser, button) do
+    count = length(actions)
+
+    case button do
+      :up -> %{browser | overlay: {:actions, actions, Integer.mod(cursor - 1, count)}}
+      :down -> %{browser | overlay: {:actions, actions, Integer.mod(cursor + 1, count)}}
+      :a -> run_action(browser, Enum.at(actions, cursor))
+      :b -> %{browser | overlay: nil}
+      _other -> browser
+    end
+  end
+
+  def overlay_input(%{overlay: {:confirm, pending}} = browser, :y) do
+    confirm_delete(browser, pending)
+  end
+
+  def overlay_input(%{overlay: {:confirm, _pending}} = browser, _button) do
+    %{browser | overlay: nil, message: {:ok, "Nothing was deleted."}}
+  end
+
+  def overlay_input(%{overlay: {:rename, rename}} = browser, button) do
+    case button do
+      :left -> %{browser | overlay: {:rename, move_caret(rename, -1)}}
+      :right -> %{browser | overlay: {:rename, move_caret(rename, +1)}}
+      :up -> %{browser | overlay: {:rename, step_char(rename, -1)}}
+      :down -> %{browser | overlay: {:rename, step_char(rename, +1)}}
+      :y -> %{browser | overlay: {:rename, drop_char(rename)}}
+      :a -> confirm_rename(browser, rename)
+      :b -> %{browser | overlay: nil, message: {:ok, "Rename cancelled."}}
+      _other -> browser
+    end
+  end
+
+  def overlay_input(browser, _button), do: browser
+
+  # -- the verbs ----------------------------------------------------------------
+
+  defp run_action(browser, nil), do: %{browser | overlay: nil}
+  defp run_action(browser, %{id: id}), do: act(browser, id)
+
+  defp act(browser, :copy), do: pick_up(browser, :copy)
+  defp act(browser, :move), do: pick_up(browser, :move)
+
+  defp act(browser, :forget) do
+    %{browser | overlay: nil, clipboard: nil, message: {:ok, "Clipboard cleared."}}
+  end
+
+  defp act(browser, :delete) do
+    with_selected(browser, fn node, location ->
+      case Files.descend(location, node.name) do
+        {:ok, target} ->
+          %{
+            browser
+            | overlay: {:confirm, %{location: target, entry: node.entry, name: node.name}}
+          }
+
+        {:error, reason} ->
+          %{browser | overlay: nil, message: {:error, "#{node.name}: #{why(reason)}"}}
+      end
+    end)
+  end
+
+  defp act(browser, :rename) do
+    with_selected(browser, fn node, _location ->
+      rename = %{name: node.name, chars: String.graphemes(node.name), caret: 0}
+      %{browser | overlay: {:rename, rename}, message: nil}
+    end)
+  end
+
+  defp act(%{clipboard: nil} = browser, :paste), do: %{browser | overlay: nil}
+
+  defp act(%{clipboard: %{mode: mode, location: source, name: name}} = browser, :paste) do
+    destination = focused(browser).location
+
+    result =
+      case mode do
+        :copy -> Files.copy(source, destination)
+        :move -> Files.move(source, destination)
+      end
+
+    case result do
+      :ok ->
+        # A move consumes the clipboard: the source is not there any more, so
+        # a second paste could only fail. A copy keeps it, which is how the
+        # same ROM gets onto both cards.
+        clipboard = if mode == :move, do: nil, else: browser.clipboard
+
+        %{reload(browser, {:ok, "#{name} #{done(mode)}."}) | clipboard: clipboard}
+
+      {:error, reason} ->
+        %{browser | overlay: nil, message: {:error, "#{name}: #{why(reason)}"}}
+    end
+  end
+
+  defp act(browser, _unknown), do: %{browser | overlay: nil}
+
+  defp done(:copy), do: "copied here"
+  defp done(:move), do: "moved here"
+
+  defp pick_up(browser, mode) do
+    with_selected(browser, fn node, location ->
+      case Files.descend(location, node.name) do
+        {:ok, target} ->
+          %{
+            browser
+            | overlay: nil,
+              clipboard: %{mode: mode, location: target, name: node.name},
+              message: {:ok, "#{node.name} held. Open a folder and press Y to put it there."}
+          }
+
+        {:error, reason} ->
+          %{browser | overlay: nil, message: {:error, "#{node.name}: #{why(reason)}"}}
+      end
+    end)
+  end
+
+  # The sheet was opened on a selection; if the column has meanwhile lost it
+  # -- it cannot today, the sheet has the buttons -- closing the sheet is the
+  # honest answer, not acting on whatever the cursor lands on.
+  defp with_selected(browser, fun) do
+    case {selected(browser), focused(browser).location} do
+      {nil, _location} -> %{browser | overlay: nil}
+      {_node, nil} -> %{browser | overlay: nil}
+      {node, location} -> fun.(node, location)
+    end
+  end
+
+  defp confirm_delete(browser, %{location: location, entry: _entry, name: name}) do
+    message =
+      case Files.delete(location) do
+        :ok -> {:ok, "#{name} deleted."}
+        {:error, reason} -> {:error, "#{name}: #{why(reason)}"}
+      end
+
+    reload(browser, message)
+  end
+
+  # The name the editor was opened on, not whatever the cursor is on now. The
+  # D-pad belongs to the editor while it is open so the two cannot currently
+  # differ -- but "cannot currently" is not a thing to rename a file on.
+  defp confirm_rename(browser, %{chars: chars, name: old}) do
+    new_name = Enum.join(chars)
+    location = focused(browser).location
+
+    with {:ok, target} <- Files.descend(location, old),
+         :ok <- Files.rename(target, new_name) do
+      reload(browser, {:ok, "#{old} is now #{new_name}."})
+    else
+      {:error, reason} -> %{browser | message: {:error, "#{new_name}: #{why(reason)}"}}
+    end
+  end
+
+  # Re-read the column an operation just changed, keeping the cursor where it
+  # was rather than where the name was: the name may be the one that just
+  # went away.
+  defp reload(browser, message) do
+    level = focused(browser)
+    fresh = listing_level(level.title, level.location)
+    cursor = level.cursor |> min(length(fresh.entries) - 1) |> max(0)
+
+    put_last(%{browser | overlay: nil, message: message}, %{fresh | cursor: cursor})
+  end
+
+  # -- the rename editor --------------------------------------------------------
+
+  defp move_caret(%{chars: chars, caret: caret} = rename, delta) do
+    %{rename | caret: caret |> Kernel.+(delta) |> max(0) |> min(length(chars))}
+  end
+
+  # At the append position there is no character to change, so up or down puts
+  # one there and leaves the caret on it -- pressing up again then steps that
+  # character rather than adding a second one.
+  defp step_char(%{chars: chars, caret: caret} = rename, delta) do
+    if caret >= length(chars) do
+      %{rename | chars: chars ++ [next_char(nil, delta)]}
+    else
+      current = Enum.at(chars, caret)
+      %{rename | chars: List.replace_at(chars, caret, next_char(current, delta))}
+    end
+  end
+
+  # A character the picker does not know about -- a ROM named in Japanese, say
+  # -- has no position to step from, so the first press replaces it with the
+  # start of the alphabet rather than doing nothing at all.
+  defp next_char(current, delta) do
+    case Enum.find_index(@alphabet, &(&1 == current)) do
+      nil -> hd(@alphabet)
+      index -> Enum.at(@alphabet, Integer.mod(index + delta, length(@alphabet)))
+    end
+  end
+
+  defp drop_char(%{chars: []} = rename), do: rename
+
+  defp drop_char(%{chars: chars, caret: caret} = rename) do
+    at = min(caret, length(chars) - 1)
+    chars = List.delete_at(chars, at)
+    %{rename | chars: chars, caret: min(at, length(chars))}
+  end
 
   defp put_last(%{levels: levels} = browser, level) do
     %{browser | levels: List.replace_at(levels, -1, level)}
   end
 
-  # -- the tree ---------------------------------------------------------------
+  # -- the tree -----------------------------------------------------------------
 
   defp root_level do
-    %{
-      title: "RG40XXV",
-      cursor: 0,
-      note: nil,
-      entries: [
-        %{kind: :category, id: :games, name: "Games"},
-        %{kind: :category, id: :files, name: "Files"},
-        %{kind: :category, id: :pickles, name: "Pickles"},
-        %{kind: :category, id: :settings, name: "Settings"}
-      ]
-    }
+    category_names = [
+      %{kind: :category, id: :games, name: "Games"},
+      %{kind: :category, id: :files, name: "Files"},
+      %{kind: :category, id: :pickles, name: "Pickles"},
+      %{kind: :category, id: :settings, name: "Settings"}
+    ]
+
+    level("RG40XXV", category_names, nil)
   end
 
   defp expand(%{kind: :category, id: id, name: name}), do: category_level(id, name)
@@ -216,9 +573,8 @@ defmodule MayonnaiOS.Browser do
   end
 
   defp category_level(:files, name) do
-    manager = for program <- classified(:files), do: program_node(program)
     places = for place <- Files.places(), do: place_node(place)
-    level(name, manager ++ places, "No roots configured.")
+    level(name, places, "No roots configured.")
   end
 
   defp category_level(:settings, name) do
@@ -244,7 +600,6 @@ defmodule MayonnaiOS.Browser do
 
   defp classify(%{action: action}) when action != nil, do: :settings
   defp classify(%{app: {Pickles.App, _name}}), do: :pickles
-  defp classify(%{app: MayonnaiOS.FileManager}), do: :files
   defp classify(%{app: app}) when app != nil, do: :settings
   defp classify(_program), do: :games
 
@@ -281,14 +636,32 @@ defmodule MayonnaiOS.Browser do
 
   # A directory that cannot be read is a column to draw, not an error to
   # raise: the games card's root does not exist with the card out, and the
-  # panel should say so where the listing would have been.
+  # panel should say so where the listing would have been. `readable?` is
+  # what gates the paste action -- a column that could not be read is not a
+  # place to put anything.
   defp listing_level(title, location) do
     case Files.list(location) do
       {:ok, entries} ->
-        level(title, Enum.map(entries, &entry_node(location, &1)), "Empty.")
+        %{
+          title: title,
+          entries: Enum.map(entries, &entry_node(location, &1)),
+          cursor: 0,
+          note: if(entries == [], do: "Empty."),
+          location: location,
+          readable?: true,
+          space: Files.space(location)
+        }
 
       {:error, reason} ->
-        level(title, [], "cannot be read: #{why(reason)}")
+        %{
+          title: title,
+          entries: [],
+          cursor: 0,
+          note: "cannot be read: #{why(reason)}",
+          location: location,
+          readable?: false,
+          space: nil
+        }
     end
   end
 
@@ -307,11 +680,45 @@ defmodule MayonnaiOS.Browser do
     %{kind: :file, name: name, entry: entry}
   end
 
+  # A category column: nothing on the disk to act on, so no location, no
+  # paste, no free-space line.
   defp level(title, entries, empty_note) do
-    %{title: title, entries: entries, cursor: 0, note: if(entries == [], do: empty_note)}
+    %{
+      title: title,
+      entries: entries,
+      cursor: 0,
+      note: if(entries == [], do: empty_note),
+      location: nil,
+      readable?: false,
+      space: nil
+    }
   end
 
-  # The same words the file manager uses for the same failures, because the
-  # two screens describe the same disk.
-  defp why(reason), do: MayonnaiOS.FileManager.why(reason)
+  # -- words for the panel --------------------------------------------------------
+
+  @doc """
+  A reason in words, for the panel.
+
+  Here rather than in the scene because these are the words that go in the
+  ring log as well, and a device whose only forensics is `RingLogger.next`
+  should not have two vocabularies for the same failure.
+  """
+  @spec why(term()) :: String.t()
+  def why(:unknown_root), do: "not one of the places this app can open"
+  def why(:bad_name), do: "that name is not allowed"
+  def why(:is_root), do: "that is a whole root, not a file"
+  def why(:eexist), do: "something with that name is already there"
+  def why(:eisdir), do: "that is a directory; only files can be copied"
+  def why(:enotdir), do: "that is not a directory"
+  def why(:enoent), do: "it is not there"
+  def why(:eacces), do: "no permission"
+  def why(:erofs), do: "that filesystem is read-only"
+  def why(:exdev), do: "a directory cannot be moved to another filesystem"
+  def why(:enospc), do: "not enough free space"
+  def why(:not_empty), do: "the directory is not empty"
+  def why(:is_symlink), do: "that is a link; copy what it points at instead"
+  def why(:same_path), do: "it is already there"
+  def why({:unsupported, type}), do: "cannot handle a #{type}"
+  def why({stage, reason}) when is_atom(stage), do: "#{stage} failed: #{why(reason)}"
+  def why(other), do: inspect(other)
 end

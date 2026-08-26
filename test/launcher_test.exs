@@ -55,18 +55,30 @@ defmodule MayonnaiOS.LauncherTest do
       end
     end
 
-    test "builds at every column-count setting" do
-      browser = Browser.new() |> Browser.descend()
+    test "builds the sheets: actions, the confirmation, the rename editor" do
+      entry = %{type: :regular, size: 9, link: nil, broken?: false}
 
-      assert %Scenic.Graph{} = Home.graph(%{browser | columns: 1})
-      assert %Scenic.Graph{} = Home.graph(%{browser | columns: 2})
-      assert %Scenic.Graph{} = Home.graph(%{browser | columns: 3})
+      confirm =
+        put_in(
+          Browser.new().overlay,
+          {:confirm, %{location: %{root: "r", path: []}, entry: entry, name: "x"}}
+        )
+
+      assert Enum.any?(texts(Home.graph(confirm)), &(&1 =~ "Y deletes it."))
+
+      rename =
+        put_in(Browser.new().overlay, {:rename, %{name: "ab", chars: ["a", "b"], caret: 0}})
+
+      assert Enum.any?(texts(Home.graph(rename)), &(&1 =~ "Y removes it."))
+
+      sheet = put_in(Browser.new().overlay, {:actions, [%{id: :delete, label: "Delete x"}], 0})
+      assert "Delete x" in texts(Home.graph(sheet))
     end
 
-    test "the breadcrumb names every open level, not only the drawn ones" do
+    test "the breadcrumb names every open level" do
       Application.put_env(:mayonnaios, :programs, [%{path: "/a"}])
 
-      browser = %{Browser.new() | columns: 1} |> Browser.descend()
+      browser = Browser.new() |> Browser.descend()
 
       assert Enum.any?(texts(Home.graph(browser)), &(&1 =~ "RG40XXV > Games"))
     end
@@ -141,12 +153,12 @@ defmodule MayonnaiOS.LauncherTest do
       refute Enum.any?(says, &(&1 =~ "exited"))
     end
 
-    test "the footer says how many columns Y is on" do
-      two = texts(Home.graph(Browser.new()))
-      assert Enum.any?(two, &(&1 =~ "Y cycles columns (2)"))
+    test "the footer labels the buttons for the state on screen" do
+      idle = texts(Home.graph(Browser.new()))
+      assert Enum.any?(idle, &(&1 =~ "A opens."))
 
-      three = texts(Home.graph(Browser.cycle_columns(Browser.new())))
-      assert Enum.any?(three, &(&1 =~ "Y cycles columns (3)"))
+      sheet = put_in(Browser.new().overlay, {:actions, [%{id: :delete, label: "Delete x"}], 0})
+      assert Enum.any?(texts(Home.graph(sheet)), &(&1 =~ "A does it."))
     end
 
     # Every text primitive's string, so a test can assert what the panel says
@@ -185,7 +197,22 @@ defmodule MayonnaiOS.LauncherTest do
       # categories -- so nothing on this host can change what these wrap over.
       programs = [%{path: "/a"}, %{path: "/b"}, %{path: "/c"}]
       Application.put_env(:mayonnaios, :programs, programs)
-      on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
+
+      # A real directory behind the Files category, for the sheet and paging
+      # tests: one file would page nowhere and offer nothing.
+      root = Path.join(System.tmp_dir!(), "launcher-test-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(root)
+
+      for i <- 1..12,
+          do: File.write!(Path.join(root, "file-#{String.pad_leading("#{i}", 2, "0")}"), "x")
+
+      Application.put_env(:mayonnaios, :file_roots, [%{key: "r", path: root, note: ""}])
+
+      on_exit(fn ->
+        File.rm_rf(root)
+        Application.delete_env(:mayonnaios, :programs)
+        Application.delete_env(:mayonnaios, :file_roots)
+      end)
 
       start_supervised!({Launcher, device: "/nonexistent/event0"})
       :ok
@@ -243,17 +270,46 @@ defmodule MayonnaiOS.LauncherTest do
       assert Browser.depth(Launcher.browser()) == 1
     end
 
-    test "Y cycles how many columns are drawn: 2, 3, 1" do
-      assert Launcher.browser().columns == 2
+    test "Y opens the actions sheet in a directory, and the sheet has the buttons" do
+      # Down onto Files, into the first root, onto its one file.
+      press(:btn_dpad_down)
+      press(:btn_b)
+      press(:btn_b)
+      refute Browser.busy?(Launcher.browser())
 
       press(:btn_x)
-      assert Launcher.browser().columns == 3
+      assert Browser.busy?(Launcher.browser())
 
-      press(:btn_x)
-      assert Launcher.browser().columns == 1
+      # The D-pad now moves the sheet's cursor, not the column's.
+      before = Launcher.selected()
+      press(:btn_dpad_down)
+      assert Launcher.selected() == before
 
+      # Physical B closes the sheet.
+      press(:btn_a)
+      refute Browser.busy?(Launcher.browser())
+    end
+
+    test "Y outside a directory column does nothing" do
+      before = Launcher.browser()
       press(:btn_x)
-      assert Launcher.browser().columns == 2
+
+      assert Launcher.browser() == before
+    end
+
+    test "the shoulders page the focused column, clamped" do
+      press(:btn_dpad_down)
+      press(:btn_b)
+      press(:btn_b)
+
+      press(:btn_tr)
+      assert Launcher.selected() == 10
+
+      press(:btn_tr)
+      assert Launcher.selected() == 11
+
+      press(:btn_tl)
+      assert Launcher.selected() == 1
     end
 
     test "Menu goes back to the root column from deep in the tree" do
@@ -324,11 +380,13 @@ defmodule MayonnaiOS.LauncherTest do
       refute_received :powered_off
     end
 
-    test "Y with no question pending cycles the columns instead" do
-      assert Launcher.browser().columns == 2
+    test "Y with no question pending does nothing here" do
+      # Settings is not a directory column, so the second verb has nothing to
+      # offer -- and it must not switch the device off.
+      before = Launcher.browser()
       tap(:btn_x)
 
-      assert Launcher.browser().columns == 3
+      assert Launcher.browser() == before
       refute_received :powered_off
     end
 

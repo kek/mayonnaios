@@ -202,11 +202,11 @@ defmodule MayonnaiOS.PanelTest do
   end
 
   describe "an app is not an external program" do
-    test "the bar keeps drawing while the file manager is on screen" do
+    test "the bar keeps drawing while an app is on screen" do
       # The other direction of the same distinction. An app is a Scenic scene
       # in this VM: it takes no display away from anything, so a bar with a
-      # frozen clock on the file manager would be this fix overreaching.
-      %{bar: bar} = start_viewport(MayonnaiOS.Scene.FileManager, %{error: nil})
+      # frozen clock on the process readout would be this fix overreaching.
+      %{bar: bar} = start_viewport(MayonnaiOS.Scene.Top, %{error: nil})
 
       refute Panel.held?()
       send(bar, {:mayonnaios_status, reading(41)})
