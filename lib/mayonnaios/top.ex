@@ -16,8 +16,7 @@ defmodule MayonnaiOS.Top do
 
   An app rather than a program: a module in this firmware, started in this
   VM, with no external process and no screen handed over. See
-  `MayonnaiOS.Programs` for what that costs and buys. Like the file manager
-  it needs only the buttons and the panel, so two of these could run without
+  `MayonnaiOS.Programs` for what that costs and buys. It needs only the buttons and the panel, so two of these could run without
   harm -- there is still one, because it is one named process and one row of
   state.
 
@@ -29,8 +28,7 @@ defmodule MayonnaiOS.Top do
       Menu             leave, handled by the Launcher
 
   A and B do nothing: the rows are readings, not things to open. Autorepeat
-  scrolls, as it does in the file manager, so holding a direction walks a
-  long list.
+  scrolls, so holding a direction walks a long list.
 
   ## Both columns need a previous sample
 
@@ -59,7 +57,7 @@ defmodule MayonnaiOS.Top do
   @dpad [@up, @down, @left, @right]
 
   # Menu belongs to the Launcher: it is the way out of any app, and this one
-  # drops it on the floor exactly as the file manager does.
+  # drops it on the floor exactly as `MayonnaiOS.Controller.Report` does.
   @menu :btn_mode
 
   # One screen of rows. The scene draws exactly this many, and the snapshot
@@ -80,7 +78,7 @@ defmodule MayonnaiOS.Top do
   Start the app on one of its two screens.
 
   Under a DynamicSupervisor rather than linked to the caller, for the reason
-  the file manager is: the Launcher calls this from the process that owns the
+  the controller is: the Launcher calls this from the process that owns the
   gamepad, and a bug here must not take the buttons down with it.
 
   Idempotent about the process and explicit about the screen: starting `:os`

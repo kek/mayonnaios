@@ -265,7 +265,7 @@ defmodule MayonnaiOS.StatusBarTest do
     end
 
     test "the reserved height is the bar's own, not a copy of it" do
-      assert MayonnaiOS.Scene.FileManager.status_bar() == StatusBar.height()
+      assert MayonnaiOS.Scene.Top.status_bar() == StatusBar.height()
     end
   end
 
@@ -298,7 +298,7 @@ defmodule MayonnaiOS.StatusBarTest do
 
       for {module, param} <- [
             {MayonnaiOS.Scene.Diagnostics, nil},
-            {MayonnaiOS.Scene.FileManager, %{error: nil}},
+            {MayonnaiOS.Scene.Top, %{error: nil}},
             {MayonnaiOS.Scene.Pairing, %{error: nil}},
             {MayonnaiOS.Scene.Controller, %{error: nil}},
             {MayonnaiOS.Scene.Home, %{selected: 0}}
@@ -387,7 +387,7 @@ defmodule MayonnaiOS.StatusBarTest do
        MayonnaiOS.Scene.Home.graph(MayonnaiOS.Browser.descend(MayonnaiOS.Browser.new()))},
       {"Scene.Diagnostics", MayonnaiOS.Scene.Diagnostics.graph(%MayonnaiOS.Diagnostics{})},
       {"Scene.Diagnostics (no collector)", MayonnaiOS.Scene.Diagnostics.graph(nil)},
-      {"Scene.FileManager", MayonnaiOS.Scene.FileManager.graph(:stopped)},
+      {"Scene.Top (stopped)", MayonnaiOS.Scene.Top.graph(:stopped)},
       {"Scene.Pairing", MayonnaiOS.Scene.Pairing.graph(pairing_status())},
       {"Scene.Pairing (stopped)", MayonnaiOS.Scene.Pairing.graph(:stopped, :enodev)},
       {"Scene.Controller", MayonnaiOS.Scene.Controller.graph(controller_status())},

@@ -80,10 +80,9 @@ defmodule MayonnaiOS.Scene.StatusBar do
 
   @width 640
 
-  # The height of the strip. `MayonnaiOS.Scene.FileManager` reserved this
-  # before the bar existed and its test asserts the reservation; the number
-  # now lives here, and that scene takes it from `height/0`, so there is one
-  # place to change it.
+  # The height of the strip. Every scene reserves it and takes the number
+  # from `height/0`, so there is one place to change it and a test that
+  # asserts nothing draws inside it.
   @height 30
 
   # Same palette as every scene, so the bar reads as part of the device rather

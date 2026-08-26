@@ -35,8 +35,8 @@ Software:
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
 - A web UI for uploading games from a phone
-- A file manager on the device: copy, move, rename and delete across both
-  cards, with a clipboard instead of a destination to type
+- File management built into that browser: copy, move, rename and delete
+  across both cards, with a clipboard instead of a destination to type
 - A process readout like `top`, twice: the BEAM's processes by reductions and
   memory, and the Linux ones from `/proc`
 - Pickles: small sandboxed Lua apps, installed over the network like games,
@@ -46,8 +46,7 @@ Software:
   back. Not suspend — this board's only suspend mode would save almost
   nothing, and `MayonnaiOS.Sleep`'s moduledoc has the analysis
 - A NeXTSTEP-style column launcher: Games, Files, Pickles and Settings open
-  as columns, Y cycles between 1, 2 and 3 of them on screen, and Files
-  browses both cards in place
+  as columns, three on screen, and Files browses both cards in place
 - Orderly power off: the Select+Menu chord, or the **Power off** row under
   Settings
 

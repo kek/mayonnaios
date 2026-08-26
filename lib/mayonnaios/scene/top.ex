@@ -4,7 +4,7 @@ defmodule MayonnaiOS.Scene.Top do
 
   It draws `MayonnaiOS.Top.snapshot/0` and nothing else, told when to redraw
   by `Top.watch/1` -- a refresh every couple of seconds, a scroll when a
-  button moved one. The same arrangement as the file manager's scene, for the
+  button moved one. The same arrangement as the controller's scene, for the
   same reason: `set_root/3` terminates a scene on every repaint the launcher
   does, so nothing may be remembered here.
 
