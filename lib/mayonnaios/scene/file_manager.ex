@@ -6,7 +6,7 @@ defmodule MayonnaiOS.Scene.FileManager do
   its own, no listing of its own, no path of its own. `set_root/3` terminates
   a scene and starts a new one on every repaint the launcher does, so anything
   remembered here would be lost at the first opportunity -- the same reason
-  `MayonnaiOS.Scene.Home` takes its cursor as a start argument.
+  `MayonnaiOS.Scene.Home` takes its column browser as a start argument.
 
   It is told when to redraw rather than polling for it. `FileManager.watch/1`
   registers this process, and a snapshot arrives as `{:file_manager, snapshot}`

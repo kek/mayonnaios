@@ -382,8 +382,9 @@ defmodule MayonnaiOS.StatusBarTest do
   # into the strip.
   defp scenes do
     [
-      {"Scene.Home", MayonnaiOS.Scene.Home.graph(Programs.list([%{path: "/bin/sh"}]), 0)},
-      {"Scene.Home (empty)", MayonnaiOS.Scene.Home.graph([], 0)},
+      {"Scene.Home", MayonnaiOS.Scene.Home.graph(MayonnaiOS.Browser.new())},
+      {"Scene.Home (columns)",
+       MayonnaiOS.Scene.Home.graph(MayonnaiOS.Browser.descend(MayonnaiOS.Browser.new()))},
       {"Scene.Diagnostics", MayonnaiOS.Scene.Diagnostics.graph(%MayonnaiOS.Diagnostics{})},
       {"Scene.Diagnostics (no collector)", MayonnaiOS.Scene.Diagnostics.graph(nil)},
       {"Scene.FileManager", MayonnaiOS.Scene.FileManager.graph(:stopped)},

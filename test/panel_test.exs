@@ -243,7 +243,9 @@ defmodule MayonnaiOS.PanelTest do
       # `cat` with no arguments stands in for RetroArch: a real external
       # process, spawned the same way through `Port.open/2`, that stays up
       # until it is killed. What it draws is irrelevant -- the launcher's job
-      # here is not drawing.
+      # here is not drawing. `launch/0` is A: the first press opens the Games
+      # column, the second runs its first row.
+      Launcher.launch()
       Launcher.launch()
       assert Panel.owner() == {:program, "sleeper"}
       settle()

@@ -81,13 +81,17 @@ defmodule MayonnaiOS.Launcher do
 
   ## The full set of bindings
 
-      D-pad up/down move the menu cursor
-      A             launch the selected program
-      Menu          go back to the home screen
-      X             switch between the menu and diagnostics
-      Y             answer the Power off row's question, and nothing else
-      Power         sleep -- backlight off, and any press wakes it
-      Select+Menu   power off
+      D-pad up/down   move the cursor in the focused column
+      D-pad right     open the selected entry as another column
+      D-pad left      close a column
+      A               open the selected entry, or launch it
+      B               close a column; first, clear an obituary
+      Y               cycle how many columns are drawn -- 1, 2, 3 -- and
+                      answer the Power off row's question while it is asked
+      Menu            go back to the home screen, at its root column
+      X               switch between the menu and diagnostics
+      Power           sleep -- backlight off, and any press wakes it
+      Select+Menu     power off
 
   These are the buttons as printed on the shell. Two of the atoms above name
   the opposite button; see the note on the attributes below.
@@ -151,12 +155,14 @@ defmodule MayonnaiOS.Launcher do
   `MayonnaiOS.Diagnostics` owns the rocker and the jack for the same reason in
   reverse.
 
-  ## Where the menu lives, and why the cursor is here
+  ## Where the menu lives, and why the browser is here
 
-  The list of programs comes from `MayonnaiOS.Programs`, which reads
-  `config :mayonnaios, :programs`. The *cursor* -- which entry is
-  selected -- is state in this process rather than in the scene, for two
-  reasons that are both about how this device is put together.
+  The home screen is a column browser -- `MayonnaiOS.Browser`, whose root
+  column is the categories and whose deeper columns are whatever was opened:
+  games, pickles, settings, or the file tree. The browser -- which columns
+  are open and which row each cursor is on -- is state in this process rather
+  than in the scene, for two reasons that are both about how this device is
+  put together.
 
   First, the cairo-fb driver delivers no input. The gamepad reaches Elixir
   only through `InputEvent` on the `gpio-keys-gamepad` node, which this
@@ -169,14 +175,14 @@ defmodule MayonnaiOS.Launcher do
   top every time someone came back from a game -- the one moment it most
   obviously should not.
 
-  So the cursor is pushed *into* the scene as the `set_root/3` argument, and
-  the scene renders it. The scene reads the program list itself.
+  So the browser is pushed *into* the scene as the `set_root/3` argument, and
+  the scene renders it and owns nothing.
   """
 
   use GenServer
   require Logger
 
-  alias MayonnaiOS.{Input, Panel, Programs, Sleep}
+  alias MayonnaiOS.{Browser, Input, Panel, Sleep}
 
   # The name the driver gives the gamepad, which is the only thing this module
   # knows about which device it is. There is no numbered fallback: /dev/input
@@ -204,12 +210,13 @@ defmodule MayonnaiOS.Launcher do
   #
   # So :btn_y below really is the X button.
   #
-  # Y (:btn_x) has no plain binding. A key on a handheld that makes a noise
-  # when pressed by accident is not worth spending on a check that belongs in
-  # IEx (`MayonnaiOS.Audio.run/0`). Its one job is answering the Power off
-  # row's question -- the same "Y is the second verb" it has in
-  # `MayonnaiOS.Files`, and only while the question is on the panel.
+  # Y (:btn_x) has two jobs, and the panel says which is on. While the Power
+  # off row's question is up it is the answer -- the same "Y is the second
+  # verb" it has in `MayonnaiOS.Files`, and the confirming clause is tested
+  # before the plain bindings so the two can never fire together. The rest of
+  # the time it cycles how many columns the browser draws: 1, 2, 3.
   @confirm_button :btn_x
+  @columns_button :btn_x
   @diagnostics_button :btn_y
 
   # Menu, doing double duty: alone it is the way back to the home screen,
@@ -226,6 +233,12 @@ defmodule MayonnaiOS.Launcher do
   # immediately instead of leaving a menu that scrolls the wrong way.
   @up_button :btn_dpad_up
   @down_button :btn_dpad_down
+
+  # Left and right walk the columns: right opens the selected entry as a new
+  # column and left closes one. Right never launches -- A is the button that
+  # commits -- so walking the tree with the directions cannot start a game.
+  @left_button :btn_dpad_left
+  @right_button :btn_dpad_right
 
   # Physical B, which is BTN_SOUTH and therefore InputEvent's :btn_a -- the
   # table at the top of this module is the authority. Bound only to clear the
@@ -276,7 +289,8 @@ defmodule MayonnaiOS.Launcher do
   def os_pid, do: GenServer.call(__MODULE__, :os_pid)
 
   @doc """
-  Start or stop it from a console, without pressing anything.
+  Press A from a console, without pressing anything: open the selected
+  entry as a column, or launch it.
 
   `stop_program/0` returns `:ok` only when the OS process is confirmed gone.
   A program that survives both SIGTERM and SIGKILL comes back as
@@ -292,7 +306,7 @@ defmodule MayonnaiOS.Launcher do
   def stop_program(timeout \\ 10_000), do: GenServer.call(__MODULE__, :stop, timeout)
 
   @doc """
-  The index of the highlighted menu entry.
+  The index of the highlighted row in the focused column.
 
   Exposed so a console -- or a test that has just injected a synthetic D-pad
   event -- can read the cursor without looking at the panel. There is
@@ -300,6 +314,11 @@ defmodule MayonnaiOS.Launcher do
   which is the part worth testing.
   """
   def selected, do: GenServer.call(__MODULE__, :selected)
+
+  @doc """
+  The whole column browser, for a console: every open level and its cursor.
+  """
+  def browser, do: GenServer.call(__MODULE__, :browser)
 
   @doc """
   Why the last program died, or nil.
@@ -408,7 +427,10 @@ defmodule MayonnaiOS.Launcher do
       running: nil,
       held: MapSet.new(),
       scene: :home,
-      selected: 0,
+      # The home screen's column browser: which columns are open, which row
+      # each cursor is on, and how many columns the panel draws. Here rather
+      # than in the scene so it survives every repaint; see the moduledoc.
+      browser: Browser.new(),
       # Whether the Power off row has asked its question and is waiting for
       # Y. Armed by `start_program/2`, answered or dismissed by `press/2`,
       # and never true while anything is running -- the row can only be
@@ -472,7 +494,11 @@ defmodule MayonnaiOS.Launcher do
     {:reply, result, state}
   end
 
-  def handle_call(:selected, _from, state), do: {:reply, state.selected, state}
+  def handle_call(:selected, _from, state) do
+    {:reply, List.last(state.browser.levels).cursor, state}
+  end
+
+  def handle_call(:browser, _from, state), do: {:reply, state.browser, state}
 
   def handle_call(:obituary, _from, state), do: {:reply, state.obituary, state}
   def handle_call(:asleep?, _from, state), do: {:reply, state.asleep, state}
@@ -763,7 +789,10 @@ defmodule MayonnaiOS.Launcher do
   defp bound(state, @diagnostics_button), do: toggle_scene(state)
   defp bound(state, @up_button), do: move(state, -1)
   defp bound(state, @down_button), do: move(state, +1)
-  defp bound(state, @back_button), do: dismiss_obituary(state)
+  defp bound(state, @left_button), do: browse(state, Browser.ascend(state.browser))
+  defp bound(state, @right_button), do: browse(state, Browser.descend(state.browser))
+  defp bound(state, @columns_button), do: browse(state, Browser.cycle_columns(state.browser))
+  defp bound(state, @back_button), do: back(state)
 
   # Menu: back to the home screen, or -- with Select held -- power off.
   #
@@ -787,16 +816,17 @@ defmodule MayonnaiOS.Launcher do
     state
   end
 
-  # B takes the obituary off the panel. Only that: with nothing to clear the
-  # button stays effectively unbound, so an idle B press does not tear down
-  # and rebuild the scene the way an unguarded repaint would.
-  #
-  # The repaint is gated the same way `move/2` gates its own: only when the
-  # menu is the thing on screen. A B pressed during a game reaches here (the
-  # pad is this process's), and the state clears either way -- only the write
-  # waits, and the exit-time repaint draws whatever the state then says.
-  defp dismiss_obituary(%{obituary: nil} = state), do: state
+  # B: the obituary goes first -- it is the thing most recently put on the
+  # panel, and "back" should take back the last thing shown. With nothing to
+  # clear, B closes a column, which is what B means on every other screen.
+  defp back(%{obituary: nil} = state), do: browse(state, Browser.ascend(state.browser))
+  defp back(state), do: dismiss_obituary(state)
 
+  # Takes the obituary off the panel. The repaint is gated the same way
+  # `browse/2` gates its own: only when the menu is the thing on screen. A B
+  # pressed during a game reaches here (the pad is this process's), and the
+  # state clears either way -- only the write waits, and the exit-time repaint
+  # draws whatever the state then says.
   defp dismiss_obituary(state) do
     state = %{state | obituary: nil}
 
@@ -807,37 +837,38 @@ defmodule MayonnaiOS.Launcher do
     state
   end
 
-  # Move the menu cursor. The list is re-read here rather than kept in state:
-  # it is deterministic, cheap, and there is then no way for the cursor to be
-  # bounded by a stale length.
-  defp move(state, delta) do
-    programs = Programs.list()
-    moved = Programs.step(programs, state.selected, delta)
+  defp move(state, delta), do: browse(state, Browser.move(state.browser, delta))
 
-    # Repaint only when the menu is actually the thing on screen. While an
-    # external program is running it owns KMS, and pushing the viewport would
-    # write the menu into /dev/fb0 underneath its output -- visible as the
-    # menu bleeding through a game. On the diagnostics screen the cursor is
-    # not drawn at all, so a repaint there would be pure cost. The cursor
-    # still moves in both cases; only the redraw waits.
-    #
-    # The program half of that is now also enforced one level down --
-    # `set_root/2` refuses while `MayonnaiOS.Panel` is held, which is what
-    # catches the buttons this clause does not. It stays here because the
-    # diagnostics half is this function's own business and because a guard
-    # that says why it exists is worth more than one line saved.
-    #
-    # And only when the cursor actually moved. `set_root/3` is not a redraw:
-    # it stops the running scene process and starts a new one. At the ends of
-    # the list -- and with the single-entry list this ships with, on every
-    # press -- `step/3` returns the index it was given, so without this guard
-    # holding down a direction would tear down and rebuild the scene at the
-    # repeat rate for no visible change.
-    if moved != state.selected and state.port == nil and state.scene == :home do
-      show(:home, %{state | selected: moved})
+  # Adopt a changed browser, and repaint only when the menu is actually the
+  # thing on screen. While an external program is running it owns KMS, and
+  # pushing the viewport would write the menu into /dev/fb0 underneath its
+  # output -- visible as the menu bleeding through a game. On the diagnostics
+  # screen the browser is not drawn at all, so a repaint there would be pure
+  # cost. The state still moves in both cases; only the redraw waits.
+  #
+  # The program half of that is also enforced one level down -- `set_root/2`
+  # refuses while `MayonnaiOS.Panel` is held, which is what catches the
+  # buttons this clause does not. It stays here because the diagnostics half
+  # is this function's own business and because a guard that says why it
+  # exists is worth more than one line saved.
+  #
+  # And only when something actually changed. `set_root/3` is not a redraw:
+  # it stops the running scene process and starts a new one. A move in an
+  # empty column, a descend on a leaf and an ascend at the root all return
+  # the browser they were given, so an idle press does not tear down and
+  # rebuild the scene for no visible change.
+  defp browse(state, browser) do
+    if browser == state.browser do
+      state
+    else
+      state = %{state | browser: browser}
+
+      if state.port == nil and state.scene == :home do
+        show(:home, state)
+      end
+
+      state
     end
-
-    %{state | selected: moved}
   end
 
   # Back to the menu, from wherever we are.
@@ -862,12 +893,14 @@ defmodule MayonnaiOS.Launcher do
         show(:home, home)
         home
 
-      # Already home with nothing running. Deliberately not a repaint: this is
-      # the button people press when unsure, and `set_root/3` tears the scene
-      # down and builds a new one, so answering an idle press with a rebuild
-      # would make the panel flicker for no reason.
+      # Already home with nothing running: back to the root column. This is
+      # the button people press to get out of wherever they are, and deep in
+      # the file tree that is the top of the menu, not one column up. When the
+      # browser is already at its root the reset changes nothing and nothing
+      # repaints -- `browse/2` is the guard -- so an idle press does not make
+      # the panel flicker.
       true ->
-        state
+        browse(state, Browser.reset(state.browser))
     end
   end
 
@@ -897,21 +930,22 @@ defmodule MayonnaiOS.Launcher do
     state
   end
 
-  # Three outcomes, logged apart from each other on purpose. "Nothing
-  # configured" and "configured but not in the image" are different bugs in
-  # different files, and a single "could not launch" would hide which.
+  # A on the browser: a category, a root or a directory opens as another
+  # column; a program, a pickle or a verb starts. A plain file is the one
+  # kind of leaf with nothing to start, and A on it does nothing -- the file
+  # manager app at the top of the Files column is where files are acted on.
   defp do_launch(%{port: nil, app: nil} = state) do
-    programs = Programs.list()
-    start_program(Programs.at(programs, state.selected), state)
+    node = Browser.selected(state.browser)
+
+    cond do
+      Browser.expandable?(node) -> browse(state, Browser.descend(state.browser))
+      match?(%{kind: :program}, node) -> start_program(node.program, state)
+      true -> state
+    end
   end
 
   defp do_launch(state) do
     Logger.info("[launcher] already running")
-    state
-  end
-
-  defp start_program(nil, state) do
-    Logger.warning("[launcher] no programs configured (config :mayonnaios, :programs)")
     state
   end
 
@@ -927,6 +961,21 @@ defmodule MayonnaiOS.Launcher do
   defp start_program(%{action: :poweroff}, state) do
     state = %{state | confirming: true}
     show(:home, state)
+    state
+  end
+
+  # The Diagnostics row: the same screen X toggles, on the menu so it can be
+  # found without being told about the button.
+  defp start_program(%{action: :diagnostics}, state) do
+    state = %{state | scene: :diagnostics}
+    show(:diagnostics, state)
+    state
+  end
+
+  # The Sleep row: the same backlight-off the power key does, and waking is
+  # unchanged -- the next press is consumed on turning the panel back on.
+  defp start_program(%{action: :sleep}, state) do
+    {_result, state} = enter_sleep(state)
     state
   end
 
@@ -1200,13 +1249,12 @@ defmodule MayonnaiOS.Launcher do
   # in the ordinary case.
   defp show({:app, app}, state), do: set_root(app_module(app).scene(), %{error: state.app_error})
 
-  # The cursor travels as the scene's start argument. Deliberately only the
-  # index: the scene calls `Programs.list/0` itself, so no list is copied into
-  # a scene start on every keypress, and the two cannot disagree about order
-  # because both derive from the same config.
+  # The browser travels as the scene's start argument, whole: the scene draws
+  # exactly the columns this process navigates, and the two cannot disagree
+  # because there is one copy and it is here.
   defp show(_home, state) do
     set_root(default_scene(), %{
-      selected: state.selected,
+      browser: state.browser,
       confirming: state.confirming,
       obituary: state.obituary
     })

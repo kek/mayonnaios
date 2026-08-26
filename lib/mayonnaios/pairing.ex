@@ -149,8 +149,7 @@ defmodule MayonnaiOS.Pairing do
         scan: Scanner.status(),
         devices: Scanner.devices(),
         bonds: bonds,
-        # Bounded here rather than trusted, for the same reason
-        # `MayonnaiOS.Programs.at/2` does it: the list is re-read on every
+        # Bounded here rather than trusted: the list is re-read on every
         # refresh and a bond forgotten a moment ago would otherwise leave the
         # cursor pointing past the end.
         selected: bounded(cursor.selected, length(bonds)),
