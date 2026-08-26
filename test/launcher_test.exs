@@ -1,7 +1,7 @@
 defmodule MayonnaiOS.LauncherTest do
   use ExUnit.Case, async: false
 
-  alias MayonnaiOS.{Launcher, Programs}
+  alias MayonnaiOS.{Browser, Launcher, Programs}
   alias MayonnaiOS.Scene.Home
 
   # No viewport, no driver, no framebuffer. Everything here runs on the host,
@@ -41,108 +41,93 @@ defmodule MayonnaiOS.LauncherTest do
     end
   end
 
-  describe "Programs.step/3" do
+  describe "Scene.Home.graph/3" do
     setup do
-      %{programs: Programs.list([%{path: "/a"}, %{path: "/b"}, %{path: "/c"}])}
+      on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
+      :ok
     end
 
-    test "moves down and wraps past the end", %{programs: programs} do
-      assert Programs.step(programs, 0, 1) == 1
-      assert Programs.step(programs, 2, 1) == 0
+    test "the root column names the categories" do
+      says = texts(Home.graph(Browser.new()))
+
+      for category <- ["Games", "Files", "Pickles", "Settings"] do
+        assert category in says
+      end
     end
 
-    test "moves up and wraps past the start", %{programs: programs} do
-      assert Programs.step(programs, 1, -1) == 0
-      assert Programs.step(programs, 0, -1) == 2
+    test "builds at every column-count setting" do
+      browser = Browser.new() |> Browser.descend()
+
+      assert %Scenic.Graph{} = Home.graph(%{browser | columns: 1})
+      assert %Scenic.Graph{} = Home.graph(%{browser | columns: 2})
+      assert %Scenic.Graph{} = Home.graph(%{browser | columns: 3})
     end
 
-    test "is 0 for an empty list" do
-      # An empty menu must not divide by zero on a D-pad press.
-      assert Programs.step([], 0, 1) == 0
-      assert Programs.step([], 3, -1) == 0
-    end
-  end
+    test "the breadcrumb names every open level, not only the drawn ones" do
+      Application.put_env(:mayonnaios, :programs, [%{path: "/a"}])
 
-  describe "Programs.at/2" do
-    test "tolerates an index past the end of a shrunken list" do
-      programs = Programs.list([%{path: "/a"}, %{path: "/b"}])
-      assert Programs.at(programs, 5).path == "/b"
-      assert Programs.at(programs, -1).path == "/b"
-    end
+      browser = %{Browser.new() | columns: 1} |> Browser.descend()
 
-    test "is nil when nothing is configured" do
-      assert Programs.at([], 0) == nil
-    end
-  end
-
-  describe "Scene.Home.graph/2" do
-    test "builds for an empty list" do
-      assert %Scenic.Graph{} = Home.graph([], 0)
-    end
-
-    test "builds for a single entry" do
-      assert %Scenic.Graph{} = Home.graph(Programs.list([%{path: "/usr/bin/kmscube"}]), 0)
-    end
-
-    test "builds with the selection on the last row" do
-      programs = Programs.list([%{path: "/a"}, %{path: "/b"}, %{path: "/c"}])
-      assert %Scenic.Graph{} = Home.graph(programs, 2)
+      assert Enum.any?(texts(Home.graph(browser)), &(&1 =~ "RG40XXV > Games"))
     end
 
     test "windows the rows so the selection is always drawn" do
       # "It built without raising" is not enough here: Enum.slice returns []
       # for an out-of-range start, so a broken window would still produce a
-      # graph -- an empty menu that looks like a rendering bug on the device.
-      programs = Programs.list(for i <- 1..20, do: %{path: "/bin/prog#{i}"})
+      # graph -- an empty column that looks like a rendering bug on the device.
+      Application.put_env(
+        :mayonnaios,
+        :programs,
+        for(i <- 1..20, do: %{path: "/bin/prog#{i}"})
+      )
 
-      last = texts(Home.graph(programs, 19))
-      assert "prog20" in last
-      refute "prog1" in last
+      browser = Browser.new() |> Browser.descend()
 
-      first = texts(Home.graph(programs, 0))
+      first = texts(Home.graph(browser))
       assert "prog1" in first
       refute "prog20" in first
+
+      last = texts(Home.graph(Browser.move(browser, 19)))
+      assert "prog20" in last
+      refute "prog1" in last
     end
 
     test "says so on the row when a configured path is not in the image" do
-      graph = Home.graph(Programs.list([%{path: "/usr/bin/definitely-not-here"}]), 0)
+      Application.put_env(:mayonnaios, :programs, [%{path: "/usr/bin/definitely-not-here"}])
+
+      graph = Home.graph(Browser.new() |> Browser.descend())
       assert "not installed" in texts(graph)
     end
 
-    test "an action entry is an ordinary, always-installed row" do
-      assert [entry] = Programs.list([%{name: "Power off", action: :poweroff}])
-      assert entry.installed?
-      assert entry.action == :poweroff
+    test "an empty column says why instead of listing nothing" do
+      Application.put_env(:mayonnaios, :programs, [])
 
-      assert "Power off" in texts(Home.graph([entry], 0))
-      refute "not installed" in texts(Home.graph([entry], 0))
+      graph = Home.graph(Browser.new() |> Browser.descend())
+      assert Enum.any?(texts(graph), &(&1 =~ "Nothing to run"))
     end
 
     test "the power-off question is on the panel only while it is being asked" do
-      programs = Programs.list([%{name: "Power off", action: :poweroff}])
-
-      asked = texts(Home.graph(programs, 0, true))
+      asked = texts(Home.graph(Browser.new(), true))
       assert Enum.any?(asked, &(&1 =~ "Power off? Y switches off"))
 
-      idle = texts(Home.graph(programs, 0))
+      idle = texts(Home.graph(Browser.new()))
       refute Enum.any?(idle, &(&1 =~ "Y switches off"))
     end
 
     test "an obituary quotes the program's dying words" do
-      programs = Programs.list([%{path: "/a"}])
       obituary = %{name: "Moonlight", status: 1, lines: ["Can't open configuration file"]}
 
-      says = texts(Home.graph(programs, 0, false, obituary))
+      says = texts(Home.graph(Browser.new(), false, obituary))
       assert Enum.any?(says, &(&1 =~ "Moonlight exited (1)"))
       assert Enum.any?(says, &(&1 =~ "Can't open configuration file"))
 
-      idle = texts(Home.graph(programs, 0))
+      idle = texts(Home.graph(Browser.new()))
       refute Enum.any?(idle, &(&1 =~ "exited"))
     end
 
     test "a spawn that raised says would not start, not exited" do
       obituary = %{name: "Doom", status: nil, lines: ["enoent"]}
-      says = texts(Home.graph(Programs.list([%{path: "/a"}]), 0, false, obituary))
+      says = texts(Home.graph(Browser.new(), false, obituary))
 
       assert Enum.any?(says, &(&1 =~ "Doom would not start"))
       refute Enum.any?(says, &(&1 =~ "exited"))
@@ -150,10 +135,18 @@ defmodule MayonnaiOS.LauncherTest do
 
     test "the power-off question outranks the obituary" do
       obituary = %{name: "Moonlight", status: 1, lines: ["nope"]}
-      says = texts(Home.graph(Programs.list([%{path: "/a"}]), 0, true, obituary))
+      says = texts(Home.graph(Browser.new(), true, obituary))
 
       assert Enum.any?(says, &(&1 =~ "Power off?"))
       refute Enum.any?(says, &(&1 =~ "exited"))
+    end
+
+    test "the footer says how many columns Y is on" do
+      two = texts(Home.graph(Browser.new()))
+      assert Enum.any?(two, &(&1 =~ "Y cycles columns (2)"))
+
+      three = texts(Home.graph(Browser.cycle_columns(Browser.new())))
+      assert Enum.any?(three, &(&1 =~ "Y cycles columns (3)"))
     end
 
     # Every text primitive's string, so a test can assert what the panel says
@@ -188,34 +181,11 @@ defmodule MayonnaiOS.LauncherTest do
     setup do
       # The Launcher is not in the host supervision tree, and there is no
       # /dev/input here, so it starts with no device and the synthetic events
-      # below stand in for the pad.
+      # below stand in for the pad. The root column is fixed -- four
+      # categories -- so nothing on this host can change what these wrap over.
       programs = [%{path: "/a"}, %{path: "/b"}, %{path: "/c"}]
       Application.put_env(:mayonnaios, :programs, programs)
       on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
-
-      # `Programs.list/0` appends a row for every installed pickle that asked
-      # for the `ui` capability, read from disk on every call -- so without
-      # this, the menu these tests wrap around is however many pickles the
-      # developer happens to have installed on the host. It was one, and the
-      # wrap-around test below failed on that machine and nowhere else.
-      pickles_root =
-        Path.join(
-          System.tmp_dir!(),
-          "launcher-test-pickles-#{System.unique_integer([:positive])}"
-        )
-
-      File.mkdir_p!(pickles_root)
-      previous = Application.get_env(:mayonnaios, :pickles_root)
-      Application.put_env(:mayonnaios, :pickles_root, pickles_root)
-
-      on_exit(fn ->
-        File.rm_rf(pickles_root)
-
-        case previous do
-          nil -> Application.delete_env(:mayonnaios, :pickles_root)
-          value -> Application.put_env(:mayonnaios, :pickles_root, value)
-        end
-      end)
 
       start_supervised!({Launcher, device: "/nonexistent/event0"})
       :ok
@@ -236,7 +206,7 @@ defmodule MayonnaiOS.LauncherTest do
 
     test "up from the top wraps to the bottom" do
       press(:btn_dpad_up)
-      assert Launcher.selected() == 2
+      assert Launcher.selected() == 3
     end
 
     test "autorepeat does not move the cursor" do
@@ -246,17 +216,65 @@ defmodule MayonnaiOS.LauncherTest do
       assert Launcher.selected() == 0
     end
 
+    test "A opens a category and B closes it" do
+      # :btn_b is the button silkscreened A; see the Launcher moduledoc.
+      press(:btn_b)
+
+      browser = Launcher.browser()
+      assert Browser.depth(browser) == 2
+      assert Browser.trail(browser) == ["RG40XXV", "Games"]
+      assert Enum.map(List.last(browser.levels).entries, & &1.name) == ["a", "b", "c"]
+
+      press(:btn_a)
+      assert Browser.depth(Launcher.browser()) == 1
+    end
+
+    test "right opens a column and left closes it, and neither launches" do
+      press(:btn_dpad_right)
+      assert Browser.depth(Launcher.browser()) == 2
+
+      # Right on a leaf: /a is a program, not a column, and right must not
+      # start it -- A is the button that commits.
+      press(:btn_dpad_right)
+      assert Browser.depth(Launcher.browser()) == 2
+      refute Launcher.running?()
+
+      press(:btn_dpad_left)
+      assert Browser.depth(Launcher.browser()) == 1
+    end
+
+    test "Y cycles how many columns are drawn: 2, 3, 1" do
+      assert Launcher.browser().columns == 2
+
+      press(:btn_x)
+      assert Launcher.browser().columns == 3
+
+      press(:btn_x)
+      assert Launcher.browser().columns == 1
+
+      press(:btn_x)
+      assert Launcher.browser().columns == 2
+    end
+
+    test "Menu goes back to the root column from deep in the tree" do
+      press(:btn_b)
+      press(:btn_dpad_down)
+      assert Browser.depth(Launcher.browser()) == 2
+
+      press(:btn_mode)
+      assert Browser.depth(Launcher.browser()) == 1
+    end
+
     defp press(key) do
       send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 1}]})
-      # selected/0 is a call, so it is ordered behind the cast above.
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 0}]})
+      # selected/0 is a call, so it is ordered behind the casts above.
       Launcher.selected()
     end
   end
 
   describe "the Power off row" do
     setup do
-      # A real program above it, so the tests can also show that cancelling
-      # does not leak the cancelling press into a launch.
       programs = [%{path: "/a"}, %{name: "Power off", action: :poweroff}]
       Application.put_env(:mayonnaios, :programs, programs)
       on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
@@ -267,8 +285,14 @@ defmodule MayonnaiOS.LauncherTest do
         {Launcher, device: "/nonexistent/event0", poweroff: fn -> send(test, :powered_off) end}
       )
 
-      # Onto the Power off row.
+      # Into Settings -- the last category -- and down past Diagnostics and
+      # Sleep onto the Power off row, which sits last on purpose.
+      tap(:btn_dpad_up)
+      tap(:btn_b)
       tap(:btn_dpad_down)
+      tap(:btn_dpad_down)
+
+      assert Browser.selected(Launcher.browser()).name == "Power off"
       :ok
     end
 
@@ -280,28 +304,31 @@ defmodule MayonnaiOS.LauncherTest do
       assert_receive :powered_off
     end
 
-    test "any other button keeps the device on, and Y afterwards is nothing" do
+    test "any other button keeps the device on, and Y afterwards does not switch off" do
       tap(:btn_b)
       tap(:btn_a)
 
       # The question is gone, so the button that would have answered it is
-      # back to being unbound.
+      # back to its day job of cycling columns.
       tap(:btn_x)
       refute_received :powered_off
     end
 
     test "the cancelling press is swallowed, not dispatched" do
       tap(:btn_b)
-      # A again would launch whatever the cursor is on if it were dispatched;
-      # here it may only cancel. Y proving the question is gone also proves
-      # no second question was opened.
+      # A again would re-open the question if it were dispatched -- the cursor
+      # is still on the Power off row; here it may only cancel. Y proving no
+      # question is up also proves no second question was opened.
       tap(:btn_b)
       tap(:btn_x)
       refute_received :powered_off
     end
 
-    test "Y with no question pending is unbound" do
+    test "Y with no question pending cycles the columns instead" do
+      assert Launcher.browser().columns == 2
       tap(:btn_x)
+
+      assert Launcher.browser().columns == 3
       refute_received :powered_off
     end
 
@@ -356,6 +383,9 @@ defmodule MayonnaiOS.LauncherTest do
 
       start_supervised!({Launcher, [device: "/nonexistent/event0"] ++ opts})
 
+      # Into the Games column, where the configured shell is the first row.
+      # `launch/0` is A: the first press opens the category, the second runs.
+      Launcher.launch()
       Launcher.launch()
       assert Launcher.running?()
       os_pid = Launcher.os_pid()
@@ -533,6 +563,9 @@ defmodule MayonnaiOS.LauncherTest do
       ])
 
       start_supervised!({Launcher, device: "/nonexistent/event0"})
+
+      # A twice: into the Games column, then the shell on its first row.
+      Launcher.launch()
       Launcher.launch()
     end
 

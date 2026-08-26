@@ -78,6 +78,12 @@ defmodule MayonnaiOS.Controller.AppTest do
       on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
 
       start_supervised!({Launcher, device: "/nonexistent"})
+
+      # Onto the app's row: up wraps the root column onto Settings, where an
+      # app's row lives, and A opens the column with the cursor on it. The
+      # tests then press A to start the app itself.
+      press(:btn_dpad_up)
+      press(:btn_b)
       :ok
     end
 

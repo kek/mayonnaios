@@ -121,7 +121,8 @@ be retried, and a repeating log line is a report.
 
 ### `"ui"` -- a face on the panel
 
-A pickle with `ui` appears as a row on the launcher menu. Pressing A puts
+A pickle with `ui` appears as a row in the launcher's Pickles column.
+Pressing A puts
 its face on the screen; Menu takes the face off -- **the pickle keeps
 running** either way, because a ui pickle is still a background app, just
 one you can look at.

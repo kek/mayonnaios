@@ -256,7 +256,11 @@ defmodule MayonnaiOS.SleepTest do
 
       start_supervised!({Launcher, device: "/nonexistent/event0"})
 
-      # A starts it. :btn_b is the button silkscreened A; see the Launcher.
+      # Up wraps the root column onto Settings, where an app's row lives; A
+      # opens it, and A again starts the app. :btn_b is the button
+      # silkscreened A; see the Launcher.
+      press(:btn_dpad_up)
+      press(:btn_b)
       press(:btn_b)
       assert FakeApp.log().started == 1
       :ok
