@@ -37,6 +37,8 @@ Software:
 - A web UI for uploading games from a phone
 - A file manager on the device: copy, move, rename and delete across both
   cards, with a clipboard instead of a destination to type
+- A process readout like `top`, twice: the BEAM's processes by reductions and
+  memory, and the Linux ones from `/proc`
 - Pickles: small sandboxed Lua apps, installed over the network like games,
   for things like controlling lamps on the LAN or polling a web API. See
   [docs/pickles.md](docs/pickles.md)

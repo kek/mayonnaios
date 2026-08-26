@@ -21,6 +21,7 @@ defmodule MayonnaiOS.Application do
       [status()] ++
         viewport() ++
         [controller_sessions(), file_manager_sessions(), pairing_sessions(), pickle_sessions()] ++
+        [top_sessions()] ++
         target_children()
 
     # See https://elixir.hexdocs.pm/Supervisor.html
@@ -77,6 +78,10 @@ defmodule MayonnaiOS.Application do
   # `MayonnaiOS.Bluetooth.Host`'s registered name, which is a reason the panel
   # can print.
   defp pairing_sessions, do: MayonnaiOS.Pairing.sessions()
+
+  # The same arrangement for the process readout: empty until a menu row
+  # starts it, everywhere, so `MayonnaiOS.Top.start(:beam)` works on a laptop.
+  defp top_sessions, do: MayonnaiOS.Top.sessions()
 
   # The registry and DynamicSupervisor running pickles live under, empty
   # until one is started. Everywhere for the same reason as the others: the
