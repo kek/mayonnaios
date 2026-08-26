@@ -53,7 +53,7 @@ Three pieces:
 2. **A provisioner in this app.** Downloads on demand, verifies the checksum
    before unpacking, installs under the writable partition, records the
    installed version, and is idempotent.
-3. **`ScenicRg40xxv.Programs`**, which already reads a configured list and
+3. **`MayonnaiOS.Programs`**, which already reads a configured list and
    re-stats `installed?` on every call — deliberately, so a program that
    appears on the data partition after boot shows up without a restart. That
    was written for exactly this.
