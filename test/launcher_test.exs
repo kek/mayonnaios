@@ -193,6 +193,30 @@ defmodule MayonnaiOS.LauncherTest do
       Application.put_env(:mayonnaios, :programs, programs)
       on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
 
+      # `Programs.list/0` appends a row for every installed pickle that asked
+      # for the `ui` capability, read from disk on every call -- so without
+      # this, the menu these tests wrap around is however many pickles the
+      # developer happens to have installed on the host. It was one, and the
+      # wrap-around test below failed on that machine and nowhere else.
+      pickles_root =
+        Path.join(
+          System.tmp_dir!(),
+          "launcher-test-pickles-#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(pickles_root)
+      previous = Application.get_env(:mayonnaios, :pickles_root)
+      Application.put_env(:mayonnaios, :pickles_root, pickles_root)
+
+      on_exit(fn ->
+        File.rm_rf(pickles_root)
+
+        case previous do
+          nil -> Application.delete_env(:mayonnaios, :pickles_root)
+          value -> Application.put_env(:mayonnaios, :pickles_root, value)
+        end
+      end)
+
       start_supervised!({Launcher, device: "/nonexistent/event0"})
       :ok
     end
