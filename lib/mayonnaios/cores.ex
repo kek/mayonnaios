@@ -399,10 +399,9 @@ defmodule MayonnaiOS.Cores do
 
   The plan was that RetroArch would be told nothing and would use its own
   default, which is `dir/0`. That plan has one flaw, and the device found it:
-  the RetroArch bundle's own config sets `libretro_directory` -- the installed
-  one names `/root/retroarch/cores`, in a comment block referring to a module
-  this project renamed away from -- and the launcher passes that file with
-  `--appendconfig` on every single launch.
+  the RetroArch bundle's own config set `libretro_directory` -- bundles up to
+  v1.22.2-5 named `/root/retroarch/cores`, a directory nothing fills -- and the
+  launcher passes that file with `--appendconfig` on every single launch.
 
   Against that, `clear_stale_directory/0` cannot win. It runs at boot and
   removes the value from the player's config; the launch then appends it

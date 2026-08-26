@@ -38,7 +38,7 @@ defmodule MayonnaiOS.Pairing do
       RetroArch's audio.
 
     The first and last of those are Buildroot options, so getting there is a
-    2-3 hour system rebuild before any of the Elixir exists. That is why this
+    full system rebuild before any of the Elixir exists. That is why this
     app scans and lists rather than offering a Connect button: a button that
     can never produce sound is this project's characteristic failure written
     into the UI.

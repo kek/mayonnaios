@@ -30,9 +30,14 @@ Software:
 - A Bluetooth LE gamepad that presents as an Xbox Wireless Controller, so a
   Steam Deck, a Mac or a PC recognises it with no mapping step — a whole BLE
   HID stack in Elixir, with no BlueZ in the image
+- A Bluetooth devices app: an LE scan of what is nearby, and the bonds this
+  device already has, with forgetting one moved off the IEx prompt and onto
+  the handheld
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
 - A web UI for uploading games from a phone
+- A file manager on the device: copy, move, rename and delete across both
+  cards, with a clipboard instead of a destination to type
 - Pickles: small sandboxed Lua apps, installed over the network like games,
   for things like controlling lamps on the LAN or polling a web API. See
   [docs/pickles.md](docs/pickles.md)
@@ -65,8 +70,9 @@ written to whichever of the two slots is not in use, so a bad update reverts on
 the next boot instead of leaving you with a brick.
 
 If `mix deps.get` starts compiling Buildroot instead of downloading a system,
-your tree does not match any published release and you are in for about three
-and a half hours. That is usually a sign you changed something under
+your tree does not match any published release and you are in for a full
+system build, which takes a while. That is usually a sign you changed something
+under
 `nerves_system_rg40xxv` — a comment is enough.
 
 ## Putting games on it
@@ -173,9 +179,9 @@ caveat: symlinks already in the tree are followed for reading, because
 `bundles/retroarch/current` is one and the core directory is nothing but them.
 Deleting a link removes the link and never its target.
 
-None of this has been run on the handheld yet — it is 74 host tests and a
-target compile, and the panel layout in particular has been checked only as a
-graph, not with eyes on the glass.
+This has been run on the handheld. Behind it are 76 host tests and a target
+compile; the panel layout was checked as a graph before it was checked on the
+glass.
 
 ## Emulator cores
 
@@ -226,18 +232,28 @@ A value **the installed bundle sets** is the harder one, because the launcher
 passes that bundle's config with `--appendconfig` on every launch. Clearing at
 boot then loses: the launch appends the value again, RetroArch reads it, and
 writes it back into the player's config on exit. Repaired once per boot,
-broken once per launch — which is exactly what the RetroArch bundle installed
-here does, naming `/root/retroarch/cores` in a comment block that refers to a
-module this project renamed away from.
+broken once per launch — which is what RetroArch bundles up to v1.22.2-5 did,
+naming `/root/retroarch/cores`, a directory nothing fills.
 
 So a second config is appended after the bundle's own, and `--appendconfig`
 merges its files in order, last one winning.
 `MayonnaiOS.Cores.write_append_config/0` generates it from `MayonnaiOS.Cores.dir/0`
 at boot, so it always names the directory the symlinks actually go into.
-Fixing the bundle would be tidier and is worth doing in
-[`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) — but a bundle
-is versioned separately and installed independently, so relying on it to *not*
-set something is the arrangement that already failed once.
+
+That same file carries `audio_sync = "false"`, which is not a preference about
+audio but a guard: a stalled codec otherwise freezes the game inside `poll()`,
+and nobody can reach RetroArch's audio menu while the game is frozen. It is
+scrubbed out of the player's own config at every boot by
+`MayonnaiOS.Cores.clear_persisted_audio_sync/0`, for the reason the next section
+gives for `autosave_interval` — so the day the codec is trustworthy, deleting
+one line is enough, and no device is left carrying a setting no file in any
+repository still contains.
+The bundle has since been fixed: v1.22.2-6 and later set no core directory at
+all, and the RetroArch workflow in
+[`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) asserts that they
+do not. The appended config stays regardless, because a bundle is versioned
+separately and installed independently — a value persisted by an older bundle
+outlives that bundle, and no later bundle can withdraw it.
 
 ### Saves
 
@@ -298,7 +314,8 @@ The template carries the hardware-dictated defaults — 720p30, h264, modest
 bitrate — and says what to lower first if decode cannot keep up. None of this
 has been run on the handheld yet; the
 [`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) README lists what
-only hardware can answer, the gamepad mapping under SDL first among them.
+only hardware can answer — the software decode budget and the gamepad mapping
+under SDL first among them.
 
 ## Using it as a Bluetooth controller
 
@@ -438,14 +455,14 @@ second of every connection is normal, `no_credits` is not.
 
 The whole stack is Elixir, on top of the raw HCI user channel that
 `MayonnaiOS.Bluetooth.HCISocket` already used for the diagnostics probe —
-L2CAP, ATT, GATT, the HID profile and the pairing, about fifteen hundred
+L2CAP, ATT, GATT, the HID profile and the pairing, some forty-seven hundred
 lines under `lib/mayonnaios/bluetooth/`. Nothing was added to the Buildroot
 system and no kernel option was changed.
 
 That is not a stunt. `# CONFIG_BT_LE is not set` in this kernel's config
 means the in-kernel Bluetooth stack does no LE at all, so the ordinary route
 — BlueZ over the kernel's own L2CAP sockets — would have needed a BSP change
-and a three-and-a-half hour Buildroot rebuild. A user channel switches the
+and a full Buildroot rebuild. A user channel switches the
 kernel stack off for that controller anyway and hands over raw HCI, so what
 the kernel can and cannot do above HCI stops mattering: the controller is a
 Bluetooth 5.0 dual-mode part and speaks LE perfectly well when asked
@@ -488,6 +505,36 @@ asks for it is answered with a pairing response that does not offer it, and
 every host tested falls back to legacy pairing. A host in Secure Connections
 Only mode would answer `Pairing Failed 0x03` instead, and
 `MayonnaiOS.Bluetooth.SMP`'s moduledoc says what adding it would take.
+
+## Seeing what Bluetooth is nearby
+
+Pick **Bluetooth devices** in the launcher. It runs an active LE scan and
+lists what answers — name, signal strength, rows ageing out as devices stop
+advertising — alongside the bonds this device already holds. **A** arms a row
+and a second **A** forgets it, which is the one action on the screen. That is
+the reason it exists: undoing a pairing was an IEx call until now, which made
+the only way to forget a host on a handheld with no keyboard an SSH session
+from another machine.
+
+**It does not connect headphones, and the first line on the screen says so.**
+Bluetooth audio is A2DP, which runs over BR/EDR and needs, in order: BR/EDR
+HCI, connection-oriented L2CAP, an SDP client, AVDTP signalling, an SBC
+encoder, and something to route a game's audio into the stream. None of those
+are here — `MayonnaiOS.Bluetooth.HCI` implements no BR/EDR command at all, and
+there is no PulseAudio, PipeWire or `bluez-alsa` in the image either. So the
+app scans and lists rather than offering a Connect button, and
+`MayonnaiOS.Bluetooth.Scan` reads the BR/EDR flag out of each advertisement so
+that the row for a pair of headphones says which transport it would need.
+`MayonnaiOS.Pairing` has the full account.
+
+It holds hci0 for as long as it runs, so it and the controller app are
+mutually exclusive; the launcher's one-app-at-a-time rule is what enforces
+that, which is why both are menu entries and neither is in the boot
+supervision tree.
+
+    iex> MayonnaiOS.Pairing.start()
+    iex> MayonnaiOS.Pairing.status()
+    iex> MayonnaiOS.Pairing.stop()
 
 ## Poking at a running device
 
@@ -540,7 +587,7 @@ host-only path:
 
 | | |
 |---|---|
-| arrows, `j` / `k` | D-pad |
+| arrows, `h` `j` `k` `l` | D-pad |
 | `z` | A — launch the highlighted entry |
 | `c` | X — the diagnostics screen |
 | enter | Menu — back to the home screen |
@@ -549,7 +596,10 @@ host-only path:
 | escape | Select+Menu, the power-off chord |
 
 `x`, `v` and `s` are sent too, as B, Y and Start, and do nothing — the launcher
-binds none of them. None of this is conditional on the target, so a USB
+binds none of them. Left and right do nothing on the home screen either, whose
+menu is one column, but they reach whatever app the launcher has handed the
+buttons to: the Files app pages a screenful at a time with them. None of this
+is conditional on the target, so a USB
 keyboard plugged into the handheld gets the same bindings. `p` is the one key
 that is not a pad button: it sends `KEY_POWER`, which on the device arrives
 from `axp20x-pek` rather than from the gamepad.
@@ -564,31 +614,30 @@ a scratch directory and start `MayonnaiOS.Web` under a supervisor.
 
 ## Not done yet
 
-**Pairing devices *to* the handheld.** The controller app is this device
-advertising itself to a host — the peripheral role. Scanning for headphones or
-another gamepad and pairing them to this device is the central role, and none
-of it is here.
+**Initiating a pairing.** The Bluetooth devices app finds what is nearby and
+manages the bonds this device already has — but every one of those bonds was
+made by a host pairing *to* the handheld. Pairing outward, this device
+choosing something and bonding with it, is the central role and is not here.
 
-It is a separate app rather than a setting on the existing one, because very
-little is shared. Scanning, connecting and pairing all run the other way
-round: `MayonnaiOS.Bluetooth.SMP` answers a pairing today and would need the
-initiator half of one, and `MayonnaiOS.Bluetooth.GATT` is a server where a
-central needs a client. What does carry over unchanged is everything below
-that — `Bluetooth.Host`, the HCI codec, L2CAP framing, and the pairing
-arithmetic, which is role-independent.
+Below the roles, nothing has to change: `Bluetooth.Host`, the HCI codec, L2CAP
+framing and the pairing arithmetic are all role-independent, and the scan that
+would find the device to pair with already runs. What is missing is the half
+of each protocol that faces the other way — `MayonnaiOS.Bluetooth.SMP` answers
+a pairing today and would need the initiator half of one, and
+`MayonnaiOS.Bluetooth.GATT` is a server where a central needs a client.
 
-Discovery itself is cheap: LE scanning is three HCI commands and an event, and
-BR/EDR inquiry is much the same, so a list of what is nearby is a small piece
-of work. The expensive part is what happens *after* pairing, because a bonded
-device does nothing until there is a profile to use it with. Audio means A2DP,
-which is SDP, AVDTP and an SBC encoder. A paired gamepad means a HID host and
-then some way to present it to Linux as an input device, since RetroArch reads
-evdev and nothing in this VM can hand it a device node without the kernel's
-help.
+**The profiles after it**, which are the expensive part, because a bonded
+device does nothing until there is a profile to use it with. Audio means A2DP:
+SDP, AVDTP and an SBC encoder over a BR/EDR transport this firmware does not
+have, and then a way to route a game's audio into the stream, which means
+another package in the image and therefore a system rebuild. A paired gamepad
+means a HID host and then some way to present it to Linux as an input device,
+since RetroArch reads evdev and nothing in this VM can hand it a device node
+without the kernel's help.
 
-So the honest first version of that app is discover, pair, and say what a
-device claims to be — with the profiles as separate work after it, and worth
-deciding one at a time whether each is worth having.
+Worth deciding one at a time whether each is worth having. The app is built so
+that adding one is a profile under `MayonnaiOS.Bluetooth` and a row action in
+`MayonnaiOS.Scene.Pairing`, and nothing else has to move.
 
 ## The three repositories
 
