@@ -34,12 +34,11 @@ defmodule MayonnaiOS.AppPartition do
 
   ## Why a remount and not the sysfs knob
 
-  `/sys/fs/f2fs/mmcblk0p4/max_small_discards` can be set to 0 at runtime, and
-  that was the first stopgap. But it is a bound on one *class* of discard, so
-  it does not say the thing we want said. `nodiscard` does, and f2fs accepts it
-  on remount -- verified on the device before this module was written:
-  `mount -o remount,nodiscard /root` returned 0 and `/proc/mounts` then read
-  `nodiscard`.
+  `/sys/fs/f2fs/mmcblk0p4/max_small_discards` can be set to 0 at runtime, but
+  it is a bound on one *class* of discard, so it does not say the thing we
+  want said. `nodiscard` does, and f2fs accepts it on remount -- verified on
+  the device: `mount -o remount,nodiscard /root` returned 0 and
+  `/proc/mounts` then read `nodiscard`.
 
   The right place for this is the system's `erlinit.config`, one word longer:
   `nodev,nodiscard`. That file lives in the system repo's `rootfs_overlay/`,

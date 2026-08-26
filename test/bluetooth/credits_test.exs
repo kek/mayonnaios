@@ -4,11 +4,11 @@ defmodule MayonnaiOS.Bluetooth.CreditsTest do
   alias MayonnaiOS.Bluetooth.Credits
 
   # The scenario this module exists for is written out as its own test at the
-  # bottom: the report map read that a Steam Deck timed out on, ten fragments
-  # against eight buffers, which the old all-or-nothing send silently threw
-  # away. Everything above it is the arithmetic that makes that case work
-  # without breaking the property the old send was right about -- reports
-  # drop rather than queue.
+  # bottom: a report map read of ten fragments against eight buffers, which
+  # an all-or-nothing send silently throws away and a Steam Deck then times
+  # out on. Everything above it is the arithmetic that makes that case work
+  # without breaking the property an all-or-nothing send gets right --
+  # reports drop rather than queue.
 
   defp packets(range), do: Enum.map(range, &<<&1>>)
 

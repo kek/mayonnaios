@@ -3,11 +3,9 @@ defmodule MayonnaiOS.Input do
   Finding an input device by what it is, and saying so when it is not there.
 
   `/dev/input/eventN` is assigned in probe order, and probe order is not a
-  promise. It has now moved twice. Three devices were reliably `event0`,
-  `event1` and `event2` for as long as there were only three, and every caller
-  wrote those numbers down; then the BSP grew an `adc-joystick` node, and then
-  `CONFIG_INPUT_AXP20X_PEK` added the power key ahead of it. Read off the
-  device on firmware `3cc86f59`:
+  promise: adding one device to the board is enough to renumber the others,
+  and the BSP's `adc-joystick` node and `CONFIG_INPUT_AXP20X_PEK`'s power key
+  have each done it once. Read off the device on firmware `3cc86f59`:
 
       event0  axp20x-pek                       the power button
       event1  adc-joystick                     the analog stick, read by nothing
@@ -15,16 +13,14 @@ defmodule MayonnaiOS.Input do
       event3  gpio-keys-volume                 the volume rocker
       event4  H616 Audio Codec Headphone Jack  the jack switch
 
-  Every number in that table is different from the one the same device had two
-  firmware revisions ago. It is here to be read, not to be depended on: what
-  callers ask for is the name, which comes from the device tree and changes
-  only when somebody changes it on purpose.
+  That table is here to be read, not to be depended on: what callers ask for
+  is the name, which comes from the device tree and changes only when
+  somebody changes it on purpose.
 
   ## There is no fallback, and that is the point
 
-  `find/2` used to take the numbered path to use when the name was not found --
-  the path each caller had hard-coded before this module existed -- and that
-  read as strictly safer than what it replaced. It was not.
+  A numbered path to fall back on when the name is not found reads as
+  strictly safer than a bare `nil`. It is not.
 
   A fallback only ever runs in the state where the name is absent, and a
   number reached in that state does not name a worse version of the right
@@ -32,19 +28,18 @@ defmodule MayonnaiOS.Input do
   and waiting for `KEY_VOLUMEUP` waits for ever, and every symptom of that is
   an absence -- the button does nothing, the log says nothing, and the code
   reads as though the case were handled. That is this project's characteristic
-  failure with a helpful-looking name on it, and it was live in four modules
-  the whole time the numbering was wrong, because a fallback behind a working
+  failure with a helpful-looking name on it, and a fallback behind a working
   lookup is never exercised and never noticed.
 
-  It also never did the job it was kept for. A laptop has no `/dev/input` at
-  all, so the fallback there was a path that does not exist handed to a caller
+  A fallback also does nothing for the host. A laptop has no `/dev/input` at
+  all, so a fallback there is a path that does not exist handed to a caller
   that checks `File.exists?/1` before opening it. Nothing on the host path
-  needed the string to look like a device node.
+  needs the string to look like a device node.
 
   So `find/1` answers `nil`, and says so out loud: a warning naming the device
   that is missing and every device that is present. What losing a device costs
   is the caller's own business -- no rocker is not a failed boot -- but no
-  caller can now reach the wrong one.
+  caller can reach the wrong one.
 
   There is deliberately no caching. This is called once per process at
   startup, the answer is two file reads, and a cache would be a second thing

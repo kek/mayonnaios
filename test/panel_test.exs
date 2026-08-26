@@ -248,9 +248,9 @@ defmodule MayonnaiOS.PanelTest do
       assert Panel.owner() == {:program, "sleeper"}
       settle()
 
-      # X, which flips between the menu and diagnostics. During a game this
-      # used to re-root the viewport and paint a whole screen into a
-      # framebuffer the game owned.
+      # X, which flips between the menu and diagnostics. During a game it
+      # must not re-root the viewport and paint a whole screen into a
+      # framebuffer the game owns.
       press(:btn_y)
       assert :sys.get_state(Launcher).scene == :diagnostics
       refute_write("pressing X during a game")

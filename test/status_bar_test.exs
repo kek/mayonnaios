@@ -280,8 +280,8 @@ defmodule MayonnaiOS.StatusBarTest do
       # image".
       # Under the test supervisor, not linked to the test process: `test/
       # panel_test.exs` starts Scenic too, and a `:scenic` left to die on its
-      # own outlives the test that started it -- so whichever of the two ran
-      # second used to race a supervisor that was already shutting down.
+      # own outlives the test that started it -- and whichever of the two
+      # runs second races a supervisor that is already shutting down.
       start_supervised!({Scenic, []})
 
       {:ok, viewport} =

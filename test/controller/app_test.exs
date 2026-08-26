@@ -110,7 +110,7 @@ defmodule MayonnaiOS.Controller.AppTest do
       assert report == [{:ev_key, :btn_dpad_down, 1}, {:ev_key, :btn_a, 1}]
     end
 
-    test "the D-pad no longer moves the menu cursor" do
+    test "the D-pad does not move the menu cursor" do
       before = Launcher.selected()
       press(:btn_b)
       press(:btn_dpad_down)

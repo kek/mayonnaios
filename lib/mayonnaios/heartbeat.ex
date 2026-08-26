@@ -3,11 +3,10 @@ defmodule MayonnaiOS.Heartbeat do
   Sets every LED to the kernel's heartbeat trigger so the device visibly shows
   that it is alive.
 
-  Originally this was the *only* feedback the board gave: the display did not
-  work, and the LED that glows yellow is the AXP717 charge indicator, which
-  looks identical whether the device booted or is wedged. The panel works now,
-  so the LED is no longer the sole signal -- but it is still the earliest one,
-  and the only one that survives a UI that fails to start.
+  The LED is the earliest signal the board gives, and the only one that
+  survives a UI that fails to start. The other LED, the one that glows
+  yellow, is the AXP717 charge indicator, and it looks identical whether the
+  device booted or is wedged.
 
   A blinking LED means something quite specific: the kernel is running, the
   BEAM started, and the supervision tree came up. Steady or dark means it did

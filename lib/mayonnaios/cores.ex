@@ -10,10 +10,7 @@ defmodule MayonnaiOS.Cores do
   wrong: bundles are installed per version and swapped by moving a symlink, so
   everything in that directory belongs to that version and goes away with it.
   A core installed there survives until the next RetroArch upgrade and then
-  silently is not there any more.
-
-  A core added by hand to `.../current/lib/libretro` had exactly that
-  property, which is how this came up.
+  silently disappears.
 
   So RetroArch is told nothing at all, and the directory it reads is its own
   default: `platform_unix.c` joins `cores` onto `$XDG_CONFIG_HOME/retroarch`,
@@ -205,7 +202,7 @@ defmodule MayonnaiOS.Cores do
   writes, and the half that makes the setting removable. Unconditional for the
   same reasons as `clear_persisted_audio_sync/1` -- which has the argument for
   why a scrub is asymmetric with `clear_stale_directory/1` -- plus one that is
-  specific to this setting: the fossil that caused today's loss was
+  specific to this setting: the fossil being scrubbed is
   `autosave_interval = "0"`, RetroArch's own default, and nothing in a config
   file distinguishes it from a number the player chose.
 
@@ -449,19 +446,16 @@ defmodule MayonnaiOS.Cores do
 
   ### `autosave_interval = "10"`
 
-  The device was found with `autosave_interval = "0"` in the player's config,
-  which is RetroArch's own default and means *never autosave*. With it off,
-  the SRAM `.srm` is written when content closes cleanly and at no other time,
-  so every kill, every hang and every pulled power cable discards the whole
-  session -- including in-game saves the player made at a save point an hour
-  earlier. That is not a hypothetical: it happened repeatedly in one
-  afternoon, to a Chrono Trigger file, while a hung RetroArch was being
-  SIGKILLed to diagnose the audio fault the setting above is the belt for.
+  `autosave_interval = "0"` is RetroArch's own default and means *never
+  autosave*. With it off, the SRAM `.srm` is written when content closes
+  cleanly and at no other time, so every kill, every hang and every pulled
+  power cable discards the whole session -- including in-game saves the
+  player made at a save point an hour earlier.
 
   This device cannot rely on a clean close. It is switched off by pulling the
   power, there is no clean shutdown in normal use, and a program that hangs
-  holding DRM master has to be killed -- which `MayonnaiOS.Launcher` now does
-  properly, and which is exactly the operation that used to cost the save. A
+  holding DRM master has to be killed -- which `MayonnaiOS.Launcher` does,
+  and which is exactly the operation that discards an unsaved session. A
   save mechanism that only runs on a clean exit is a save mechanism that runs
   on the good days.
 

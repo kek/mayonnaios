@@ -2,16 +2,6 @@ defmodule MayonnaiOS.Scene.Home do
   @moduledoc """
   The launcher menu: what can be run, and which entry is selected.
 
-  ## What used to be here
-
-  This scene was a page of demo shapes -- a circle, a square, a triangle, an
-  arc and two lines of text -- chosen so each would fail differently: filled
-  rects proved the framebuffer blit, the arc proved path rasterisation, the
-  text proved freetype was in the image. All three are verified on hardware
-  now, and the menu still exercises every one of them (rects for the rows and
-  the highlight, text for the names). The shapes were retired rather than
-  quietly deleted; there is nothing left to learn from them.
-
   ## Where the selection comes from
 
   This scene renders the cursor, it does not own it. `MayonnaiOS.Launcher`
@@ -54,8 +44,8 @@ defmodule MayonnaiOS.Scene.Home do
   @row_bg {26, 34, 52}
 
   # 34 px of pitch at font_size 20 leaves the rows legible at arm's length on
-  # a 640x480 panel held in two hands. Ten rows from 86 end at 426, which
-  # still clears the bottom of the panel now that the top strip is the bar's.
+  # a 640x480 panel held in two hands. Ten rows from 86 end at 426, clear of
+  # the bottom of the panel.
   @top 86
   @pitch 34
   @visible 10

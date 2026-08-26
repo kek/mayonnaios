@@ -18,20 +18,12 @@ defmodule MayonnaiOS.Sleep do
   these cores reach is a bare WFI whether "suspended" or not: a successful
   s2idle would save almost nothing.
 
-  It also used to be dangerous, and that is the half of the analysis that has
-  changed. There is now a button that could bring the board back: the power
-  key's platform device is wakeup-capable and enabled --
-  `/sys/bus/platform/devices/axp20x-pek/power/wakeup` reads `enabled` on
-  firmware `3cc86f59` -- where before only `alarmtimer.0.auto`,
-  `musb-hdrc.2.auto` and `7000000.rtc` had a `power/wakeup` at all, and a
-  suspend that worked would have looked exactly like a brick in someone's
-  hands.
-
-  The wake source is recorded here because it was load-bearing and is now
-  wrong, not because it changes the answer. The other three reasons are the
-  ones that decide it, and all three stand: no `deep`, an s2idle that aborts
-  in rtw88, and no cpuidle driver to make a successful one worth anything. So
-  sleep is still the backlight and nothing else.
+  A suspend would at least be recoverable -- the power key's platform device
+  is wakeup-capable and enabled, `/sys/bus/platform/devices/axp20x-pek/power/wakeup`
+  reads `enabled` on firmware `3cc86f59` -- but the three reasons above decide
+  it regardless: no `deep`, an s2idle that aborts in rtw88, and no cpuidle
+  driver to make a successful one worth anything. So sleep is the backlight
+  and nothing else.
 
   ## Why the backlight, and why 0 and 1
 
@@ -75,7 +67,7 @@ defmodule MayonnaiOS.Sleep do
 
   ## The binding
 
-  Karl asked for the power button, and the power button now exists. It is on
+  The binding is the power button. It is on
   the PMIC's PWRON pin, `CONFIG_INPUT_AXP20X_PEK` is set in the system repo's
   `linux/nerves.fragment`, and `drivers/input/misc/axp20x-pek.c` puts
   `KEY_POWER` on an input device named `axp20x-pek`. Read off the device on
@@ -94,25 +86,16 @@ defmodule MayonnaiOS.Sleep do
   `MayonnaiOS.Launcher`'s Select+Menu chord and the menu's Power off row --
   exist and stay off this button.
 
-  ## The chord that used to be here
+  Sleep is this button's only trigger. A trigger has to be written down in
+  this moduledoc, in the launcher's binding list, in the README, in
+  `MayonnaiOS.Keyboard` and in the application's supervision comment, and
+  `@binding` below is one tuple precisely so that there is one place where
+  any of that is written down.
 
-  Sleep was Select+Start until the power key existed, and that chord is gone
-  rather than kept alongside. The case for keeping both is discoverability
-  insurance, and it does not survive contact with what a second trigger
-  costs: it has to be written down in this moduledoc, in the launcher's
-  binding list, in the README, in `MayonnaiOS.Keyboard` and in the
-  application's supervision comment, and `@binding` below is one tuple
-  precisely so that there is one place where any of that is written down.
-  Undiscoverability was the entire complaint about a chord, and answering it
-  with a chord *and* a button leaves the complaint standing while doubling
-  what a reader has to keep in step. Start goes back to being unbound, like B
-  and Y.
-
-  `MayonnaiOS.Input.find/1` is what makes the move safe: it looks the device
-  up by the name its driver gives it, and firmware without the option gets
-  `nil` and a warning naming every device that is present, rather than a
-  numbered guess that opens the analog stick and waits for `KEY_POWER` for
-  ever.
+  `MayonnaiOS.Input.find/1` looks the device up by the name its driver gives
+  it, and firmware without the option gets `nil` and a warning naming every
+  device that is present, rather than a numbered guess that opens the analog
+  stick and waits for `KEY_POWER` for ever.
   """
 
   require Logger
@@ -135,7 +118,7 @@ defmodule MayonnaiOS.Sleep do
   # compile time below, so sleep moving back onto the pad -- or onto whatever
   # key the next shell puts it on -- stays a change to this one line.
   #
-  # There is no path in here any more. A fallback would be a number, and a
+  # There is no path in here. A fallback would be a number, and a
   # number reached because the name was missing is a different device; see
   # `MayonnaiOS.Input`.
   @binding {"axp20x-pek", {nil, :key_power}}

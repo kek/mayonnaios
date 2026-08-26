@@ -2,11 +2,10 @@ defmodule MayonnaiOS.Power do
   @moduledoc """
   What the AXP20x power supply says, parsed once for everyone who asks.
 
-  This used to be a private function inside `MayonnaiOS.Diagnostics`, and it
-  moved out here when the status bar needed the same four files. A second
-  parser reading the same sysfs directory is the kind of duplication that
-  ends with two screens disagreeing about the battery and no way to tell
-  which one is lying, so there is one, and `Diagnostics` calls it too.
+  The status bar and `Diagnostics` both call this. A second parser reading
+  the same sysfs directory is the kind of duplication that ends with two
+  screens disagreeing about the battery and no way to tell which one is
+  lying, so there is one.
 
   Verified on hardware, both directions: charge and discharge both move
   `status` and the sign of `current_now`. A sample taken while idle read
@@ -23,9 +22,9 @@ defmodule MayonnaiOS.Power do
   project's characteristic failure is a plausible reading that never moves,
   so absence is reported as absence.
 
-  `values/1` is the older, flatter shape -- a map whose fields are `nil` for
-  whatever could not be read -- kept because the diagnostics screen colours
-  each row separately and wants the partial answer.
+  `values/1` is a flatter shape -- a map whose fields are `nil` for whatever
+  could not be read -- for the diagnostics screen, which colours each row
+  separately and wants the partial answer.
   """
 
   # The names are the driver's, not the chip's: mainline binds this PMIC's

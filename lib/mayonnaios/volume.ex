@@ -78,20 +78,15 @@ defmodule MayonnaiOS.Volume do
   boot, so this process starts believing the mixer rather than asserting
   anything over it.
 
-  Level 0 used to mean muted as well, and that was a bug with a much larger
-  blast radius than a volume control has any business having. The switches
-  are the route to the sink, ALSA powers the DAC only when the route is
-  complete, so closing them makes playback *impossible* rather than
-  inaudible: a write to the PCM returns `EIO`, and a program that waits for
-  buffer space instead waits in `poll()` for ever.
-
-  The device was found demonstrating exactly that -- a game frozen mid-play,
-  the ring buffer holding `[volume] level 0/10 (0%)` and the PCM's `hw_ptr`
-  stopping in the same second. The rocker had walked down to the bottom of its
-  travel, which is the one thing a volume control must always be allowed to
-  do. `MayonnaiOS.Audio` has the measurements; the part that belongs here is
-  that this process no longer has a level that can take the audio path away
-  from whatever is playing.
+  Level 0 must not close the switches. The switches are the route to the
+  sink, ALSA powers the DAC only when the route is complete, so closing them
+  makes playback *impossible* rather than inaudible: a write to the PCM
+  returns `EIO`, and a program that waits for buffer space instead waits in
+  `poll()` for ever -- a game frozen mid-play because the rocker walked down
+  to the bottom of its travel, which is the one thing a volume control must
+  always be allowed to do. `MayonnaiOS.Audio` has the measurements; the part
+  that belongs here is that no level this process can reach takes the audio
+  path away from whatever is playing.
 
   Which leaves one notion of silence in one place. `Audio.disable_output/1`
   closes the path and is not a level, not the boot state, and not reachable
@@ -111,11 +106,10 @@ defmodule MayonnaiOS.Volume do
   alias MayonnaiOS.Audio
 
   # The name the driver gives the rocker, and the only thing this module knows
-  # about which device it is. There is no numbered fallback: this attribute
-  # used to be `/dev/input/event1`, and by the time the power key shipped that
-  # number was the analog stick -- a fallback that opens the stick and waits
-  # for `KEY_VOLUMEUP` is the rocker doing nothing with nothing in the log.
-  # See `MayonnaiOS.Input`.
+  # about which device it is. There is no numbered fallback: /dev/input
+  # numbering is probe order, and a fallback that opens the analog stick and
+  # waits for `KEY_VOLUMEUP` is the rocker doing nothing with nothing in the
+  # log. See `MayonnaiOS.Input`.
   @device_name "gpio-keys-volume"
 
   # Read off the hardware, not the device tree: these are the atoms
@@ -172,8 +166,8 @@ defmodule MayonnaiOS.Volume do
     # re-asserting it would make this process the second thing that decides
     # how loud a freshly booted device is.
     #
-    # Note that this is no longer also what the hardware powers on as. The
-    # hardware comes up with the output path closed and `Startup` opens it, so
+    # Note that this is not what the hardware powers on as. The hardware
+    # comes up with the output path closed and `Startup` opens it, so
     # believing the mixer here is believing `Startup` -- and if `Startup`
     # failed, its warning is the thing that says so. Writing a level from here
     # to be sure would hide that.

@@ -4,7 +4,7 @@ defmodule MayonnaiOS.Controller.ReportTest do
   alias MayonnaiOS.Controller.Report
 
   # The report descriptor and the bytes packed against it are the one part of
-  # this stack that fails silently -- and now that the descriptor claims to be
+  # this stack that fails silently -- and because the descriptor claims to be
   # an Xbox Wireless Controller's, the hosts that matter do not even read it:
   # their drivers parse reports against the layout they know that pad to have.
   # So the checks here are against the reference capture and the 1914's layout

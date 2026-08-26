@@ -172,8 +172,8 @@ defmodule MayonnaiOS.LauncherTest do
       # here deliberately steps around. Two lookups happen at boot -- the pad
       # and whatever device the sleep key is on -- and on a laptop both answer
       # `nil`. Neither may be opened, and neither may take the boot down:
-      # `File.exists?/1` on a nil raises, which is what a fallback used to
-      # hide by handing over a path that merely did not exist.
+      # `File.exists?/1` on a nil raises, and a fallback would hide the nil
+      # by handing over a path that merely does not exist.
       log =
         ExUnit.CaptureLog.capture_log(fn ->
           start_supervised!(Launcher)
@@ -481,8 +481,7 @@ defmodule MayonnaiOS.LauncherTest do
 
       assert Launcher.stop_program() == {:error, {:still_running, os_pid}}
 
-      # Everything the old code did unconditionally, and none of it is right
-      # here: the program still has the display, so the launcher must not claim
+      # The program still has the display, so the launcher must not claim
       # otherwise and must not draw.
       assert Launcher.running?()
       assert Panel.held?()

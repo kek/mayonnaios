@@ -85,12 +85,12 @@ defmodule MayonnaiOS.SleepTest do
       assert Sleep.trigger?(MapSet.new([:btn_select, :btn_start, :btn_mode]), :key_power)
     end
 
-    test "the chord it replaced does nothing at all" do
-      # This is the test that fails if Select+Start is kept "just in case".
-      # It is not a spare tyre: it is a second trigger to write down in the
-      # moduledoc, the launcher, the README, the keyboard bridge and the
-      # supervision tree, and `@binding` is one tuple so that there is one
-      # place to read it off. The full argument is in MayonnaiOS.Sleep.
+    test "a Select+Start chord does nothing at all" do
+      # This is the test that fails if a Select+Start chord is added "just in
+      # case". A second trigger is not a spare tyre: it is one more thing to
+      # write down in the moduledoc, the launcher, the README, the keyboard
+      # bridge and the supervision tree, and `@binding` is one tuple so that
+      # there is one place to read it off. See MayonnaiOS.Sleep.
       refute Sleep.trigger?(MapSet.new([:btn_select]), :btn_start)
       refute Sleep.trigger?(MapSet.new([:btn_select, :btn_start]), :btn_start)
     end
@@ -106,9 +106,9 @@ defmodule MayonnaiOS.SleepTest do
 
   describe "the device the key arrives on" do
     test "is nil here, and never a number" do
-      # The fallback used to be `/dev/input/event0`, which is the power key's
-      # number on this firmware and was the gamepad's on the one before. Both
-      # of those are accidents; the name is the thing that is meant.
+      # Never a number: `/dev/input` numbers are accidents of probe order --
+      # `event0` is the power key on this firmware and the gamepad on another.
+      # The name is the thing that is meant.
       assert Sleep.device() == nil
     end
 
@@ -180,14 +180,12 @@ defmodule MayonnaiOS.SleepTest do
       assert Launcher.asleep?()
     end
 
-    # There is no longer a test that the held set is cleared on waking.
-    #
-    # It was worth having and its last observable consequence went away with
-    # the chord: the held set now feeds exactly one thing, the Select+Menu
-    # power-off, and a test that presses that chord calls
-    # `Nerves.Runtime.poweroff/0`, which on the host begins stopping the VM
-    # and takes the whole run down with no summary. `wake_up/1` still clears
-    # it, for that chord's sake; see the comment there.
+    # Held-set clearing on waking is untested on purpose: its only
+    # observable consequence is the Select+Menu power-off, and a test that
+    # presses that chord calls `Nerves.Runtime.poweroff/0`, which on the host
+    # begins stopping the VM and takes the whole run down with no summary.
+    # `wake_up/1` clears the held set for that chord's sake; see the comment
+    # there.
 
     test "a backlight that cannot be written does not swallow anything" do
       Application.put_env(:mayonnaios, :backlight_brightness, "/nonexistent/dir/brightness")

@@ -22,10 +22,10 @@ defmodule MayonnaiOS.InputTest do
 
   describe "find/1" do
     test "is nil when the name is not there, and not a path" do
-      # find/2 used to take the number to fall back on. There is nothing to
-      # fall back to now, on purpose: a fallback runs in exactly the state
-      # where the name is absent, and a number reached in that state is some
-      # other device that never sends the key being waited for.
+      # There is nothing to fall back to, on purpose: a fallback runs in
+      # exactly the state where the name is absent, and a number reached in
+      # that state is some other device that never sends the key being
+      # waited for.
       assert Input.find("no-such-device") == nil
     end
 

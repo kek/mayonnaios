@@ -38,8 +38,8 @@ defmodule MayonnaiOS.Launcher do
   this firmware draw on their own clock: `MayonnaiOS.Scene.StatusBar`, whose
   clock turns over once a minute on every screen, and
   `MayonnaiOS.Scene.Diagnostics`, which refreshes once a second. Either one
-  writing `/dev/fb0` while RetroArch holds DRM master hangs this board -- it
-  did, on the first SNES game launched after the bar shipped.
+  writing `/dev/fb0` while RetroArch holds DRM master hangs this board --
+  observed on hardware, not inferred.
 
   So "a program owns the panel" is a fact rather than an implication, and it
   lives in `MayonnaiOS.Panel`. This module is its only writer: it holds
@@ -51,19 +51,18 @@ defmodule MayonnaiOS.Launcher do
 
   ## Giving the screen back requires the program to actually be dead
 
-  The other half of that promise, and the one this module got wrong for
-  longer: a program is not stopped because it was sent a signal. RetroArch
-  catches SIGTERM and its handler only sets a flag for a main loop that may
-  never look again, so `kill -TERM` on a hung one returns 0 having achieved
-  nothing -- while the process keeps `/dev/dri/card0` open and the launcher
-  reports it stopped. Every launch after that failed with `[KMS] Error when
-  switching mode`, which reads as a display bug in a completely different
-  place.
+  The other half of that promise: a program is not stopped because it was
+  sent a signal. RetroArch catches SIGTERM and its handler only sets a flag
+  for a main loop that may never look again, so `kill -TERM` on a hung one
+  returns 0 having achieved nothing -- while the process keeps
+  `/dev/dri/card0` open. A launcher that reports it stopped anyway makes
+  every later launch fail with `[KMS] Error when switching mode`, which reads
+  as a display bug in a completely different place.
 
   So the stop path escalates to SIGKILL, waits for the process to be gone, and
   only then releases the hold and repaints. `do_stop/1` has the detail; the
   part that belongs up here is that "the program owns the panel until it
-  exits" now means *exits*, not *was asked to*.
+  exits" means *exits*, not *was asked to*.
 
   ## Getting the saves onto the card
 
@@ -96,14 +95,13 @@ defmodule MayonnaiOS.Launcher do
   Menu is the one way back. It stops a running program if there is one and
   otherwise leaves diagnostics, so the same press always means the same thing
   -- "put me back where I started" -- rather than depending on what is
-  currently on the panel. Start used to do the stopping, which split "get out
-  of this" across two keys depending on which kind of thing you were in.
+  currently on the panel. One key does all the stopping, so "get out of this"
+  is never split across keys by which kind of thing you are in.
 
-  Select+Menu still powers off, so the chord is checked before the plain
-  press. The chord was the only power-off for a long time, on the argument
-  that switching off is not undoable and this is a handheld that gets carried
-  in a pocket; the menu now also has a Power off row, and the same argument
-  shapes how the row answers. Pressing A on it does nothing but put a
+  Select+Menu powers off, so the chord is checked before the plain press.
+  Switching off is not undoable and this is a handheld that gets carried in a
+  pocket, which is the argument that shapes how the menu's Power off row
+  answers as well. Pressing A on it does nothing but put a
   question on the bottom line; Y -- the button that did not ask -- switches
   off, and any other press takes the question down and is swallowed, so a
   cancel cannot also launch what the cursor is on. That is the file manager's
@@ -113,9 +111,8 @@ defmodule MayonnaiOS.Launcher do
   ## Sleep, and the press that wakes it
 
   The power button turns the backlight off; `MayonnaiOS.Sleep` owns both the
-  mechanism and the choice of key, including why it is that button now that
-  Linux can see it, why the Select+Start chord it replaced is gone rather than
-  kept as well, and why sleep is still not suspend.
+  mechanism and the choice of key, including why it is that button and why
+  sleep is not suspend.
 
   What belongs here is the other half: while the panel is dark, **the next
   press is consumed**. Waking is not a binding of its own -- any button wakes,
@@ -134,21 +131,19 @@ defmodule MayonnaiOS.Launcher do
   reaches it too. Only the launcher's own bindings can be swallowed, which is
   the half that would have launched something.
 
-  An app running in this VM used to be a third limit -- it kept every button,
-  the sleep chord included, for the same reason it keeps Menu. That stops with
-  the move onto the power key, and the sleep binding is now taken out of the
-  report before the app sees it. Three reasons, in the order that decides it.
-  The key is not on the pad at all, so this is not the launcher reaching into
-  a button an app might want. `MayonnaiOS.Controller.Report` describes fifteen
-  gamepad keys and `KEY_POWER` is not one of them, so forwarding it means it
-  is dropped on the floor -- and a power button that does nothing while the
-  controller screen is open is exactly the failure this codebase keeps naming.
-  And it was already asymmetric: the sleeping clause below is tested before
-  the app clause, so *waking* has always been the launcher's whoever has the
-  buttons. Sleeping now matches.
+  An app running in this VM is not a limit: the sleep binding is taken out of
+  the report before the app sees it. Three reasons, in the order that decides
+  it. The key is not on the pad at all, so this is not the launcher reaching
+  into a button an app might want. `MayonnaiOS.Controller.Report` describes
+  fifteen gamepad keys and `KEY_POWER` is not one of them, so forwarding it
+  means it is dropped on the floor -- and a power button that does nothing
+  while the controller screen is open is exactly the failure this codebase
+  keeps naming. And it matches waking: the sleeping clause below is tested
+  before the app clause, so *waking* is the launcher's whoever has the
+  buttons, and sleeping behaves the same.
 
   That is a property of a one-key binding rather than of the mechanism. Move
-  `MayonnaiOS.Sleep`'s `@binding` back onto a pad chord and an app loses those
+  `MayonnaiOS.Sleep`'s `@binding` onto a pad chord and an app loses those
   keys, which is a reason to leave it on a key no app wants.
 
   This process owns the gamepad and the power key's device, so everything on
@@ -184,10 +179,9 @@ defmodule MayonnaiOS.Launcher do
   alias MayonnaiOS.{Input, Panel, Programs, Sleep}
 
   # The name the driver gives the gamepad, which is the only thing this module
-  # knows about which device it is. There is no numbered fallback: this used to
-  # be `/dev/input/event0` and that number is the power key now, so a fallback
-  # would have opened the one device on the board with no gamepad buttons on
-  # it. See `MayonnaiOS.Input`.
+  # knows about which device it is. There is no numbered fallback: /dev/input
+  # numbering is probe order, and `event0` is the power key -- the one device
+  # on the board with no gamepad buttons on it. See `MayonnaiOS.Input`.
   @device_name "gpio-keys-gamepad"
 
   # The analog stick. Opened for the same reason as the power key -- evdev is
@@ -202,24 +196,19 @@ defmodule MayonnaiOS.Launcher do
 
   # X and Y are swapped too, and the device tree does not admit it.
   #
-  # The first version of this file said X and Y needed no translation: the DT
-  # labels "Action-Pad X" 307 and "Action Pad Y" 308, and Linux has
-  # BTN_X == BTN_NORTH == 307 and BTN_Y == BTN_WEST == 308, so the labels
-  # looked self-consistent. Pressing the buttons says otherwise. The button
-  # silkscreened X emits 308 and the one silkscreened Y emits 307 -- the DT's
-  # X/Y labels are the wrong way round for this board's shell.
+  # The DT labels look self-consistent -- "Action-Pad X" 307 and "Action Pad
+  # Y" 308, and Linux has BTN_X == BTN_NORTH == 307 and BTN_Y == BTN_WEST ==
+  # 308 -- but pressing the buttons says otherwise. The button silkscreened X
+  # emits 308 and the one silkscreened Y emits 307: the DT's X/Y labels are
+  # the wrong way round for this board's shell, the same way A and B are.
   #
-  # So :btn_y below really is the X button. Reading the device tree was not
-  # enough here, which is the same lesson as A and B and was available the
-  # whole time; it just was not applied twice.
+  # So :btn_y below really is the X button.
   #
-  # Y (:btn_x) has no plain binding. It played the audio test while audio
-  # was the open question on this board; that is answered, and a key on a
-  # handheld that makes a noise when pressed by accident is not worth keeping
-  # for a check that belongs in IEx. `MayonnaiOS.Audio.run/0` still does it.
-  # Its one job now is answering the Power off row's question -- the same
-  # "Y is the second verb" it has in `MayonnaiOS.Files`, and only while the
-  # question is on the panel.
+  # Y (:btn_x) has no plain binding. A key on a handheld that makes a noise
+  # when pressed by accident is not worth spending on a check that belongs in
+  # IEx (`MayonnaiOS.Audio.run/0`). Its one job is answering the Power off
+  # row's question -- the same "Y is the second verb" it has in
+  # `MayonnaiOS.Files`, and only while the question is on the panel.
   @confirm_button :btn_x
   @diagnostics_button :btn_y
 
@@ -265,7 +254,7 @@ defmodule MayonnaiOS.Launcher do
 
   # How often the wait asks the OS whether the process is still there, in
   # between watching for the port's exit message. Small enough that the normal
-  # path is not noticeably slower than the old fire-and-forget one.
+  # path is not noticeably slower than fire-and-forget.
   @poll_ms 50
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -604,16 +593,13 @@ defmodule MayonnaiOS.Launcher do
 
   # Log what the program says, rather than dropping it.
   #
-  # This used to discard the data outright, and it cost an evening. RetroArch
-  # started, rendered one frame and exited, and the entire visible evidence was
-  # "a quick flash on the screen and nothing" -- while the program had been
-  # printing the exact reason to the pipe the whole time:
-  #
-  #     [ERROR] [Video] Cannot initialize input driver. Exiting...
-  #
   # An external program that dies on this device has no other way to tell
   # anyone why: there is no console, the screen belongs to whatever ran last,
-  # and the ring logger is the only thing anybody can read afterwards.
+  # and the ring logger is the only thing anybody can read afterwards. A
+  # RetroArch that renders one frame and exits looks like "a quick flash on
+  # the screen and nothing" -- while the exact reason is on the pipe:
+  #
+  #     [ERROR] [Video] Cannot initialize input driver. Exiting...
   #
   # Trimmed and length-capped because a chatty program should not be able to
   # push everything else out of a fixed-size ring buffer.
@@ -1063,19 +1049,18 @@ defmodule MayonnaiOS.Launcher do
   #
   # ## Why it waits, and why the wait is the point
   #
-  # The old code signalled, closed the port, released the panel and repainted,
-  # in that order, without ever asking whether the program had gone. Every one
-  # of those steps is wrong about a program that has not died yet:
+  # Signalling, closing the port, releasing the panel and repainting, in that
+  # order, without ever asking whether the program has gone, is wrong at every
+  # step about a program that has not died yet:
   #
-  #   * A hung RetroArch keeps `/dev/dri/card0` and `card1` open. The launcher
-  #     reported it stopped, and then every later launch failed with `[KMS]
+  #   * A hung RetroArch keeps `/dev/dri/card0` and `card1` open. A launcher
+  #     that reports it stopped makes every later launch fail with `[KMS]
   #     Error when switching mode` / `Cannot open video driver` -- which from
   #     the outside looks like a completely different bug in a completely
   #     different subsystem.
   #   * The repaint is a write to a framebuffer whose DRM master is still that
   #     program, which is the thing `MayonnaiOS.Panel` exists to prevent and
-  #     which hangs this SoC. Raised as a follow-up on the panel-ownership PR;
-  #     this is that follow-up.
+  #     which hangs this SoC.
   #
   # And if even SIGKILL does not land, the honest thing is to report that
   # rather than tidy up around it. Nothing is closed, nothing is released,
@@ -1243,15 +1228,12 @@ defmodule MayonnaiOS.Launcher do
 
   # Repainting must never take the Launcher down when there is no UI running.
   # Scenic.ViewPort.info/1 is a bare GenServer.call, so on a missing viewport
-  # it *exits* rather than returning an error -- the `case` this used to do
-  # could not catch that, and the clause that looked like it handled it was
-  # unreachable. It went unnoticed because the host had no :viewport config,
-  # so default_scene/0 returned nil and this function short-circuited above
-  # before ever asking Scenic anything.
+  # it *exits* rather than returning an error -- no `case` around it can catch
+  # that, which is why `Process.whereis/1` guards the call instead.
   #
   # That matters beyond the tests: Scenic is deliberately not started at boot
   # (see MayonnaiOS), so on a device where start_ui/0 has not been called yet,
-  # one button press would have crashed the process that owns the buttons.
+  # one button press must not crash the process that owns the buttons.
   defp do_set_root(scene, param) do
     with pid when is_pid(pid) <- Process.whereis(viewport_name()),
          {:ok, vp} <- Scenic.ViewPort.info(pid) do

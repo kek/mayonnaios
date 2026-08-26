@@ -33,9 +33,9 @@ defmodule MayonnaiOS.Panel do
 
   ## Why it is a synchronous read and not a notification
 
-  The first version of this was a subscription: the launcher would tell the
-  scenes, and each would keep a flag. It cannot work here, and the reason is
-  worth writing down because it is invisible from the outside.
+  A subscription -- the launcher telling the scenes, each keeping a flag --
+  cannot work here, and the reason is worth writing down because it is
+  invisible from the outside.
 
   Scenic restarts a component when its parent scene pushes a graph. On the
   diagnostics screen, which pushes once a second, the status bar is a *new

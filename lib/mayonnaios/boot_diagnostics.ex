@@ -3,10 +3,7 @@ defmodule MayonnaiOS.BootDiagnostics do
   Writes a boot report into unallocated space on the MicroSD card so it can be
   read back from a host with `dd`.
 
-  Written when the card was the *only* channel out: no display, no reachable
-  UART without opening the case, no working network. All three of those have
-  since been fixed, so this is no longer the only way to see a boot -- but it
-  is still the only one that works when the others do not, which is exactly
+  This is the one channel that works when the others do not, which is exactly
   when you need it. It has no dependency on the network coming up, on the
   panel, or on the UI starting, and a UI that takes the framebuffer and then
   fails leaves nothing on screen to read.

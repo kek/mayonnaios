@@ -186,10 +186,10 @@ defmodule MayonnaiOS.Scene.Diagnostics do
   defp thermal_rows([]), do: [{:row, "zones", "none", @fail}]
 
   defp thermal_rows(zones) do
-    # No "press A and watch this rise" row here any more. It was wrong:
-    # kmscube runs the GPU at about 5% and moves this sensor by 0.65 °C,
-    # which is noise. These sensors are known good from a CPU load test
-    # (+9.8 °C on cpu-thermal), and GPU work is measured directly below.
+    # No "press A and watch this rise" row: kmscube runs the GPU at about 5%
+    # and moves this sensor by 0.65 °C, which is noise. These sensors are
+    # known good from a CPU load test (+9.8 °C on cpu-thermal), and GPU work
+    # is measured directly below.
     Enum.map(zones, fn {type, milli} ->
       {:row, String.replace_suffix(type, "-thermal", ""), degrees(milli), @pass}
     end)
@@ -239,10 +239,10 @@ defmodule MayonnaiOS.Scene.Diagnostics do
     # coloured green on its own. The row that decides is "firmware", which
     # reports what btrtl said while setting the controller up.
     #
-    # There used to be an "address" row here, reading
-    # /sys/class/bluetooth/hci0/address. This kernel does not expose that
-    # attribute, so it read "none" on a working controller and sent someone
-    # looking for a fault that had already been fixed.
+    # No "address" row: this kernel does not expose
+    # /sys/class/bluetooth/hci0/address, so such a row reads "none" on a
+    # working controller and sends someone looking for a fault that is not
+    # there.
     {firmware, colour} =
       case bt[:rtl] do
         {:ok, version} -> {"ok #{version}", @pass}
@@ -300,9 +300,8 @@ defmodule MayonnaiOS.Scene.Diagnostics do
   end
 
   # Muted controls are amber, not red: silent at 0% is the state this device
-  # is *set* to at boot, not a fault. The tone is no longer on a button, so
-  # this row says whether calling it would do anything rather than what to
-  # press.
+  # is *set* to at boot, not a fault. The tone is not on a button, so this
+  # row says whether calling it would do anything rather than what to press.
   defp audio_state do
     if Audio.enabled?(), do: "armed — Audio.run/0", else: "off (silent)"
   end

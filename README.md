@@ -375,13 +375,11 @@ them, and they rest untouched forever; rumble is accepted from the host and
 dropped, because there is no motor and a refused write reads as a fault
 where a silent one reads as a dead motor.
 
-**This firmware update means re-pairing, on every host.** A host reads the
+**A descriptor change means re-pairing, on every host.** A host reads the
 report descriptor once, when it pairs, and caches it forever after — so a
-host paired with the previous firmware's three-byte pad will parse the new
-sixteen-byte reports against the old layout and report garbage with total
-confidence. Remove the device on the host and run
-`MayonnaiOS.Controller.unpair()` here; the same applies to any future
-descriptor change.
+host paired with older firmware parses new reports against the layout it
+cached and reports garbage with total confidence. Remove the device on the
+host and run `MayonnaiOS.Controller.unpair()` here.
 
 ### When a game does not see it
 
@@ -394,34 +392,32 @@ completely and reopened after the permission is granted. This looks exactly
 like a broken controller and is not one — the browser gamepad testers work
 throughout, because the browser has the permission.
 
-Everything else this section used to prescribe — Steam's generic-gamepad
-switch, per-game keyboard bindings, hand-rolled `SDL_GAMECONTROLLERCONFIG`
-lines — was the cost of not being recognised, and went with the cause. What
-is still true: a game with no controller support at all still has none, and
-Steam Input on macOS still cannot fabricate a virtual controller for such a
-game. It never could; this device just no longer needs it to.
+Steam's generic-gamepad switch, per-game keyboard bindings and hand-rolled
+`SDL_GAMECONTROLLERCONFIG` lines are all unnecessary — each is a workaround
+for a pad that is not recognised. What a recognised pad still cannot buy: a
+game with no controller support at all has none, and Steam Input on macOS
+cannot fabricate a virtual controller for such a game.
 
 ### What claiming the identity costs
 
-The previous firmware refused to borrow a real controller's numbers, and the
-reason it wrote down was correct: a host with a driver for the claimed pad
-stops reading the descriptor and parses reports against that pad's fixed
-layout, so any deviation is scrambled buttons the host is certain are
-correct. That is an argument against claiming the numbers while shipping
-your own layout. It is not an argument against shipping the layout too,
-which is what this firmware does — the drivers' fixed belief is now a
-correct belief, and the test suite holds the descriptor byte-for-byte
-against a capture from a real pad, so a drift is a failing test rather than
-a scrambled A button.
+The objection to borrowing a real controller's numbers is real: a host with
+a driver for the claimed pad stops reading the descriptor and parses reports
+against that pad's fixed layout, so any deviation is scrambled buttons the
+host is certain are correct. That is an argument against claiming the
+numbers while shipping your own layout. It is not an argument against
+shipping the layout too, which is what this firmware does — the drivers'
+fixed belief is a correct belief, and the test suite holds the descriptor
+byte-for-byte against a capture from a real pad, so a drift is a failing
+test rather than a scrambled A button.
 
-What is genuinely given up: the device now says it is something it is not,
+What is genuinely given up: the device says it is something it is not,
 to hosts and to anyone reading a Bluetooth device list, and controls it does
 not have — the right stick, rumble — are promised and permanently inert. A
 host that someday probes deeper than any known host does, say for firmware
 versions over Microsoft's accessory protocol, will find the seams; nothing
 on macOS, SteamOS, Windows or a phone does that today. The trade is written
 down here rather than left implicit, because it was made on purpose and the
-thing bought with it is the section above shrinking to one paragraph.
+thing bought with it is a pad every host recognises with no mapping step.
 
 Pairing is *Just Works*: no passkey, no confirmation, exactly like every
 commercial BLE gamepad. That means no protection against someone active on

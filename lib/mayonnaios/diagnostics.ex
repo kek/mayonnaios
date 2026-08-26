@@ -26,10 +26,9 @@ defmodule MayonnaiOS.Diagnostics do
   on the device rather than assumed. They happen to be the obvious ones this
   time; the gamepad's were not, which is the reason for looking.
 
-  No numbers in that table, because the numbers have moved twice and the
-  numbers this module used to name are now other devices -- `event1` is the
-  analog stick and `event2` is the gamepad. `MayonnaiOS.Input` has the current
-  numbering and the argument for not writing it down here.
+  No numbers in that table, because `/dev/input` numbering moves whenever a
+  device is added to the board. `MayonnaiOS.Input` has the current numbering
+  and the argument for not writing it down here.
 
   `MayonnaiOS.Volume` opens the rocker as well, and acts on it. Both readers
   get every event -- evdev is only exclusive to a reader that asks for
@@ -60,11 +59,11 @@ defmodule MayonnaiOS.Diagnostics do
 
   alias MayonnaiOS.Bluetooth.HCISocket
 
-  # Looked up by name at startup, and by name only. These used to carry a
-  # numbered fallback each -- `event1` and `event2` -- and both numbers had
-  # already moved: they are the analog stick and the gamepad now, so the
-  # fallbacks would have counted volume presses on a device that has no keys
-  # and queried a jack switch on one that has no switch. See `MayonnaiOS.Input`.
+  # Looked up by name at startup, and by name only -- no numbered fallbacks.
+  # A number reached when the name is missing is a different device: `event1`
+  # is the analog stick and `event2` is the gamepad, so a fallback would count
+  # volume presses on a device that has no keys and query a jack switch on one
+  # that has no switch. See `MayonnaiOS.Input`.
   @volume_name "gpio-keys-volume"
   @jack_name "H616 Audio Codec Headphone Jack"
 
@@ -167,14 +166,9 @@ defmodule MayonnaiOS.Diagnostics do
   def handle_info(:poll, state), do: {:noreply, poll(%{state | ticks: state.ticks + 1})}
 
   # One handler for both devices, matching on what the event *is* rather than
-  # on which path it came from.
-  #
-  # These used to be two clauses keyed on the two devices' numbered paths. That
-  # worked while those numbers were stable, and /dev/input numbering is probe
-  # order rather than a promise -- adding one device to the board is enough to
-  # move it, which has since happened twice. The two kinds of event here are
-  # disjoint, a volume key and a jack switch, so the path was never carrying
-  # information in the first place.
+  # on which path it came from: the two kinds of event here are disjoint, a
+  # volume key and a jack switch, so the path carries no information -- and
+  # /dev/input numbering is probe order rather than a promise anyway.
   def handle_info({:input_event, _device, events}, state) do
     state =
       Enum.reduce(events, state, fn
