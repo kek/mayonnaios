@@ -31,8 +31,7 @@ Software:
   Steam Deck, a Mac or a PC recognises it with no mapping step — a whole BLE
   HID stack in Elixir, with no BlueZ in the image
 - A Bluetooth devices app: an LE scan of what is nearby, and the bonds this
-  device already has, with forgetting one moved off the IEx prompt and onto
-  the handheld
+  device already holds
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
 - A web UI for uploading games from a phone
@@ -44,8 +43,8 @@ Software:
 - Sleep on the power button: the backlight goes off and any button brings it
   back. Not suspend — this board's only suspend mode would save almost
   nothing, and `MayonnaiOS.Sleep`'s moduledoc has the analysis
-- Orderly power off, two ways: the Select+Menu chord, and a **Power off** row
-  at the bottom of the menu — A asks, Y answers, anything else keeps it on
+- Orderly power off: the Select+Menu chord, or the **Power off** row at the
+  bottom of the menu
 
 ## Building and flashing
 
@@ -77,7 +76,7 @@ Open the device from a phone on the same WiFi:
 
     http://nerves.local/
 
-Pick a file and it uploads, with a progress bar. The same page lists the
+Pick a file and it uploads. The same page lists the
 emulator cores RetroArch can see and offers to install more. Uploads stream
 straight to disk, so a several-hundred-megabyte disc image is fine.
 
@@ -130,35 +129,18 @@ power.
 
 ## Moving files around on the device
 
-Pick **Files** in the launcher. It opens on a short list of the places worth
-looking at — the ROM roots, the installed bundles, the installed cores, and
-`/root` — and browsing starts inside one of them.
+Pick **Files** in the launcher: copy, move, rename and delete across both
+cards, browsing from the ROM roots, the installed bundles, the installed
+cores and `/root`. Copy and move go through a clipboard, since there is
+nothing to type a destination with.
 
-    D-pad up/down     move
-    D-pad left/right  a screen at a time
-    A                 open a directory, or the actions for a file
-    B                 back
-    Y                 the second verb; the bottom line says what it is
-    Menu              leave
-
-Copy, move, rename and delete. Copy and move are a clipboard, because there is
-nothing to type a destination with: pick the file, walk to where it should go,
-press Y and paste it. Renaming is a character picker for the same reason.
-
-Nothing overwrites. A destination that already exists is refused rather than
-replaced, because on this device the file being replaced is somebody's save.
-
-**Deleting asks, and the answer is not the button that asked.** A opens the
-confirmation and **Y** carries it out; A cancels, as does B and as does any
-direction. There is no undo and no trash on a handheld that is switched off by
-pulling its power, so a second press of the same button would not be a
-confirmation. A directory with anything in it is refused outright.
-
-Every copy is fsynced before it counts as done, via a `.part` file renamed
-into place — so an interrupted copy leaves a `.part` rather than a ROM that
-looks complete and fails three hours into a game. `MayonnaiOS.Files` has the
-rest of the guarantees, including the path policy and how symlinks are
-treated.
+Two guarantees that are not visible on screen: nothing ever overwrites — an
+existing destination is refused, because on this device the file being
+replaced is somebody's save — and every copy is fsynced via a `.part` file
+renamed into place, so an interrupted copy leaves a `.part` rather than a
+ROM that looks complete and fails three hours into a game.
+`MayonnaiOS.Files` has the rest, including the path policy and how symlinks
+are treated.
 
 ## Emulator cores
 
@@ -201,9 +183,6 @@ decoded in software on the A53s and drawn through SDL on the same KMS stack
 RetroArch uses. It installs the same way RetroArch does, as a bundle:
 
     iex> MayonnaiOS.Bundle.install(MayonnaiOS.Bundle.spec(:moonlight))
-
-The menu row exists before the bundle does; until the install it renders as
-not installed.
 
 First run is a one-time SSH session, because two things exist only on the
 player's side of the fence. Pairing prints a PIN that must be typed into the
@@ -265,18 +244,14 @@ hci0 is missing, is in
 ## Seeing what Bluetooth is nearby
 
 Pick **Bluetooth devices** in the launcher. It runs an active LE scan and
-lists what answers — name, signal strength, rows ageing out as devices stop
-advertising — alongside the bonds this device already holds. **A** arms a row
-and a second **A** forgets it, so undoing a pairing no longer needs an SSH
-session from another machine.
+lists what answers, alongside the bonds this device already holds — so
+forgetting a bond happens on the device instead of over SSH.
 
-**It does not connect headphones, and the first line on the screen says so.**
-Bluetooth audio is A2DP over BR/EDR, and none of that transport is here — the
-row for a pair of headphones says which transport it would need.
-`MayonnaiOS.Pairing` has the full account.
+It does not connect headphones: Bluetooth audio is A2DP over BR/EDR, and
+none of that transport is here. `MayonnaiOS.Pairing` has the full account.
 
 It holds hci0 for as long as it runs, so it and the controller app are
-mutually exclusive; the launcher's one-app-at-a-time rule enforces that.
+mutually exclusive.
 
     iex> MayonnaiOS.Pairing.start()
     iex> MayonnaiOS.Pairing.status()
@@ -341,11 +316,8 @@ host-only path:
 | `p` | the power button — sleep, and any key wakes it |
 | escape | Select+Menu, the power-off chord |
 
-`x`, `v` and `s` are sent too, as B, Y and Start, and do nothing — the launcher
-binds none of them. Left and right do nothing on the home screen either, whose
-menu is one column, but they reach whatever app the launcher has handed the
-buttons to: the Files app pages a screenful at a time with them. None of this
-is conditional on the target, so a USB keyboard plugged into the handheld gets
+`x`, `v` and `s` are sent too, as B, Y and Start. None of this is
+conditional on the target, so a USB keyboard plugged into the handheld gets
 the same bindings. `p` is the one key that is not a pad button: it sends
 `KEY_POWER`, which on the device arrives from `axp20x-pek` rather than from
 the gamepad.
