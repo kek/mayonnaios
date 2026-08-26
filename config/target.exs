@@ -280,6 +280,12 @@ config :mayonnaios, :programs, [
   # BR/EDR host in this firmware. `MayonnaiOS.Pairing` has the full account,
   # and the screen says it in the first line rather than in a footnote.
   %{name: "Bluetooth devices", app: MayonnaiOS.Pairing},
+  # Two rows, one app: `MayonnaiOS.Top` with which world to read as the
+  # argument, the same {module, arg} shape graphical pickles use. Both are
+  # readings of things that are always there -- the VM and /proc -- so unlike
+  # the Bluetooth apps neither takes a device away from anything.
+  %{name: "BEAM processes", app: {MayonnaiOS.Top, :beam}},
+  %{name: "OS processes", app: {MayonnaiOS.Top, :os}},
   # Neither a program nor an app: a verb of the launcher's own. Selecting it
   # asks rather than acts -- Y answers, anything else cancels -- and it ends
   # in the same `Nerves.Runtime.poweroff/0` the Select+Menu chord reaches.
