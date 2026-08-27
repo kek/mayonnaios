@@ -72,8 +72,7 @@ defmodule MayonnaiOS.Scene.StatusBar do
 
   use Scenic.Component, has_children: false
 
-  alias MayonnaiOS.{Panel, Power, Status}
-  alias Scenic.Assets.Static
+  alias MayonnaiOS.{Panel, Power, Status, Theme}
   alias Scenic.Graph
 
   import Scenic.Primitives
@@ -85,16 +84,19 @@ defmodule MayonnaiOS.Scene.StatusBar do
   # asserts nothing draws inside it.
   @height 30
 
-  # Same palette as every scene, so the bar reads as part of the device rather
-  # than as a widget bolted onto it. The background is two shades lighter than
-  # the screens' own so the strip is visible as a strip.
-  @bar_bg {20, 25, 38}
-  @title {235, 238, 245}
-  @label {150, 165, 195}
-  @pass {120, 220, 150}
-  @fail {245, 110, 120}
-  @wait {235, 190, 90}
-  @dim {110, 125, 155}
+  # The current theme's chrome, read fresh every draw -- see
+  # `MayonnaiOS.Theme` and `MayonnaiOS.Scene.Home` for why these are
+  # functions and not module attributes. The background is two shades
+  # lighter than the current theme's screen background so the strip stays
+  # visible as a strip whichever theme is picked.
+  defp font, do: Theme.current().font
+  defp bar_bg, do: Theme.current().bar_bg
+  defp title, do: Theme.current().title
+  defp label, do: Theme.current().label
+  defp pass, do: Theme.current().pass
+  defp fail, do: Theme.current().fail
+  defp wait, do: Theme.current().wait
+  defp dim, do: Theme.current().dim
 
   # A reading older than this is not drawn. Three missed polls of
   # `MayonnaiOS.Status`, which polls every two seconds: long enough that a
@@ -259,10 +261,10 @@ defmodule MayonnaiOS.Scene.StatusBar do
     end
   end
 
-  defp battery(:stale), do: %{percent: "--", level: nil, word: "no reading", colour: @fail}
+  defp battery(:stale), do: %{percent: "--", level: nil, word: "no reading", colour: fail()}
 
   defp battery(%{error: reason}) when not is_nil(reason) do
-    %{percent: "--", level: nil, word: "no battery", colour: @wait}
+    %{percent: "--", level: nil, word: "no battery", colour: wait()}
   end
 
   defp battery(%{value: values}) do
@@ -285,29 +287,29 @@ defmodule MayonnaiOS.Scene.StatusBar do
   # The state is always shown, including the boring one. "on battery" that
   # never becomes "charging" while the cable is in is a fault someone can see;
   # a bar that only marks charging leaves the same fault looking like normal.
-  defp state_word(:charging), do: {"charging", @pass}
-  defp state_word(:discharging), do: {"on battery", @label}
-  defp state_word(:full), do: {"full", @pass}
-  defp state_word(:not_charging), do: {"not charging", @wait}
-  defp state_word(:unknown), do: {"no state", @wait}
+  defp state_word(:charging), do: {"charging", pass()}
+  defp state_word(:discharging), do: {"on battery", label()}
+  defp state_word(:full), do: {"full", pass()}
+  defp state_word(:not_charging), do: {"not charging", wait()}
+  defp state_word(:unknown), do: {"no state", wait()}
 
-  defp wifi(:stale), do: %{word: "no reading", colour: @fail}
-  defp wifi(%{error: :not_managed}), do: %{word: "not managed", colour: @dim}
-  defp wifi(%{error: :no_interface}), do: %{word: "no wlan0", colour: @wait}
-  defp wifi(%{error: reason}) when not is_nil(reason), do: %{word: "unavailable", colour: @wait}
-  defp wifi(%{value: :internet}), do: %{word: "internet", colour: @pass}
-  defp wifi(%{value: :lan}), do: %{word: "lan only", colour: @wait}
-  defp wifi(%{value: :disconnected}), do: %{word: "no network", colour: @fail}
-  defp wifi(%{value: other}), do: %{word: clip(to_string(other), 12), colour: @wait}
+  defp wifi(:stale), do: %{word: "no reading", colour: fail()}
+  defp wifi(%{error: :not_managed}), do: %{word: "not managed", colour: dim()}
+  defp wifi(%{error: :no_interface}), do: %{word: "no wlan0", colour: wait()}
+  defp wifi(%{error: reason}) when not is_nil(reason), do: %{word: "unavailable", colour: wait()}
+  defp wifi(%{value: :internet}), do: %{word: "internet", colour: pass()}
+  defp wifi(%{value: :lan}), do: %{word: "lan only", colour: wait()}
+  defp wifi(%{value: :disconnected}), do: %{word: "no network", colour: fail()}
+  defp wifi(%{value: other}), do: %{word: clip(to_string(other), 12), colour: wait()}
 
   # An RTC that lost its charge comes up in 1970, and 1970 drawn as a time is
   # a clock that is confidently wrong. 2020 rather than the build year because
   # any plausible date is fine here; the check is for a clock that was never
   # set at all.
-  defp clock(%DateTime{year: year}) when year < 2020, do: %{text: "clock unset", colour: @wait}
+  defp clock(%DateTime{year: year}) when year < 2020, do: %{text: "clock unset", colour: wait()}
 
   defp clock(utc) do
-    %{text: "#{pad(utc.hour)}:#{pad(utc.minute)} UTC", colour: @title}
+    %{text: "#{pad(utc.hour)}:#{pad(utc.minute)} UTC", colour: title()}
   end
 
   defp pad(n), do: String.pad_leading(to_string(n), 2, "0")
@@ -328,12 +330,12 @@ defmodule MayonnaiOS.Scene.StatusBar do
   @spec graph(map()) :: Graph.t()
   def graph(fields) do
     graph =
-      Graph.build(font: :roboto, font_size: @font)
-      |> rect({@width, @height}, fill: {:color, @bar_bg})
+      Graph.build(font: font(), font_size: @font)
+      |> rect({@width, @height}, fill: {:color, bar_bg()})
       # A one-pixel rule rather than a border, and in the dim grey the footers
       # use, so the strip is separated from the screen without competing with
       # the blue rule each scene draws under its own title.
-      |> rect({@width, 1}, fill: {:color, @dim}, translate: {0, @height - 1})
+      |> rect({@width, 1}, fill: {:color, dim()}, translate: {0, @height - 1})
 
     {graph, left} = clock_field(graph, fields.clock, @right)
     {graph, left} = wifi_field(graph, fields.wifi, left - @gap)
@@ -363,7 +365,7 @@ defmodule MayonnaiOS.Scene.StatusBar do
 
     graph =
       graph
-      |> text("wifi", font_size: @small, fill: {:color, @dim}, translate: {x, @baseline})
+      |> text("wifi", font_size: @small, fill: {:color, dim()}, translate: {x, @baseline})
       |> text(wifi.word,
         font_size: @font,
         fill: {:color, wifi.colour},
@@ -384,7 +386,7 @@ defmodule MayonnaiOS.Scene.StatusBar do
       |> icon(x, battery)
       |> text(battery.percent,
         font_size: @font,
-        fill: {:color, @title},
+        fill: {:color, title()},
         translate: {x + icon_w + 6, @baseline}
       )
       |> text(battery.word,
@@ -405,7 +407,7 @@ defmodule MayonnaiOS.Scene.StatusBar do
 
   defp icon(graph, x, %{level: level}) do
     graph
-    |> body(x, @label)
+    |> body(x, label())
     |> rect({max(round(18 * level / 100), 1), 9},
       fill: {:color, level_colour(level)},
       translate: {x + 2, 10}
@@ -421,19 +423,18 @@ defmodule MayonnaiOS.Scene.StatusBar do
   # Colour by charge, not by whether it is charging: a battery at 8% is worth
   # a red bar whether or not the cable is in, and the word next to it already
   # says which.
-  defp level_colour(level) when level < 15, do: @fail
-  defp level_colour(level) when level < 40, do: @wait
-  defp level_colour(_level), do: @pass
+  defp level_colour(level) when level < 15, do: fail()
+  defp level_colour(level) when level < 40, do: wait()
+  defp level_colour(_level), do: pass()
 
   # Measured rather than estimated, using the same metrics Scenic's own
-  # components use, because the layout runs right to left and an estimate that
-  # is 10% short puts two fields on top of each other. The fallback is for a
-  # host with no asset library compiled -- a wrong-looking bar in a test is
+  # components use, because the layout runs right to left and an estimate
+  # that is 10% short puts two fields on top of each other.
+  # `Theme.width/3` measures in the current theme's font instead of a
+  # hardcoded `:roboto`, and still falls back to an estimate for a host
+  # with no asset library compiled -- a wrong-looking bar in a test is
   # better than a scene that cannot build a graph.
   defp width(text, size) do
-    case Static.meta(:roboto) do
-      {:ok, {Static.Font, metrics}} -> FontMetrics.width(text, size, metrics)
-      _other -> String.length(text) * size * 0.55
-    end
+    Theme.width(text, size, font())
   end
 end

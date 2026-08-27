@@ -31,9 +31,11 @@ defmodule MayonnaiOS.Browser do
   the rules above -- that is how the Bluetooth controller sits under **Apps**
   while the other built-in apps stay under **System**.
 
-  System also carries two rows of the launcher's own, Diagnostics and
-  Sleep, so the things the device can do to itself are on the menu rather
-  than only on chords someone has to be told about.
+  System also carries three rows of the launcher's own, Diagnostics, Sleep
+  and Theme, so the things the device can do to itself are on the menu
+  rather than only on chords someone has to be told about. Theme cycles
+  `MayonnaiOS.Theme` to the next built-in theme; it does not launch or
+  leave the browser, it just changes what the next repaint looks like.
   `MayonnaiOS.Launcher` owns what every verb does, this module only names
   them.
 
@@ -705,7 +707,8 @@ defmodule MayonnaiOS.Browser do
       Enum.map(apps, &program_node/1) ++
         [
           program_node(builtin("Diagnostics", :diagnostics)),
-          program_node(builtin("Sleep", :sleep))
+          program_node(builtin("Sleep", :sleep)),
+          program_node(builtin("Theme", :cycle_theme))
         ] ++
         Enum.map(actions, &program_node/1)
 

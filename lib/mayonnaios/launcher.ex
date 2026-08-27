@@ -205,7 +205,7 @@ defmodule MayonnaiOS.Launcher do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.{Browser, Input, Led, Panel, Sleep}
+  alias MayonnaiOS.{Browser, Input, Led, Panel, Sleep, Theme}
 
   # The name the driver gives the gamepad, which is the only thing this module
   # knows about which device it is. There is no numbered fallback: /dev/input
@@ -1118,6 +1118,17 @@ defmodule MayonnaiOS.Launcher do
   # unchanged -- the next press is consumed on turning the panel back on.
   defp start_program(%{action: :sleep}, state) do
     {_result, state} = enter_sleep(state)
+    state
+  end
+
+  # The Theme row: advances `MayonnaiOS.Theme` to the next built-in theme and
+  # repaints in place. Not a program and not an app -- it neither takes the
+  # display nor changes what scene is showing, so `show(:home, state)` rather
+  # than `browse/2`: the browser value itself has not changed, and `browse/2`
+  # would see that and skip the repaint that is the entire point here.
+  defp start_program(%{action: :cycle_theme}, state) do
+    Theme.cycle()
+    show(:home, state)
     state
   end
 

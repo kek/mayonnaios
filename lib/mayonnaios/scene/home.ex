@@ -50,7 +50,7 @@ defmodule MayonnaiOS.Scene.Home do
 
   use Scenic.Scene
 
-  alias MayonnaiOS.{Browser, Files}
+  alias MayonnaiOS.{Browser, Files, Theme}
   alias MayonnaiOS.Scene.StatusBar
   alias Scenic.Graph
   import Scenic.Primitives
@@ -66,17 +66,24 @@ defmodule MayonnaiOS.Scene.Home do
   @title_y @status_bar + 20
   @rule_y @status_bar + 30
 
-  # Same palette as MayonnaiOS.Scene.Diagnostics, so the screens read as one
-  # device rather than two programs sharing a panel.
-  @bg {12, 14, 22}
-  @title {235, 238, 245}
-  @head {90, 170, 255}
-  @label {150, 165, 195}
-  @pass {120, 220, 150}
-  @fail {245, 110, 120}
-  @wait {235, 190, 90}
-  @dim {110, 125, 155}
-  @row_bg {26, 34, 52}
+  # The font and every colour below come from the current `MayonnaiOS.Theme`
+  # rather than being module attributes, because a theme is chosen at
+  # runtime (`Theme.set/1`, or the System menu's Theme row) and a module
+  # attribute is a compile-time constant -- it could not change without a
+  # rebuild. Reading `Theme.current()` here instead means this scene draws
+  # in whatever theme is current at the moment it is asked to draw, which is
+  # every redraw: nothing here is cached across one.
+  defp font, do: Theme.current().font
+  defp title_font, do: Theme.current().title_font
+  defp bg, do: Theme.current().bg
+  defp title, do: Theme.current().title
+  defp head, do: Theme.current().head
+  defp label, do: Theme.current().label
+  defp pass, do: Theme.current().pass
+  defp fail, do: Theme.current().fail
+  defp wait, do: Theme.current().wait
+  defp dim, do: Theme.current().dim
+  defp row_bg, do: Theme.current().row_bg
 
   # The column area: a fixed grid of three slots, captions first, rows below,
   # ten to a column. Fixed rather than sized to how many levels are open, so
@@ -161,10 +168,10 @@ defmodule MayonnaiOS.Scene.Home do
   end
 
   defp base do
-    Graph.build(font: :roboto, font_size: 16)
-    |> rect({@width, @height}, fill: {:color, @bg})
+    Graph.build(font: font(), font_size: 16)
+    |> rect({@width, @height}, fill: {:color, bg()})
     |> StatusBar.mount()
-    |> rect({@span, 2}, fill: {:color, @head}, translate: {@left, @rule_y})
+    |> rect({@span, 2}, fill: {:color, head()}, translate: {@left, @rule_y})
   end
 
   # Every open level by name, however many columns are drawn. The tail is
@@ -175,7 +182,7 @@ defmodule MayonnaiOS.Scene.Home do
 
     text(graph, truncate_left(trail, 48),
       font_size: 18,
-      fill: {:color, @title},
+      fill: {:color, title()},
       translate: {@left, @title_y}
     )
   end
@@ -192,7 +199,7 @@ defmodule MayonnaiOS.Scene.Home do
   defp held(graph, %{clipboard: %{mode: mode, name: name}}) do
     text(graph, "holding: #{truncate(name, 24)} (#{mode})",
       font_size: 12,
-      fill: {:color, @wait},
+      fill: {:color, wait()},
       translate: {400, @title_y}
     )
   end
@@ -248,7 +255,7 @@ defmodule MayonnaiOS.Scene.Home do
       x = @left + slot * (@slot + @gutter) - div(@gutter, 2) - 1
 
       rect(acc, {1, @rows_top + @visible * @pitch - @top},
-        fill: {:color, @row_bg},
+        fill: {:color, row_bg()},
         translate: {x, @top}
       )
     end)
@@ -270,7 +277,7 @@ defmodule MayonnaiOS.Scene.Home do
 
     text(graph, truncate(level.title, name_chars()) <> position,
       font_size: 12,
-      fill: {:color, @dim},
+      fill: {:color, dim()},
       translate: {x, @caption_y}
     )
   end
@@ -280,7 +287,7 @@ defmodule MayonnaiOS.Scene.Home do
   defp rows(graph, %{entries: [], note: note}, x, _focused?) do
     text(graph, truncate(note || "Empty.", name_chars() + 6),
       font_size: 13,
-      fill: {:color, @dim},
+      fill: {:color, dim()},
       translate: {x, @rows_top + 16}
     )
   end
@@ -312,10 +319,10 @@ defmodule MayonnaiOS.Scene.Home do
   defp highlight(graph, _x, _y, false, _focused?), do: graph
 
   defp highlight(graph, x, y, true, focused?) do
-    graph = rect(graph, {@slot, @pitch - 4}, fill: {:color, @row_bg}, translate: {x, y})
+    graph = rect(graph, {@slot, @pitch - 4}, fill: {:color, row_bg()}, translate: {x, y})
 
     if focused? do
-      rect(graph, {4, @pitch - 4}, fill: {:color, @head}, translate: {x, y})
+      rect(graph, {4, @pitch - 4}, fill: {:color, head()}, translate: {x, y})
     else
       graph
     end
@@ -326,17 +333,17 @@ defmodule MayonnaiOS.Scene.Home do
   # status line below: at this column width the names need the room.
   defp chevron(graph, node, x, y) do
     if Browser.expandable?(node) do
-      text(graph, ">", font_size: 14, fill: {:color, @dim}, translate: {x + @slot - 12, y + 17})
+      text(graph, ">", font_size: 14, fill: {:color, dim()}, translate: {x + @slot - 12, y + 17})
     else
       graph
     end
   end
 
-  defp name_colour(%{kind: :file, entry: %{broken?: true}}, _selected?), do: @wait
-  defp name_colour(_node, true), do: @title
-  defp name_colour(%{kind: :program, program: %{installed?: false}}, _selected?), do: @dim
-  defp name_colour(%{kind: kind}, false) when kind in [:category, :place, :dir], do: @head
-  defp name_colour(_node, false), do: @label
+  defp name_colour(%{kind: :file, entry: %{broken?: true}}, _selected?), do: wait()
+  defp name_colour(_node, true), do: title()
+  defp name_colour(%{kind: :program, program: %{installed?: false}}, _selected?), do: dim()
+  defp name_colour(%{kind: kind}, false) when kind in [:category, :place, :dir], do: head()
+  defp name_colour(_node, false), do: label()
 
   # How many characters fit a slot at font 16, with the highlight inset on
   # the left and the chevron on the right.
@@ -638,35 +645,45 @@ defmodule MayonnaiOS.Scene.Home do
 
   defp confirm_view(graph, %{location: location, entry: entry, name: name}) do
     graph
-    |> text("Delete this?", font_size: 26, fill: {:color, @fail}, translate: {@left, @top + 24})
+    |> text("Delete this?",
+      font: title_font(),
+      font_size: 26,
+      fill: {:color, fail()},
+      translate: {@left, @top + 24}
+    )
     # The tail of the path, not the head: which directory and which file is
     # about to go is the part being confirmed, and "/root/mnt/games/ROMS/…"
     # would be the half that is the same for everything.
     |> text(truncate_left(path_of(location, name), 60),
       font_size: 16,
-      fill: {:color, @title},
+      fill: {:color, title()},
       translate: {@left, @top + 58}
     )
-    |> text(what(entry), font_size: 14, fill: {:color, @label}, translate: {@left, @top + 82})
+    |> text(what(entry), font_size: 14, fill: {:color, label()}, translate: {@left, @top + 82})
     |> text("There is no undo, and no trash to fish it out of.",
       font_size: 14,
-      fill: {:color, @wait},
+      fill: {:color, wait()},
       translate: {@left, @top + 126}
     )
     |> text("This device is switched off by pulling its power.",
       font_size: 14,
-      fill: {:color, @dim},
+      fill: {:color, dim()},
       translate: {@left, @top + 148}
     )
-    |> text("Y deletes it.", font_size: 20, fill: {:color, @fail}, translate: {@left, @top + 196})
+    |> text("Y deletes it.",
+      font: title_font(),
+      font_size: 20,
+      fill: {:color, fail()},
+      translate: {@left, @top + 196}
+    )
     |> text("A, B or any direction cancels -- on purpose: the button that",
       font_size: 14,
-      fill: {:color, @label},
+      fill: {:color, label()},
       translate: {@left, @top + 224}
     )
     |> text("got you here is not the button that does it.",
       font_size: 14,
-      fill: {:color, @label},
+      fill: {:color, label()},
       translate: {@left, @top + 244}
     )
   end
@@ -692,18 +709,18 @@ defmodule MayonnaiOS.Scene.Home do
     graph
     |> text(truncate(name, 60),
       font_size: 14,
-      fill: {:color, @dim},
+      fill: {:color, dim()},
       translate: {@left, @top + 16}
     )
     |> cells(chars, caret)
     |> text("Left and right move. Up and down change the character.",
       font_size: 14,
-      fill: {:color, @label},
+      fill: {:color, label()},
       translate: {@left, @top + 136}
     )
     |> text("Y removes it. A saves the name. B cancels.",
       font_size: 14,
-      fill: {:color, @label},
+      fill: {:color, label()},
       translate: {@left, @top + 158}
     )
   end
@@ -728,14 +745,14 @@ defmodule MayonnaiOS.Scene.Home do
         index == count ->
           acc
           |> caret_box(x, y, index == caret)
-          |> text("+", font_size: 18, fill: {:color, @dim}, translate: {x + 3, y + 20})
+          |> text("+", font_size: 18, fill: {:color, dim()}, translate: {x + 3, y + 20})
 
         true ->
           acc
           |> caret_box(x, y, index == caret)
           |> text(Enum.at(chars, index),
             font_size: 18,
-            fill: {:color, @title},
+            fill: {:color, title()},
             translate: {x + 3, y + 20}
           )
       end
@@ -745,7 +762,7 @@ defmodule MayonnaiOS.Scene.Home do
   defp caret_box(graph, _x, _y, false), do: graph
 
   defp caret_box(graph, x, y, true) do
-    rect(graph, {@cell, 28}, fill: {:color, @row_bg}, stroke: {1, @head}, translate: {x, y})
+    rect(graph, {@cell, 28}, fill: {:color, row_bg()}, stroke: {1, head()}, translate: {x, y})
   end
 
   # -- the status line -------------------------------------------------------------
@@ -754,7 +771,7 @@ defmodule MayonnaiOS.Scene.Home do
   # not -- otherwise what the selected entry is and how much room the column's
   # filesystem has left, which is the number someone about to paste needs.
   defp status_line(graph, %{message: {level, words}}) do
-    colour = if level == :error, do: @fail, else: @pass
+    colour = if level == :error, do: fail(), else: pass()
 
     text(graph, truncate(words, 78),
       font_size: 14,
@@ -771,7 +788,7 @@ defmodule MayonnaiOS.Scene.Home do
 
     text(graph, truncate(words, 78),
       font_size: 13,
-      fill: {:color, @dim},
+      fill: {:color, dim()},
       translate: {@left, @message_y}
     )
   end
@@ -819,7 +836,7 @@ defmodule MayonnaiOS.Scene.Home do
     |> footer_rule()
     |> text("Power off? Y switches off. Any other button keeps it on.",
       font_size: 16,
-      fill: {:color, @wait},
+      fill: {:color, wait()},
       translate: {@left, @footer_y}
     )
   end
@@ -827,7 +844,7 @@ defmodule MayonnaiOS.Scene.Home do
   defp notice(graph, browser, false, nil) do
     graph
     |> footer_rule()
-    |> text(hint(browser), font_size: 13, fill: {:color, @dim}, translate: {@left, @footer_y})
+    |> text(hint(browser), font_size: 13, fill: {:color, dim()}, translate: {@left, @footer_y})
   end
 
   # Why the last program died, quoted from its own last words. The headline
@@ -853,11 +870,11 @@ defmodule MayonnaiOS.Scene.Home do
     |> Enum.reduce(graph, fn {line, up}, g ->
       text(g, String.slice(line, 0, 88),
         font_size: 13,
-        fill: {:color, @dim},
+        fill: {:color, dim()},
         translate: {@left, @footer_rule - 8 - up * 18}
       )
     end)
-    |> text(headline, font_size: 16, fill: {:color, @wait}, translate: {@left, @footer_y})
+    |> text(headline, font_size: 16, fill: {:color, wait()}, translate: {@left, @footer_y})
   end
 
   defp hint(%{full: full}) when full != nil,
@@ -876,7 +893,7 @@ defmodule MayonnaiOS.Scene.Home do
   end
 
   defp footer_rule(graph) do
-    rect(graph, {@span, 1}, fill: {:color, @dim}, translate: {@left, @footer_rule})
+    rect(graph, {@span, 1}, fill: {:color, dim()}, translate: {@left, @footer_rule})
   end
 
   # -- words -----------------------------------------------------------------------
