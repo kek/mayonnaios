@@ -46,8 +46,8 @@ defmodule MayonnaiOS.Launcher do
   before `Port.open/2` and releases when the program is reaped, which is the
   same pair of moments that already bracket the handover. Everything that
   draws consults it. And `set_root/2` below refuses while it is held, because
-  re-rooting the viewport is itself a write -- pressing X during a game would
-  otherwise paint the diagnostics screen into a framebuffer the game owns.
+  re-rooting the viewport is itself a write -- a button pressed during a game
+  must not paint a menu into a framebuffer the game owns.
 
   ## Giving the screen back requires the program to actually be dead
 
@@ -93,7 +93,6 @@ defmodule MayonnaiOS.Launcher do
                       confirmation, remove-a-character in the rename editor,
                       and the answer to the Power off row's question
       Menu            go back to the home screen, at its root column
-      X               switch between the menu and diagnostics
       Power           sleep -- backlight off, and any press wakes it
       Select+Menu     power off
 
@@ -219,7 +218,8 @@ defmodule MayonnaiOS.Launcher do
   # emits 308 and the one silkscreened Y emits 307: the DT's X/Y labels are
   # the wrong way round for this board's shell, the same way A and B are.
   #
-  # So :btn_y below really is the X button.
+  # So :btn_x below really is the Y button, and :btn_y -- physical X -- is
+  # bound to nothing.
   #
   # Y (:btn_x) is the second verb, and the panel says what it is. While the
   # Power off row's question is up it is the answer -- the confirming clause
@@ -228,7 +228,6 @@ defmodule MayonnaiOS.Launcher do
   # the delete on a confirmation, remove-a-character in the rename editor.
   @confirm_button :btn_x
   @actions_button :btn_x
-  @diagnostics_button :btn_y
 
   # Menu, doing double duty: alone it is the way back to the home screen,
   # and held with Select it powers off. The chord is tested first.
@@ -846,7 +845,6 @@ defmodule MayonnaiOS.Launcher do
   end
 
   defp bound(state, @launch_button), do: do_launch(state)
-  defp bound(state, @diagnostics_button), do: toggle_scene(state)
   defp bound(state, @up_button), do: move(state, -1)
   defp bound(state, @down_button), do: move(state, +1)
   defp bound(state, @left_button), do: browse(state, Browser.ascend(state.browser))
@@ -966,15 +964,6 @@ defmodule MayonnaiOS.Launcher do
     end
   end
 
-  # Flip between the menu and the diagnostics readout. The readout is
-  # what makes the physical checks -- charger, volume keys, headphone jack --
-  # answerable by looking at the device instead of over SSH.
-  defp toggle_scene(state) do
-    next = if state.scene == :home, do: :diagnostics, else: :home
-    show(next, state)
-    %{state | scene: next}
-  end
-
   defp poweroff(state, how) do
     Logger.info("[launcher] #{how}: powering off")
 
@@ -1031,8 +1020,9 @@ defmodule MayonnaiOS.Launcher do
     state
   end
 
-  # The Diagnostics row: the same screen X toggles, on the menu so it can be
-  # found without being told about the button.
+  # The Diagnostics row: the readout that makes the physical checks --
+  # charger, volume keys, headphone jack -- answerable by looking at the
+  # device instead of over SSH. Menu is the way back out.
   defp start_program(%{action: :diagnostics}, state) do
     state = %{state | scene: :diagnostics}
     show(:diagnostics, state)
@@ -1330,9 +1320,9 @@ defmodule MayonnaiOS.Launcher do
   defp set_root(nil, _param), do: :ok
 
   # Re-rooting the viewport is a repaint of the whole panel, so it is exactly
-  # what must not happen while a program holds the display. Two buttons reach
-  # here during a game: X, which flips to the diagnostics screen, and a D-pad
-  # press, which `move/2` already guards for the same reason.
+  # what must not happen while a program holds the display. The pad is this
+  # process's even during a game, so presses still arrive; `browse/2` already
+  # guards its own writes for the same reason, and this catches the rest.
   #
   # The state still moves -- the scene flips, the cursor moves -- and only the
   # write waits. `repaint/1` on the way out is what puts whichever screen that

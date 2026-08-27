@@ -11,7 +11,7 @@ defmodule MayonnaiOS.BrowserTest do
 
   setup do
     # `Programs.list/0` appends a row for every installed pickle, read from
-    # disk on every call -- so without this, the Pickles column is however
+    # disk on every call -- so without this, the Apps column is however
     # many pickles the developer happens to have installed on the host.
     pickles_root =
       Path.join(System.tmp_dir!(), "browser-test-pickles-#{System.unique_integer([:positive])}")
@@ -38,7 +38,7 @@ defmodule MayonnaiOS.BrowserTest do
     test "names the categories, in order" do
       browser = Browser.new()
 
-      assert names(browser) == ["Games", "Files", "Pickles", "Settings"]
+      assert names(browser) == ["Games", "Files", "Apps", "System"]
       assert Browser.depth(browser) == 1
       assert Browser.selected(browser).name == "Games"
     end
@@ -46,7 +46,7 @@ defmodule MayonnaiOS.BrowserTest do
     test "the cursor wraps at both ends" do
       browser = Browser.new()
 
-      assert Browser.selected(Browser.move(browser, -1)).name == "Settings"
+      assert Browser.selected(Browser.move(browser, -1)).name == "System"
       assert Browser.selected(Browser.move(browser, 4)).name == "Games"
     end
 
@@ -60,7 +60,8 @@ defmodule MayonnaiOS.BrowserTest do
     setup do
       Application.put_env(:mayonnaios, :programs, [
         %{name: "RetroArch", path: "/nonexistent/retroarch"},
-        %{name: "Bluetooth controller", app: MayonnaiOS.Controller},
+        %{name: "Bluetooth controller", app: MayonnaiOS.Controller, category: :apps},
+        %{name: "Bluetooth devices", app: MayonnaiOS.Pairing},
         %{name: "Paint", app: {MayonnaiOS.Pickles.App, "paint"}},
         %{name: "Power off", action: :poweroff}
       ])
@@ -73,9 +74,9 @@ defmodule MayonnaiOS.BrowserTest do
       assert names(games) == ["RetroArch"]
     end
 
-    test "a pickle's row is a pickle" do
-      pickles = open(Browser.new(), "Pickles")
-      assert names(pickles) == ["Paint"]
+    test "pickles land in Apps, and so does a row whose config names the category" do
+      apps = open(Browser.new(), "Apps")
+      assert names(apps) == ["Bluetooth controller", "Paint"]
     end
 
     test "Files lists the roots" do
@@ -86,17 +87,17 @@ defmodule MayonnaiOS.BrowserTest do
       assert Browser.selected(files).kind == :place
     end
 
-    test "other apps and the actions land in Settings, verbs last" do
-      settings = open(Browser.new(), "Settings")
+    test "other apps and the actions land in System, verbs last" do
+      system = open(Browser.new(), "System")
 
-      assert names(settings) == ["Bluetooth controller", "Diagnostics", "Sleep", "Power off"]
+      assert names(system) == ["Bluetooth devices", "Diagnostics", "Sleep", "Power off"]
     end
 
-    test "the built-in Settings rows carry the launcher's own verbs" do
-      settings = open(Browser.new(), "Settings")
+    test "the built-in System rows carry the launcher's own verbs" do
+      system = open(Browser.new(), "System")
 
       actions =
-        for node <- List.last(settings.levels).entries, do: node.program.action
+        for node <- List.last(system.levels).entries, do: node.program.action
 
       assert actions == [nil, :diagnostics, :sleep, :poweroff]
     end
@@ -106,9 +107,9 @@ defmodule MayonnaiOS.BrowserTest do
     test "says why instead of listing nothing" do
       Application.put_env(:mayonnaios, :programs, [])
 
-      pickles = open(Browser.new(), "Pickles")
-      assert names(pickles) == []
-      assert List.last(pickles.levels).note == "No pickles installed."
+      apps = open(Browser.new(), "Apps")
+      assert names(apps) == []
+      assert List.last(apps.levels).note == "No apps installed."
     end
   end
 

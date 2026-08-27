@@ -50,7 +50,7 @@ defmodule MayonnaiOS.LauncherTest do
     test "the root column names the categories" do
       says = texts(Home.graph(Browser.new()))
 
-      for category <- ["Games", "Files", "Pickles", "Settings"] do
+      for category <- ["Games", "Files", "Apps", "System"] do
         assert category in says
       end
     end
@@ -341,7 +341,7 @@ defmodule MayonnaiOS.LauncherTest do
         {Launcher, device: "/nonexistent/event0", poweroff: fn -> send(test, :powered_off) end}
       )
 
-      # Into Settings -- the last category -- and down past Diagnostics and
+      # Into System -- the last category -- and down past Diagnostics and
       # Sleep onto the Power off row, which sits last on purpose.
       tap(:btn_dpad_up)
       tap(:btn_b)

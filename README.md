@@ -45,10 +45,11 @@ Software:
 - Sleep on the power button: the backlight goes off and any button brings it
   back. Not suspend — this board's only suspend mode would save almost
   nothing, and `MayonnaiOS.Sleep`'s moduledoc has the analysis
-- A NeXTSTEP-style column launcher: Games, Files, Pickles and Settings open
-  as columns, three on screen, and Files browses both cards in place
+- A NeXTSTEP-style column launcher: Games, Files, Apps and System open
+  as columns, three on screen, and Files browses the whole filesystem in
+  place
 - Orderly power off: the Select+Menu chord, or the **Power off** row under
-  Settings
+  System
 - An indicator LED that means something: quick flashing green while starting,
   solid green running, slow flashing green asleep, blinking red when the
   application fails to start. The yellow light in the other window is the
@@ -112,7 +113,7 @@ firmware and install the same way games do:
 What a pickle can touch is declared in its manifest and enforced by the
 sandbox: HTTP, the local network, a small persistent store, timers, the
 panel — and nothing else. A pickle with the `ui` capability appears in the
-launcher's Pickles column and draws on the screen; the others run headless.
+launcher's Apps column and draws on the screen; the others run headless.
 [docs/pickles.md](docs/pickles.md) is the guide to writing one; the
 `pickle` Claude skill in `.claude/skills/` automates the whole
 develop-and-deploy loop.
@@ -140,8 +141,8 @@ power.
 
 Pick **Files** in the launcher: copy, move, rename and delete across both
 cards, browsing from the ROM roots, the installed bundles, the installed
-cores and `/root`. Copy and move go through a clipboard, since there is
-nothing to type a destination with.
+cores, `/root` and the whole filesystem from `/`. Copy and move go through
+a clipboard, since there is nothing to type a destination with.
 
 Two guarantees that are not visible on screen: nothing ever overwrites — an
 existing destination is refused, because on this device the file being
@@ -319,13 +320,12 @@ host-only path:
 |---|---|
 | arrows, `h` `j` `k` `l` | D-pad |
 | `z` | A — launch the highlighted entry |
-| `c` | X — the diagnostics screen |
 | enter | Menu — back to the home screen |
 | backspace | Select |
 | `p` | the power button — sleep, and any key wakes it |
 | escape | Select+Menu, the power-off chord |
 
-`x`, `v` and `s` are sent too, as B, Y and Start. None of this is
+`x`, `c`, `v` and `s` are sent too, as B, X, Y and Start. None of this is
 conditional on the target, so a USB keyboard plugged into the handheld gets
 the same bindings. `p` is the one key that is not a pad button: it sends
 `KEY_POWER`, which on the device arrives from `axp20x-pek` rather than from
