@@ -85,13 +85,24 @@ defmodule MayonnaiOS.Launcher do
       D-pad right     open the selected entry as another column
       D-pad left      close a column
       L1 / R1         page the focused column a screenful at a time
-      A               open the selected entry, launch it, or -- on a file --
-                      show what can be done with it
-      B               close a column or sheet; first, clear an obituary
+      A               open the selected entry: enter a directory, launch a
+                      program, or -- on a file -- open its full view, which
+                      is what "open" means for the one thing that cannot be
+                      entered or run
+      B               go back: close the full view, a sheet or a column;
+                      first, clear an obituary. B also leaves the apps that
+                      are readouts and the diagnostics screen -- but never
+                      an app that needs B for itself, the controller and
+                      the pickles; see `claims_back?/1`
+      X               toggle the full view: one wide column about the
+                      selected entry -- a detailed listing, a text viewer,
+                      the image, a hexdump. On a process monitor it opens
+                      the readout app, which is that row's detailed view
       Y               the second verb, and the panel says what it is: the
-                      actions sheet in a directory, the delete on its
-                      confirmation, remove-a-character in the rename editor,
-                      and the answer to the Power off row's question
+                      actions sheet in a directory -- Y and only Y, A never
+                      opens it -- the delete on its confirmation,
+                      remove-a-character in the rename editor, and the
+                      answer to the Power off row's question
       Menu            go back to the home screen, at its root column
       Power           sleep -- backlight off, and any press wakes it
       Select+Menu     power off
@@ -99,9 +110,11 @@ defmodule MayonnaiOS.Launcher do
   While the browser has a sheet up -- actions, a delete confirmation, the
   rename editor -- `MayonnaiOS.Browser.busy?/1` is true and every pad button
   is routed to `Browser.overlay_input/2` instead of the bindings above, so a
-  D-pad press cannot both move a caret and a cursor. Menu and the power-off
-  chord stay the launcher's even then, because "put me back where I started"
-  must not depend on what is on the panel.
+  D-pad press cannot both move a caret and a cursor. The full view is the
+  same arrangement through `Browser.full_input/2`: the directions scroll it
+  and B closes it. Menu and the power-off chord stay the launcher's in both
+  cases, because "put me back where I started" must not depend on what is on
+  the panel.
 
   These are the buttons as printed on the shell. Two of the atoms above name
   the opposite button; see the note on the attributes below.
@@ -229,6 +242,10 @@ defmodule MayonnaiOS.Launcher do
   @confirm_button :btn_x
   @actions_button :btn_x
 
+  # Physical X, which the device tree's swap makes :btn_y -- the note above.
+  # X toggles the full view: the wide column about the selected entry.
+  @full_button :btn_y
+
   # Menu, doing double duty: alone it is the way back to the home screen,
   # and held with Select it powers off. The chord is tested first.
   @poweroff_modifier :btn_select
@@ -258,9 +275,9 @@ defmodule MayonnaiOS.Launcher do
   @page_down_button :btn_tr
 
   # Physical B, which is BTN_SOUTH and therefore InputEvent's :btn_a -- the
-  # table at the top of this module is the authority. Bound only to clear the
-  # obituary line, which is also every other screen's "back" gesture, so the
-  # button does what the hand expects.
+  # table at the top of this module is the authority. The "back" gesture
+  # everywhere: it clears an obituary, closes the full view, a sheet or a
+  # column, and leaves the readout apps and diagnostics.
   @back_button :btn_a
 
   # How many of a program's last lines the obituary keeps. Three is what the
@@ -581,7 +598,16 @@ defmodule MayonnaiOS.Launcher do
   def handle_info({:input_event, _device, events}, %{app: app} = state) when app != nil do
     {state, slept?} = Enum.reduce(events, {state, false}, &app_event/2)
 
-    if not slept?, do: app_module(app).input(events)
+    # B leaves the apps that do not claim it -- the readouts, where back
+    # should go back -- and is then held out of the report the way the sleep
+    # key is from everything: the press that closes a screen must not also
+    # act inside it. The apps that need B for themselves keep it whole; see
+    # claims_back?/1.
+    leaving? = not slept? and back_press?(events) and not claims_back?(app)
+
+    if not slept? and not leaving?, do: app_module(app).input(events)
+
+    state = if leaving?, do: state |> stop_app() |> go_home(), else: state
 
     {:noreply, leave_app(state, events)}
   end
@@ -727,6 +753,22 @@ defmodule MayonnaiOS.Launcher do
     end
   end
 
+  defp back_press?(events) do
+    Enum.any?(events, &match?({:ev_key, @back_button, 1}, &1))
+  end
+
+  # Whether the app keeps B for itself. The controller forwards it to the
+  # host as a gamepad button and a pickle's script reads it as "b"; for
+  # those, a launcher that eats B is a controller with a dead button. An app
+  # says so by exporting `claims_back?/0` returning true; the readouts do
+  # not, so for them B is the way back. RetroArch and the other external
+  # programs are not in question here at all -- they read evdev themselves,
+  # and nothing in this clause sees their buttons.
+  defp claims_back?(app) do
+    module = app_module(app)
+    function_exported?(module, :claims_back?, 0) and module.claims_back?()
+  end
+
   defp stop_app(%{app: nil} = state), do: state
 
   defp stop_app(%{app: app} = state) do
@@ -764,6 +806,9 @@ defmodule MayonnaiOS.Launcher do
       Browser.busy?(state.browser) ->
         overlay(state, key)
 
+      Browser.full?(state.browser) ->
+        full_view(state, key)
+
       true ->
         bound(state, key)
     end
@@ -785,6 +830,21 @@ defmodule MayonnaiOS.Launcher do
     browse(state, Browser.overlay_input(state.browser, semantic(key)))
   end
 
+  # The full view has the buttons: scrolling to the browser, and the same two
+  # exceptions as the sheets -- the power-off chord, and Menu as the way
+  # home. The sleep key was already tested above.
+  defp full_view(state, @home_button) do
+    if MapSet.member?(state.held, @poweroff_modifier) do
+      poweroff(state, "Select+Menu")
+    else
+      go_home(state)
+    end
+  end
+
+  defp full_view(state, key) do
+    browse(state, Browser.full_input(state.browser, semantic(key)))
+  end
+
   # The browser speaks verbs, not scan codes: it should not have to know that
   # this board's device tree swaps A/B and X/Y, and `:other` still matters --
   # on the delete confirmation any unnamed button cancels.
@@ -792,9 +852,12 @@ defmodule MayonnaiOS.Launcher do
   defp semantic(@down_button), do: :down
   defp semantic(@left_button), do: :left
   defp semantic(@right_button), do: :right
+  defp semantic(@page_up_button), do: :l1
+  defp semantic(@page_down_button), do: :r1
   defp semantic(@launch_button), do: :a
   defp semantic(@back_button), do: :b
   defp semantic(@confirm_button), do: :y
+  defp semantic(@full_button), do: :x
   defp semantic(_key), do: :other
 
   # The Power off row's question, answered the way `MayonnaiOS.Files` answers
@@ -852,6 +915,20 @@ defmodule MayonnaiOS.Launcher do
   defp bound(state, @page_up_button), do: browse(state, Browser.page(state.browser, :up))
   defp bound(state, @page_down_button), do: browse(state, Browser.page(state.browser, :down))
   defp bound(state, @actions_button), do: browse(state, Browser.open_actions(state.browser))
+
+  # X: the full view of the selected entry -- except the process monitors,
+  # whose detailed view is the readout app itself, so X opens it the way A
+  # does. `MayonnaiOS.Browser` owns every other shape of the full view.
+  defp bound(state, @full_button) do
+    case Browser.selected(state.browser) do
+      %{kind: :program, program: %{app: {MayonnaiOS.Top, _which}} = program} ->
+        start_program(program, state)
+
+      _node ->
+        browse(state, Browser.open_full(state.browser))
+    end
+  end
+
   defp bound(state, @back_button), do: back(state)
 
   # Menu: back to the home screen, or -- with Select held -- power off.
@@ -876,7 +953,13 @@ defmodule MayonnaiOS.Launcher do
     state
   end
 
-  # B: the obituary goes first -- it is the thing most recently put on the
+  # B: on the diagnostics screen there is no column to close, so back is the
+  # way out -- the same press that leaves the readout apps. Only with nothing
+  # running: while a program has the display, its buttons are its own and a
+  # stop stays Menu's.
+  defp back(%{scene: scene, port: nil} = state) when scene != :home, do: go_home(state)
+
+  # The obituary goes next -- it is the thing most recently put on the
   # panel, and "back" should take back the last thing shown. With nothing to
   # clear, B closes a column, which is what B means on every other screen.
   defp back(%{obituary: nil} = state), do: browse(state, Browser.ascend(state.browser))
@@ -982,20 +1065,22 @@ defmodule MayonnaiOS.Launcher do
   end
 
   # A on the browser: a category, a root or a directory opens as another
-  # column; a program, a pickle or a verb starts; a file opens its actions
-  # sheet, because "open" on the one kind of thing that cannot be entered or
-  # run means "what can be done with it".
+  # column; a program, a pickle or a verb starts; a file opens its full
+  # view, because "open" on the one kind of thing that cannot be entered or
+  # run means "show me it". A never opens the actions sheet -- that is Y's,
+  # and only Y's.
   #
-  # The busy clause is for `launch/0` from a console -- a pad press with a
-  # sheet up never reaches here, `press/2` routes it first.
+  # The busy and full clauses are for `launch/0` from a console -- a pad
+  # press never reaches here in those states, `press/2` routes it first.
   defp do_launch(%{port: nil, app: nil} = state) do
     node = Browser.selected(state.browser)
 
     cond do
       Browser.busy?(state.browser) -> browse(state, Browser.overlay_input(state.browser, :a))
+      Browser.full?(state.browser) -> state
       Browser.expandable?(node) -> browse(state, Browser.descend(state.browser))
       match?(%{kind: :program}, node) -> start_program(node.program, state)
-      match?(%{kind: :file}, node) -> browse(state, Browser.open_actions(state.browser))
+      match?(%{kind: :file}, node) -> browse(state, Browser.open_full(state.browser))
       true -> state
     end
   end
