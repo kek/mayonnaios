@@ -184,8 +184,8 @@ defmodule MayonnaiOS.BootDiagnostics do
     end
   end
 
-  # The active trigger is the one in brackets, e.g. "none timer [heartbeat]".
-  # Confirms whether MayonnaiOS.Heartbeat actually took effect.
+  # The active trigger is the one in brackets, e.g. "none [timer] heartbeat".
+  # Confirms whether MayonnaiOS.Led actually took effect.
   defp led_triggers() do
     case File.ls("/sys/class/leds") do
       {:ok, []} ->

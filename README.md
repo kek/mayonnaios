@@ -49,6 +49,11 @@ Software:
   as columns, three on screen, and Files browses both cards in place
 - Orderly power off: the Select+Menu chord, or the **Power off** row under
   Settings
+- An indicator LED that means something: quick flashing green while starting,
+  solid green running, slow flashing green asleep, blinking red when the
+  application fails to start. The yellow light in the other window is the
+  PMIC's charge indicator and keeps its own counsel; `MayonnaiOS.Led`'s
+  moduledoc has the color map
 
 ## Building and flashing
 
