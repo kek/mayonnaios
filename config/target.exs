@@ -257,14 +257,18 @@ config :mayonnaios, :programs, [
   # It takes hci0 for as long as it runs, so it cannot be up at the same time
   # as anything else that wants the Bluetooth controller. That is why it is
   # here as a menu entry and not in the boot supervision tree.
-  %{name: "Bluetooth controller", app: MayonnaiOS.Controller},
+  #
+  # `category: :apps` puts it in the launcher's Apps column, next to the
+  # pickles: it is a thing to use, not a setting. Rows without a category are
+  # classified by `MayonnaiOS.Browser`.
+  %{name: "Bluetooth controller", app: MayonnaiOS.Controller, category: :apps},
   # There is no file manager row: the launcher's own Files column *is* the
   # file manager. It reaches only the roots `MayonnaiOS.Files` derives from
-  # the configuration below -- the ROM roots, the bundles, the cores, and
-  # /root -- and it builds every path from a root key plus checked names
-  # rather than from a string. See that module's moduledoc for what the
-  # boundary does and does not promise; the symlink caveat is the part worth
-  # reading.
+  # the configuration below -- the ROM roots, the bundles, the cores, /root,
+  # and `/` for the whole filesystem -- and it builds every path from a root
+  # key plus checked names rather than from a string. See that module's
+  # moduledoc for what the boundary does and does not promise; the symlink
+  # caveat is the part worth reading.
   #
   # The other direction, and it takes hci0 for the same reason, so these two
   # are mutually exclusive and the launcher's one-app-at-a-time rule is what

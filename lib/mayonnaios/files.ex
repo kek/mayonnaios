@@ -21,10 +21,11 @@ defmodule MayonnaiOS.Files do
 
   The roots come from the configuration this application already has --
   `:rom_roots`, `:bundle_root`, `:core_root` -- plus `/root` itself, because
-  the writable partition is the thing a file manager on this device is for.
-  Nothing names `/`: that is a 69 MB read-only squashfs and there is nothing
-  a file manager could do to it. `:file_roots` overrides the list, which is
-  how the tests point it at a temporary directory.
+  the writable partition is where everything worth editing lives, and `/`,
+  so the whole filesystem can be browsed. The rootfs is a read-only squashfs,
+  so a write anywhere under it fails with `:erofs` and the panel says so.
+  `:file_roots` overrides the list, which is how the tests point it at a
+  temporary directory.
 
   ## Names are rejected, not repaired
 
@@ -171,7 +172,8 @@ defmodule MayonnaiOS.Files do
       [
         %{key: "bundles", path: Bundle.root(), note: "installed bundles"},
         %{key: "cores", path: Cores.root(), note: "installed cores"},
-        %{key: "root", path: "/root", note: "the writable partition"}
+        %{key: "root", path: "/root", note: "the writable partition"},
+        %{key: "fs", path: "/", note: "the whole filesystem"}
       ]
   end
 

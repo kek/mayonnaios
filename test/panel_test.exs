@@ -250,15 +250,16 @@ defmodule MayonnaiOS.PanelTest do
       assert Panel.owner() == {:program, "sleeper"}
       settle()
 
-      # X, which flips between the menu and diagnostics. During a game it
-      # must not re-root the viewport and paint a whole screen into a
-      # framebuffer the game owns.
-      press(:btn_y)
-      assert :sys.get_state(Launcher).scene == :diagnostics
-      refute_write("pressing X during a game")
+      # The pad is still the launcher's during a game, so a D-pad press walks
+      # the browser -- left closes the Games column. It must not re-root the
+      # viewport and paint the menu into a framebuffer the game owns.
+      assert MayonnaiOS.Browser.depth(Launcher.browser()) == 2
+      press(:btn_dpad_left)
+      assert MayonnaiOS.Browser.depth(Launcher.browser()) == 1
+      refute_write("pressing left during a game")
 
-      # And Menu out of the game: the hold is lifted and the screen X asked
-      # for is finally painted.
+      # And Menu out of the game: the hold is lifted and the menu the cursor
+      # moved on is finally painted.
       Launcher.stop_program()
       refute Panel.held?()
       assert_write("the repaint after the program was stopped")

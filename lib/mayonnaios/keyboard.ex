@@ -28,7 +28,7 @@ defmodule MayonnaiOS.Keyboard do
 
       up / down / k / j   the D-pad
       z                   A -- launch the highlighted program
-      c                   X -- the diagnostics screen
+      c                   X -- bound to nothing, sent anyway
       enter               Menu -- back to the home screen
       backspace           Select
       p                   the power button -- sleep, and any key wakes
@@ -98,7 +98,7 @@ defmodule MayonnaiOS.Keyboard do
     "z" => :btn_b,
     # B: back -- close a column, clear an obituary
     "x" => :btn_a,
-    # X: diagnostics
+    # X, which the Launcher does not bind
     "c" => :btn_y,
     # Y: the second verb -- the actions sheet, and the answers it labels
     "v" => :btn_x,

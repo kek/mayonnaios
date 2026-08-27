@@ -14,18 +14,22 @@ defmodule MayonnaiOS.Browser do
 
   ## The tree
 
-  The root column is fixed: Games, Files, Pickles, Settings. What each one
+  The root column is fixed: Games, Files, Apps, System. What each one
   contains is classified out of the one `config :mayonnaios, :programs` list
   the launcher already reads, so a row added to config appears in the right
   column with no code change here:
 
     * a `:path` entry is a game or program to run -- **Games**
-    * a pickle's row (`{MayonnaiOS.Pickles.App, name}`) -- **Pickles**
-    * any other app, and every `:action` -- **Settings**
+    * a pickle's row (`{MayonnaiOS.Pickles.App, name}`) -- **Apps**
+    * any other app, and every `:action` -- **System**
 
-  Settings also carries two rows of the launcher's own, Diagnostics and
+  A row can also name its column outright with `:category`, which overrides
+  the rules above -- that is how the Bluetooth controller sits under **Apps**
+  while the other built-in apps stay under **System**.
+
+  System also carries two rows of the launcher's own, Diagnostics and
   Sleep, so the things the device can do to itself are on the menu rather
-  than only on chords someone has to be told about. The chords still work;
+  than only on chords someone has to be told about.
   `MayonnaiOS.Launcher` owns what every verb does, this module only names
   them.
 
@@ -551,8 +555,8 @@ defmodule MayonnaiOS.Browser do
     category_names = [
       %{kind: :category, id: :games, name: "Games"},
       %{kind: :category, id: :files, name: "Files"},
-      %{kind: :category, id: :pickles, name: "Pickles"},
-      %{kind: :category, id: :settings, name: "Settings"}
+      %{kind: :category, id: :apps, name: "Apps"},
+      %{kind: :category, id: :system, name: "System"}
     ]
 
     level("RG40XXV", category_names, nil)
@@ -567,9 +571,9 @@ defmodule MayonnaiOS.Browser do
     level(name, rows, "Nothing to run. Install a bundle, or check the config.")
   end
 
-  defp category_level(:pickles, name) do
-    rows = for program <- classified(:pickles), do: program_node(program)
-    level(name, rows, "No pickles installed.")
+  defp category_level(:apps, name) do
+    rows = for program <- classified(:apps), do: program_node(program)
+    level(name, rows, "No apps installed.")
   end
 
   defp category_level(:files, name) do
@@ -577,8 +581,8 @@ defmodule MayonnaiOS.Browser do
     level(name, places, "No roots configured.")
   end
 
-  defp category_level(:settings, name) do
-    {actions, apps} = Enum.split_with(classified(:settings), &(&1.action != nil))
+  defp category_level(:system, name) do
+    {actions, apps} = Enum.split_with(classified(:system), &(&1.action != nil))
 
     rows =
       Enum.map(apps, &program_node/1) ++
@@ -592,15 +596,18 @@ defmodule MayonnaiOS.Browser do
   end
 
   # The one config list, classified. `Programs.list/0` already appends the
-  # installed pickles' rows, which is what makes the Pickles column honest:
+  # installed pickles' rows, which is what makes the Apps column honest:
   # it shows what is on the disk now, not what config promised.
   defp classified(category) do
     Enum.filter(Programs.list(), &(classify(&1) == category))
   end
 
-  defp classify(%{action: action}) when action != nil, do: :settings
-  defp classify(%{app: {Pickles.App, _name}}), do: :pickles
-  defp classify(%{app: app}) when app != nil, do: :settings
+  # A row's own `:category` wins, so config can put an app wherever it
+  # belongs -- the Bluetooth controller is a thing to use, not a setting.
+  defp classify(%{category: category}) when category != nil, do: category
+  defp classify(%{action: action}) when action != nil, do: :system
+  defp classify(%{app: {Pickles.App, _name}}), do: :apps
+  defp classify(%{app: app}) when app != nil, do: :system
   defp classify(_program), do: :games
 
   # A verb of the launcher's own, shaped like a config row so the launcher's

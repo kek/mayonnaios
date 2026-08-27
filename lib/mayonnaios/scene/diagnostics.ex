@@ -19,8 +19,8 @@ defmodule MayonnaiOS.Scene.Diagnostics do
   ## Once a second, unless a program owns the panel
 
   This is the only screen in this firmware that redraws itself on a clock
-  while the launcher may have handed the display to somebody else. Press X
-  during a game, or start a game from this screen, and the scene stays alive
+  while the launcher may have handed the display to somebody else. Start a
+  game from this screen and the scene stays alive
   with its one-second refresh running: every refresh is a changed graph, and
   Scenic writing `/dev/fb0` under a program that holds DRM hangs this board.
 

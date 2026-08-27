@@ -36,6 +36,7 @@ defmodule MayonnaiOS.Programs do
           app: module() | {module(), term()} | nil,
           action: atom() | nil,
           args: [String.t()],
+          category: atom() | nil,
           installed?: boolean()
         }
 
@@ -79,6 +80,10 @@ defmodule MayonnaiOS.Programs do
       app: {module, arg},
       action: nil,
       args: [],
+      # Which launcher column the row lands in, or nil to let
+      # `MayonnaiOS.Browser` classify it. Carried through explicitly because
+      # this function rebuilds the map rather than merging into it.
+      category: Map.get(entry, :category),
       needs_udev: false,
       installed?: true
     }
@@ -107,6 +112,7 @@ defmodule MayonnaiOS.Programs do
       app: nil,
       action: action,
       args: [],
+      category: Map.get(entry, :category),
       needs_udev: false,
       installed?: true
     }
@@ -119,6 +125,7 @@ defmodule MayonnaiOS.Programs do
       app: module,
       action: nil,
       args: [],
+      category: Map.get(entry, :category),
       needs_udev: false,
       installed?: true
     }
@@ -131,6 +138,7 @@ defmodule MayonnaiOS.Programs do
       app: nil,
       action: nil,
       args: Map.get(entry, :args, []),
+      category: Map.get(entry, :category),
       # Programs that read input through udev; see MayonnaiOS.Udev. Carried
       # through explicitly because this function rebuilds the map rather than
       # merging into it, so anything not named here is dropped -- and a flag
@@ -160,6 +168,7 @@ defmodule MayonnaiOS.Programs do
       app: nil,
       action: nil,
       args: [],
+      category: nil,
       needs_udev: false,
       installed?: false
     }

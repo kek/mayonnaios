@@ -65,7 +65,7 @@ defmodule MayonnaiOS.Panel do
   ## Ownership is not the same question as which scene is showing
 
   The suppression is about who owns the panel, not about what is on it.
-  Someone can press X during a game and sit on the diagnostics screen while
+  Someone can launch a game from the diagnostics screen and sit on it while
   kmscube runs: the scene is alive, its one-second refresh is running, and
   every one of those refreshes would be a write into the framebuffer of a
   program that owns the display. That is why scenes ask this module rather
