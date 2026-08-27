@@ -343,6 +343,39 @@ defmodule MayonnaiOS.Files do
   end
 
   @doc """
+  The first `count` bytes of a file, or fewer if the file is shorter.
+
+  This is the read behind the browser's previews, and the cap is the caller's
+  contract: whatever the file's size, at most `count` bytes come off the disk,
+  so a cursor resting on a 200 MB ROM costs one bounded read and not a load
+  of the whole thing into a VM with the panel to run.
+
+  Follows a symlink, like every other read here -- the symlink caveat in the
+  moduledoc applies. A directory answers `{:error, :eisdir}`.
+  """
+  @spec peek(location(), pos_integer()) :: {:ok, binary()} | {:error, reason()}
+  def peek(location, count) do
+    with {:ok, path} <- resolve(location),
+         {:ok, _name} <- basename(location) do
+      case File.open(path, [:read, :binary, :raw]) do
+        {:ok, io} ->
+          result =
+            case :file.read(io, count) do
+              {:ok, data} -> {:ok, data}
+              :eof -> {:ok, <<>>}
+              {:error, reason} -> {:error, reason}
+            end
+
+          File.close(io)
+          result
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
   Free space on the filesystem holding a location, or `nil`.
 
   Per location, not per device, and that is the point. The roots span more
