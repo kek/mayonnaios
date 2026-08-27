@@ -193,7 +193,7 @@ defmodule MayonnaiOS.Launcher do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.{Browser, Input, Panel, Sleep}
+  alias MayonnaiOS.{Browser, Input, Led, Panel, Sleep}
 
   # The name the driver gives the gamepad, which is the only thing this module
   # knows about which device it is. There is no numbered fallback: /dev/input
@@ -817,8 +817,15 @@ defmodule MayonnaiOS.Launcher do
   # `Sleep` has already logged why.
   defp enter_sleep(state) do
     case Sleep.sleep() do
-      :ok -> {:ok, %{state | asleep: true}}
-      {:error, reason} -> {{:error, reason}, state}
+      :ok ->
+        # Slow flashing green: asleep, still running. Only when the backlight
+        # write landed, for the same reason as the flag -- a sleep signal over
+        # a lit screen would be the LED lying about the panel.
+        Led.set(:sleeping)
+        {:ok, %{state | asleep: true}}
+
+      {:error, reason} ->
+        {{:error, reason}, state}
     end
   end
 
@@ -831,6 +838,10 @@ defmodule MayonnaiOS.Launcher do
   # The held set goes too: the press that woke the device was consumed, so it
   # must not also count as the modifier half of a chord.
   defp wake_up(state) do
+    # Back to solid green whether or not the backlight write landed, matching
+    # the flag: this process now treats the device as awake, and the LED
+    # reports what this process does with button presses, not the panel.
+    Led.set(:running)
     {Sleep.wake(), %{state | asleep: false, held: MapSet.new()}}
   end
 

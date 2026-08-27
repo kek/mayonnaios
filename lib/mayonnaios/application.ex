@@ -27,7 +27,18 @@ defmodule MayonnaiOS.Application do
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: MayonnaiOS.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    case Supervisor.start_link(children, opts) do
+      {:ok, pid} ->
+        {:ok, pid}
+
+      error ->
+        # Blinking red, set before the error propagates: the BEAM is about to
+        # exit and erlinit to reboot, and this is the only signal that failure
+        # gives on a device whose panel never came up.
+        MayonnaiOS.Led.set(:failure)
+        error
+    end
   end
 
   defp viewport do
@@ -103,7 +114,7 @@ defmodule MayonnaiOS.Application do
       [
         # Earliest possible sign of life, and the only one that survives a UI
         # that fails to start. Needs nothing but sysfs.
-        MayonnaiOS.Heartbeat,
+        {MayonnaiOS.Led, :starting},
 
         # Something on the panel as soon as there is a panel to put it on. It
         # polls for /dev/fb0 in its own process rather than blocking the
@@ -164,7 +175,11 @@ defmodule MayonnaiOS.Application do
         # A launches the selected program, Menu goes back to the home screen,
         # X opens the diagnostics readout, the power button turns the backlight
         # off until any button is pressed, and Select+Menu powers off.
-        MayonnaiOS.Launcher
+        MayonnaiOS.Launcher,
+
+        # Solid green. After the launcher, so that the LED going solid means
+        # every child above came up -- which is the whole claim it makes.
+        {MayonnaiOS.Led, :running}
       ] ++ boot_diagnostics()
     end
 
