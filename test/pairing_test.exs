@@ -242,7 +242,7 @@ defmodule MayonnaiOS.PairingTest do
       texts = texts(Scene.graph(Pairing.status()))
 
       assert "Nothing paired." in texts
-      assert "Menu goes back." in texts
+      assert "B or Menu goes back." in texts
       refute Enum.any?(texts, &String.contains?(&1, "A forgets"))
     end
 
@@ -275,7 +275,7 @@ defmodule MayonnaiOS.PairingTest do
       texts = texts(Scene.graph(Pairing.status()))
 
       assert "press A again to forget" in texts
-      assert "A forgets this pairing. Any direction cancels. Menu leaves." in texts
+      assert "A forgets this pairing. Any direction cancels. B or Menu leaves." in texts
     end
 
     test "an unarmed row says what the buttons do" do
@@ -286,7 +286,7 @@ defmodule MayonnaiOS.PairingTest do
 
       assert "A1:A2:A3:A4:A5:A6" in texts
       assert "public address, 128-bit key" in texts
-      assert "D-pad picks a pairing, A forgets it. Menu goes back." in texts
+      assert "D-pad picks a pairing, A forgets it. B or Menu goes back." in texts
     end
 
     test "a scan that never started says so instead of showing an empty room" do

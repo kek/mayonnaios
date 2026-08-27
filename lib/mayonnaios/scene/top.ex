@@ -97,7 +97,7 @@ defmodule MayonnaiOS.Scene.Top do
     base("Processes")
     |> text("Not running", font_size: 26, fill: {:color, @fail}, translate: {20, 120})
     |> text(reason(error), font_size: 16, fill: {:color, @label}, translate: {20, 150})
-    |> footer("Menu goes back.")
+    |> footer("B or Menu goes back.")
   end
 
   # A machine whose sample failed -- a host with no /proc is the ordinary way
@@ -110,7 +110,7 @@ defmodule MayonnaiOS.Scene.Top do
       fill: {:color, @label},
       translate: {20, 150}
     )
-    |> footer("Menu goes back.")
+    |> footer("B or Menu goes back.")
   end
 
   def graph(snapshot, _error) do
@@ -121,7 +121,7 @@ defmodule MayonnaiOS.Scene.Top do
     |> table(snapshot)
     |> range(snapshot)
     |> footer(
-      "Up/Down scroll, Left/Right page. Y sorts by #{other_sort(snapshot)}. Menu goes back."
+      "Up/Down scroll, Left/Right page. Y sorts by #{other_sort(snapshot)}. B or Menu goes back."
     )
   end
 
