@@ -164,12 +164,103 @@ defmodule MayonnaiOS.BrowserTest do
                0
     end
 
-    test "visible/1 is the deepest three levels" do
+    test "panes/1: the focus is the center, the parent is the left" do
       browser = Browser.new() |> into_root() |> select("snes") |> Browser.descend()
 
-      assert Browser.depth(browser) == 4
-      assert Enum.map(Browser.visible(browser), & &1.title) |> length() == 3
-      assert List.last(Browser.visible(browser)).title == "snes"
+      assert %{left: left, center: center} = Browser.panes(browser)
+      assert center.title == "snes"
+      assert Enum.map(left.entries, & &1.name) == ["backup", "snes", "readme.txt"]
+    end
+
+    test "panes/1 at the root: nothing above, so the left is blank" do
+      assert %{left: nil, center: %{title: "RG40XXV"}} = Browser.panes(Browser.new())
+    end
+  end
+
+  describe "the preview pane" do
+    setup :tmp_tree
+
+    test "a directory previews as its contents, through the same expansion" do
+      browser = Browser.new() |> into_root() |> select("snes")
+
+      assert %{kind: :level, level: level} = Browser.preview(browser)
+      assert Enum.map(level.entries, & &1.name) == ["chrono.sfc"]
+    end
+
+    test "a category previews as its rows" do
+      assert %{kind: :level, level: %{title: "Games"}} = Browser.preview(Browser.new())
+    end
+
+    test "a file previews as its metadata and its head" do
+      browser = Browser.new() |> into_root() |> select("readme.txt")
+
+      assert %{kind: :file, title: "readme.txt", body: {:text, ["hi"]}} =
+               Browser.preview(browser)
+    end
+
+    test "an empty column previews nothing", %{root: root} do
+      File.mkdir_p!(Path.join(root, "hollow"))
+      browser = Browser.new() |> into_root() |> select("hollow") |> Browser.descend()
+
+      assert Browser.selected(browser) == nil
+      assert Browser.preview(browser) == nil
+    end
+  end
+
+  describe "the full view" do
+    setup :tmp_tree
+
+    test "X on a directory is a detailed listing, and B puts the columns back" do
+      browser = Browser.new() |> into_root() |> select("snes") |> Browser.open_full()
+
+      assert Browser.full?(browser)
+      assert %{kind: :listing, title: "snes", lines: [line], offset: 0} = browser.full
+      assert line =~ "chrono.sfc"
+
+      back = Browser.full_input(browser, :b)
+      refute Browser.full?(back)
+      assert names(back) == ["backup", "snes", "readme.txt"]
+    end
+
+    test "X is a toggle: it closes what it opened" do
+      browser = Browser.new() |> into_root() |> select("readme.txt") |> Browser.open_full()
+
+      assert %{kind: :text, lines: ["hi"]} = browser.full
+      refute Browser.full_input(browser, :x) |> Browser.full?()
+    end
+
+    test "a category has no full view, so the caller can skip the repaint" do
+      browser = Browser.new()
+      assert Browser.open_full(browser) == browser
+    end
+
+    test "scrolling clamps at both ends", %{root: root} do
+      File.write!(
+        Path.join(root, "long.txt"),
+        Enum.map_join(1..40, "\n", &"line #{&1}")
+      )
+
+      browser =
+        Browser.new() |> into_root() |> select("long.txt") |> Browser.open_full()
+
+      assert browser.full.offset == 0
+      assert Browser.full_input(browser, :up).full.offset == 0
+
+      down = Browser.full_input(browser, :down)
+      assert down.full.offset == 1
+
+      paged = Browser.full_input(down, :r1)
+      assert paged.full.offset == 17
+
+      floor = Enum.reduce(1..9, paged, fn _press, acc -> Browser.full_input(acc, :r1) end)
+      assert floor.full.offset == 40 - Browser.full_rows()
+    end
+
+    test "reset drops the full view with everything else" do
+      browser =
+        Browser.new() |> into_root() |> select("readme.txt") |> Browser.open_full()
+
+      refute Browser.reset(browser) |> Browser.full?()
     end
   end
 

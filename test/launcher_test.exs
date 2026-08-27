@@ -153,6 +153,25 @@ defmodule MayonnaiOS.LauncherTest do
       refute Enum.any?(says, &(&1 =~ "exited"))
     end
 
+    test "the right pane previews the selection" do
+      Application.put_env(:mayonnaios, :programs, [%{path: "/a"}])
+
+      # The cursor is on Games, so the preview pane lists what Games holds.
+      assert "a" in texts(Home.graph(Browser.new()))
+    end
+
+    test "the full view is one wide column about the selection" do
+      Application.put_env(:mayonnaios, :programs, [%{path: "/a"}])
+
+      browser = Browser.new() |> Browser.descend() |> Browser.open_full()
+      says = texts(Home.graph(browser))
+
+      assert Enum.any?(says, &(&1 =~ "/a"))
+      assert Enum.any?(says, &(&1 =~ "B goes back"))
+      # The columns give way to the one wide view.
+      refute "Games" in says
+    end
+
     test "the footer labels the buttons for the state on screen" do
       idle = texts(Home.graph(Browser.new()))
       assert Enum.any?(idle, &(&1 =~ "A opens."))
