@@ -2,19 +2,25 @@ defmodule MayonnaiOS.Sleep do
   @moduledoc """
   Turns the panel's backlight off and on again.
 
-  This is the whole of "sleep" on this device, and the name is deliberately
-  the user's word rather than the kernel's: nothing is suspended, no process
-  is stopped, and the CPUs keep running. What changes is the one thing that
-  costs anything -- the panel and its backlight are the budget, with the whole
-  board measured at about 1.83 W idle with the screen on.
+  This is the visible half of "sleep" and the only half that is certain to
+  work; `MayonnaiOS.LowPower` is the rest -- the Scenic renderer, WiFi, the
+  cpufreq governor and three of the four cores. The name is deliberately the
+  user's word rather than the kernel's: nothing is suspended, and the CPUs
+  keep running.
+
+  This module stays the one that decides. `MayonnaiOS.Launcher` calls
+  `LowPower.enter/0` only once the backlight write has landed, because a sleep
+  that could not darken the panel must not take three cores offline behind a
+  lit screen.
 
   ## Why it is not suspend
 
   `/sys/power/mem_sleep` on this board offers only `[s2idle]`. There is no
   `deep`, because ATF's `sun50i_h616` platform does not implement PSCI
-  SYSTEM_SUSPEND, and an s2idle attempt aborts anyway inside rtw88's SDIO
-  suspend handler with `-EINVAL` (there is no `keep-power-in-suspend` in any
-  device tree here). There is also no cpuidle driver, so the deepest state
+  SYSTEM_SUSPEND -- the H616 die dropped the AR100 coprocessor that A64 and H6
+  use for exactly that -- and an s2idle attempt aborts anyway inside rtw88's
+  SDIO suspend handler with `-EINVAL` (there is no `keep-power-in-suspend` in
+  any device tree here). There is also no cpuidle driver, so the deepest state
   these cores reach is a bare WFI whether "suspended" or not: a successful
   s2idle would save almost nothing.
 
@@ -22,8 +28,9 @@ defmodule MayonnaiOS.Sleep do
   is wakeup-capable and enabled, `/sys/bus/platform/devices/axp20x-pek/power/wakeup`
   reads `enabled` on firmware `3cc86f59` -- but the three reasons above decide
   it regardless: no `deep`, an s2idle that aborts in rtw88, and no cpuidle
-  driver to make a successful one worth anything. So sleep is the backlight
-  and nothing else.
+  driver to make a successful one worth anything. So sleep is this backlight
+  plus what `MayonnaiOS.LowPower` can switch off by hand, which is what every
+  other OS on this SoC does under the name suspend.
 
   ## Why the backlight, and why 0 and 1
 
@@ -35,10 +42,13 @@ defmodule MayonnaiOS.Sleep do
   A PWM backlight would need this module to read `max_brightness` and restore
   a previous level; a binary one has nothing to remember.
 
-  Nothing else has to cooperate. Scenic renders through `cairo-fb` into
-  `/dev/fb0` on the CPU -- a plain mmap writer, not a DRM master -- so the app
-  keeps running with the panel dark, and turning the backlight back on shows
-  the current frame with no re-init and no scene restart.
+  Nothing else has to cooperate with *this* write. Scenic renders through
+  `cairo-fb` into `/dev/fb0` on the CPU -- a plain mmap writer, not a DRM
+  master -- so the app keeps running with the panel dark, and turning the
+  backlight back on shows the current frame with no re-init and no scene
+  restart. `MayonnaiOS.LowPower.Renderer` stops that renderer separately and
+  starts it again before the light comes back, so what the panel shows is
+  still a current frame.
 
   ## What a successful write does and does not prove
 

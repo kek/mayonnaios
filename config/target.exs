@@ -497,6 +497,15 @@ config :mayonnaios, web_port: 80
 # on_close, input_blacklist.
 config :mayonnaios, autostart_ui: true
 
+# Sleep switches off more than the backlight: the Scenic renderer, WiFi, the
+# cpufreq governor and three of the four cores. `MayonnaiOS.LowPower` has what
+# each is worth, measured, and what it costs.
+#
+# Set this false while debugging sleep over SSH on WiFi, because taking
+# `wlan0` down ends that session. The USB gadget's `usb0` is untouched either
+# way and stays the way in.
+config :mayonnaios, low_power_sleep: true
+
 # Audio works, so `MayonnaiOS.Audio.run/0` is allowed to make a sound.
 #
 # It stayed off until the speaker had been heard, because the answer was

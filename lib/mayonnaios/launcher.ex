@@ -93,7 +93,7 @@ defmodule MayonnaiOS.Launcher do
                       confirmation, remove-a-character in the rename editor,
                       and the answer to the Power off row's question
       Menu            go back to the home screen, at its root column
-      Power           sleep -- backlight off, and any press wakes it
+      Power           sleep -- backlight off and low-power, any press wakes it
       Select+Menu     power off
 
   While the browser has a sheet up -- actions, a delete confirmation, the
@@ -126,7 +126,10 @@ defmodule MayonnaiOS.Launcher do
 
   The power button turns the backlight off; `MayonnaiOS.Sleep` owns both the
   mechanism and the choice of key, including why it is that button and why
-  sleep is not suspend.
+  sleep is not suspend. `MayonnaiOS.LowPower` is everything else that goes
+  quiet with it -- the renderer, WiFi, the governor and three of the four
+  cores -- and this process holds its undo list in `low_power` so that waking
+  puts each back in reverse.
 
   What belongs here is the other half: while the panel is dark, **the next
   press is consumed**. Waking is not a binding of its own -- any button wakes,
@@ -192,7 +195,7 @@ defmodule MayonnaiOS.Launcher do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.{Browser, Input, Led, Panel, Sleep}
+  alias MayonnaiOS.{Browser, Input, Led, LowPower, Panel, Sleep}
 
   # The name the driver gives the gamepad, which is the only thing this module
   # knows about which device it is. There is no numbered fallback: /dev/input
@@ -486,7 +489,16 @@ defmodule MayonnaiOS.Launcher do
       # that has to decide whether to swallow a press and because the panel
       # can be dark for reasons this process did not cause -- and the reading
       # that matters is "did we turn it off", not "is it off".
-      asleep: false
+      asleep: false,
+      # What `MayonnaiOS.LowPower` needs in order to undo itself: the cores it
+      # took offline, the governors it changed, the WiFi configuration it put
+      # away and the Scenic driver it stopped. Empty while awake.
+      #
+      # Held here and nowhere else, and deliberately not persisted: if this
+      # process dies asleep, the supervisor restarts it knowing nothing, and
+      # knowing nothing is recoverable -- a remembered "the governor was
+      # ondemand" that no longer matches the hardware is not.
+      low_power: []
     }
 
   @impl GenServer
@@ -821,7 +833,15 @@ defmodule MayonnaiOS.Launcher do
         # write landed, for the same reason as the flag -- a sleep signal over
         # a lit screen would be the LED lying about the panel.
         Led.set(:sleeping)
-        {:ok, %{state | asleep: true}}
+
+        # And only then the rest of it. The backlight is the measure that is
+        # certain to work and the only one the user can see, so it goes first
+        # and it alone decides whether this counts as sleep; the cores, the
+        # governor, the radio and the renderer are what make the dark panel
+        # actually cost less. `LowPower.enter/0` cannot fail -- a step that
+        # will not run is logged and left out of the undo list -- so there is
+        # nothing here to branch on. See MayonnaiOS.LowPower.
+        {:ok, %{state | asleep: true, low_power: LowPower.enter()}}
 
       {:error, reason} ->
         {{:error, reason}, state}
@@ -841,7 +861,16 @@ defmodule MayonnaiOS.Launcher do
     # the flag: this process now treats the device as awake, and the LED
     # reports what this process does with button presses, not the panel.
     Led.set(:running)
-    {Sleep.wake(), %{state | asleep: false, held: MapSet.new()}}
+
+    # Before the backlight, and in reverse: cores back, governor back, WiFi
+    # back, renderer back. The renderer coming back last is what makes the
+    # order matter -- the frame is redrawn while the panel is still dark, so
+    # the light comes up over a finished picture instead of over whatever the
+    # framebuffer was left holding. `leave/1` is always :ok and rescues each
+    # step separately; see MayonnaiOS.LowPower.
+    LowPower.leave(state.low_power)
+
+    {Sleep.wake(), %{state | asleep: false, held: MapSet.new(), low_power: []}}
   end
 
   defp bound(state, @launch_button), do: do_launch(state)
