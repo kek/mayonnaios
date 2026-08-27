@@ -140,14 +140,36 @@ defmodule MayonnaiOS.Diagnostics do
     # exactly like a GPU doing nothing.
     File.write("#{@gpu}/profiling", "1")
 
+    :timer.send_interval(@poll_ms, :poll)
+    {:ok, %__MODULE__{}, {:continue, :first_reading}}
+  end
+
+  # The first reading is taken here rather than in `init/1` because of where
+  # this process sits in the boot: the application supervisor starts its
+  # children one at a time and waits for each `start_link` to return, so
+  # anything done in `init/1` is time the games card, the cores, the web
+  # server and the launcher spend not existing.
+  #
+  # And the first reading is the expensive one. It spawns four programs off a
+  # read-only squashfs that has none of them in the page cache yet -- `evtest`
+  # for the jack, `dmesg` for the Realtek firmware line (whose whole output is
+  # then scanned), `amixer` for the mixer, `hwclock` where it exists -- which
+  # is several hundred milliseconds of fork/exec in front of every child below
+  # this one.
+  #
+  # `handle_continue` runs before this process handles any other message, so
+  # `snapshot/0` still cannot observe the empty struct: a caller that asks
+  # immediately waits for the reading rather than being told nothing. What
+  # moves is only when the *rest of the supervision tree* is allowed to start.
+  @impl GenServer
+  def handle_continue(:first_reading, state) do
     state =
-      %__MODULE__{}
+      state
       |> Map.put(:jack, %{inserted: query_jack(), changes: 0})
       |> Map.put(:rtl, rtl_status())
       |> poll()
 
-    :timer.send_interval(@poll_ms, :poll)
-    {:ok, state}
+    {:noreply, state}
   end
 
   @impl GenServer
