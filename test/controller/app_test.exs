@@ -107,13 +107,26 @@ defmodule MayonnaiOS.Controller.AppTest do
     test "a whole evdev report is forwarded in one piece" do
       press(:btn_b)
 
-      send_events([{:ev_key, :btn_dpad_down, 1}, {:ev_key, :btn_a, 1}])
+      # Not :btn_a -- physical B -- in this report: FakeApp does not claim B,
+      # so for it that press is the way out, not input.
+      send_events([{:ev_key, :btn_dpad_down, 1}, {:ev_key, :btn_x, 1}])
 
       # One entry, not two: the A press that started the app belongs to the
       # launcher and is not forwarded. Only what happens after it is the
       # app's.
       assert [report] = FakeApp.log().events
-      assert report == [{:ev_key, :btn_dpad_down, 1}, {:ev_key, :btn_a, 1}]
+      assert report == [{:ev_key, :btn_dpad_down, 1}, {:ev_key, :btn_x, 1}]
+    end
+
+    test "B stops an app that does not claim it" do
+      press(:btn_b)
+      assert FakeApp.log().started == 1
+
+      # Physical B: FakeApp exports no claims_back?/0, so back goes back.
+      press(:btn_a)
+
+      assert FakeApp.log().stopped == 1
+      assert FakeApp.log().events == []
     end
 
     test "the D-pad does not move the menu cursor" do

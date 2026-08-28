@@ -153,6 +153,25 @@ defmodule MayonnaiOS.LauncherTest do
       refute Enum.any?(says, &(&1 =~ "exited"))
     end
 
+    test "the right pane previews the selection" do
+      Application.put_env(:mayonnaios, :programs, [%{path: "/a"}])
+
+      # The cursor is on Games, so the preview pane lists what Games holds.
+      assert "a" in texts(Home.graph(Browser.new()))
+    end
+
+    test "the full view is one wide column about the selection" do
+      Application.put_env(:mayonnaios, :programs, [%{path: "/a"}])
+
+      browser = Browser.new() |> Browser.descend() |> Browser.open_full()
+      says = texts(Home.graph(browser))
+
+      assert Enum.any?(says, &(&1 =~ "/a"))
+      assert Enum.any?(says, &(&1 =~ "B goes back"))
+      # The columns give way to the one wide view.
+      refute "Games" in says
+    end
+
     test "the footer labels the buttons for the state on screen" do
       idle = texts(Home.graph(Browser.new()))
       assert Enum.any?(idle, &(&1 =~ "A opens."))
@@ -312,6 +331,52 @@ defmodule MayonnaiOS.LauncherTest do
       assert Launcher.selected() == 1
     end
 
+    test "A on a file opens the full view, never the actions sheet" do
+      # Down onto Files, into the first root, cursor on its first file.
+      press(:btn_dpad_down)
+      press(:btn_b)
+      press(:btn_b)
+
+      press(:btn_b)
+      browser = Launcher.browser()
+      assert Browser.full?(browser)
+      refute Browser.busy?(browser)
+
+      # Physical B closes it, and the columns are back where they were.
+      press(:btn_a)
+      refute Browser.full?(Launcher.browser())
+      assert Browser.depth(Launcher.browser()) == 3
+    end
+
+    test "X toggles the full view, and the view has the D-pad while it is up" do
+      press(:btn_dpad_down)
+      press(:btn_b)
+      press(:btn_b)
+
+      # :btn_y is the button silkscreened X; see the Launcher moduledoc.
+      press(:btn_y)
+      assert Browser.full?(Launcher.browser())
+
+      before = Launcher.selected()
+      press(:btn_dpad_down)
+      assert Launcher.selected() == before
+
+      press(:btn_y)
+      refute Browser.full?(Launcher.browser())
+    end
+
+    test "Menu leaves the full view for the root column" do
+      press(:btn_dpad_down)
+      press(:btn_b)
+      press(:btn_b)
+      press(:btn_y)
+      assert Browser.full?(Launcher.browser())
+
+      press(:btn_mode)
+      refute Browser.full?(Launcher.browser())
+      assert Browser.depth(Launcher.browser()) == 1
+    end
+
     test "Menu goes back to the root column from deep in the tree" do
       press(:btn_b)
       press(:btn_dpad_down)
@@ -326,6 +391,80 @@ defmodule MayonnaiOS.LauncherTest do
       send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 0}]})
       # selected/0 is a call, so it is ordered behind the casts above.
       Launcher.selected()
+    end
+  end
+
+  # B leaving the readout apps and diagnostics, and staying with the apps
+  # that need it. The fake apps at the bottom of this file stand in for the
+  # real ones because the real ones want hci0 or a viewport; the contract
+  # exercised -- start, stop, input, claims_back? -- is the launcher's whole
+  # view of an app either way.
+  describe "B as the way back out" do
+    setup do
+      Process.register(self(), :launcher_test_sink)
+
+      Application.put_env(:mayonnaios, :programs, [
+        %{name: "Readout", app: FakeReadout, category: :apps},
+        %{name: "Game", app: FakeGame, category: :apps},
+        %{name: "BEAM processes", app: {MayonnaiOS.Top, :beam}, category: :apps}
+      ])
+
+      on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
+
+      start_supervised!({Launcher, device: "/nonexistent/event0"})
+
+      # Into the Apps column: third category from the top.
+      tap(:btn_dpad_down)
+      tap(:btn_dpad_down)
+      tap(:btn_b)
+      :ok
+    end
+
+    test "B leaves an app that does not claim it, and the press is swallowed" do
+      tap(:btn_b)
+      assert :sys.get_state(Launcher).app == FakeReadout
+
+      tap(:btn_a)
+      assert_receive {FakeReadout, :stopped}
+      assert :sys.get_state(Launcher).app == nil
+      assert :sys.get_state(Launcher).scene == :home
+
+      # The press that left never reached the app as input.
+      refute_received {FakeReadout, {:input, [{:ev_key, :btn_a, 1}]}}
+    end
+
+    test "B stays with an app that claims it" do
+      tap(:btn_dpad_down)
+      tap(:btn_b)
+      assert :sys.get_state(Launcher).app == FakeGame
+
+      tap(:btn_a)
+      assert_receive {FakeGame, {:input, [{:ev_key, :btn_a, 1}]}}
+      assert :sys.get_state(Launcher).app == FakeGame
+      refute_received {FakeGame, :stopped}
+    end
+
+    test "X on a process monitor opens the readout itself, and B backs out" do
+      tap(:btn_dpad_down)
+      tap(:btn_dpad_down)
+
+      tap(:btn_y)
+      assert :sys.get_state(Launcher).app == {MayonnaiOS.Top, :beam}
+
+      tap(:btn_a)
+      assert :sys.get_state(Launcher).app == nil
+    end
+
+    test "B leaves diagnostics for the home screen" do
+      # System is one wrap up from Apps' row; simplest is Menu home, then up.
+      tap(:btn_mode)
+      tap(:btn_dpad_up)
+      tap(:btn_b)
+      tap(:btn_b)
+      assert :sys.get_state(Launcher).scene == :diagnostics
+
+      tap(:btn_a)
+      assert :sys.get_state(Launcher).scene == :home
     end
   end
 
@@ -742,6 +881,35 @@ defmodule MayonnaiOS.LauncherTest do
       refute_received :flushed
       assert alive?(os_pid)
     end
+  end
+end
+
+# The launcher's app contract with nothing behind it: starts a process that
+# idles, reports its stops and its inputs to whichever test registered itself
+# as the sink. One does not claim B and one does, which is the difference
+# under test.
+defmodule FakeReadout do
+  def start, do: {:ok, spawn(fn -> Process.sleep(:infinity) end)}
+  def stop, do: notify(:stopped)
+  def input(events), do: notify({:input, events})
+  def scene, do: nil
+
+  defp notify(message) do
+    if pid = Process.whereis(:launcher_test_sink), do: send(pid, {__MODULE__, message})
+    :ok
+  end
+end
+
+defmodule FakeGame do
+  def start, do: {:ok, spawn(fn -> Process.sleep(:infinity) end)}
+  def stop, do: notify(:stopped)
+  def input(events), do: notify({:input, events})
+  def scene, do: nil
+  def claims_back?, do: true
+
+  defp notify(message) do
+    if pid = Process.whereis(:launcher_test_sink), do: send(pid, {__MODULE__, message})
+    :ok
   end
 end
 

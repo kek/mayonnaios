@@ -13,18 +13,30 @@ defmodule MayonnaiOS.Scene.Home do
 
   ## What the panel shows
 
-  The breadcrumb line names every open level even when only the deepest
-  three fit, so the line still says where you are when the root has scrolled
-  off. Below it, a fixed grid of three columns -- the deepest levels fill it
-  from the left, and the cursor lives in the rightmost occupied one; in the
-  columns left of it the highlighted row is the one that is open, which is
-  how a column browser shows where you came from.
+  The breadcrumb line names every open level, so the line still says where
+  you are when the parents have scrolled off. Below it, a fixed grid of
+  three slots: the focused column in the center -- the only cursor the D-pad
+  moves -- its parent on the left (blank at the root, where its highlighted
+  row is the one that is open, which is how a column browser shows where you
+  came from), and on the right the preview of whatever the cursor is on:
+  the contents of a directory, the head of a file, the metadata of a
+  program, a narrow slice of the process readout.
 
-  The actions sheet is drawn as one more column, because in this UI "a list
-  to pick from" and "a column" are the same thing. The delete confirmation
-  and the rename editor take the whole column area instead: one is a
-  question that deserves the room, and the other is a character grid that
-  needs it.
+  The actions sheet rides in the preview's slot, because in this UI "a list
+  to pick from" and "a column" are the same thing. The full view that X
+  opens, the delete confirmation and the rename editor take the whole column
+  area instead: one wide column is the full view's point, a question
+  deserves the room, and a character grid needs it.
+
+  ## Images
+
+  An image -- a preview thumbnail or the full view -- reaches the driver as
+  a streamed texture: the compressed bytes go into `Scenic.Assets.Stream`
+  under a fixed id and a rect is filled from it, scaled to fit its box. The
+  driver decodes them itself (stb_image in scenic_driver_local), which is
+  why no decoder lives in this VM. Staging can fail -- bytes past the view's
+  cap, no Scenic running, a file the decoder refuses -- and the box then
+  says so instead of drawing nothing.
 
   ## Why the footer says what the buttons do, on every screen
 
@@ -96,6 +108,18 @@ defmodule MayonnaiOS.Scene.Home do
   @cell 15
   @cells 36
 
+  # The full view's table: monospace, because listings and hexdumps are
+  # columns of figures, and one line per text primitive. 13 px Roboto Mono
+  # runs about 7.8 px per glyph, so 76 characters fill the span.
+  @mono :roboto_mono
+  @full_pitch 19
+  @full_chars 76
+
+  # Where streamed textures go, one fixed id per box. Fixed, so a new image
+  # replaces the old one instead of leaking a texture per file browsed.
+  @preview_stream "browser_preview"
+  @full_stream "browser_full"
+
   @impl Scenic.Scene
   def init(scene, param, _opts) do
     # The boot root comes from `default_scene:` in config, which Scenic starts
@@ -147,7 +171,7 @@ defmodule MayonnaiOS.Scene.Home do
   # kept when it runs long: where you are matters more than where you began,
   # and the root is always one Menu press away.
   defp breadcrumb(graph, browser) do
-    trail = browser |> Browser.trail() |> Enum.join(" > ")
+    trail = (Browser.trail(browser) ++ full_crumb(browser)) |> Enum.join(" > ")
 
     text(graph, truncate_left(trail, 48),
       font_size: 18,
@@ -155,6 +179,11 @@ defmodule MayonnaiOS.Scene.Home do
       translate: {@left, @title_y}
     )
   end
+
+  # The full view is one deeper than the deepest column, and the line should
+  # say so: it is the current place the way every level above it is.
+  defp full_crumb(%{full: %{title: title}}), do: [title]
+  defp full_crumb(_browser), do: []
 
   # What is on the clipboard, top right, because a held file that is not
   # shown is a file someone pastes into the wrong place a minute later.
@@ -173,7 +202,9 @@ defmodule MayonnaiOS.Scene.Home do
   defp body(graph, %{overlay: {:confirm, pending}}), do: confirm_view(graph, pending)
   defp body(graph, %{overlay: {:rename, rename}}), do: rename_view(graph, rename)
 
-  # The actions sheet rides in as one more column, titled by the entry it is
+  defp body(graph, %{full: full}) when full != nil, do: full_view(graph, full)
+
+  # The actions sheet rides in the preview's slot, titled by the entry it is
   # about, so opening it reads as descending into the question.
   defp body(graph, %{overlay: {:actions, actions, cursor}} = browser) do
     sheet = %{
@@ -183,24 +214,32 @@ defmodule MayonnaiOS.Scene.Home do
       note: nil
     }
 
-    columns(graph, Enum.take(Browser.visible(browser) ++ [sheet], -@slots))
-  end
-
-  defp body(graph, browser), do: columns(graph, Browser.visible(browser))
-
-  defp columns(graph, levels) do
-    count = length(levels)
+    panes = Browser.panes(browser)
 
     graph
     |> separators()
-    |> then(fn g ->
-      levels
-      |> Enum.with_index()
-      |> Enum.reduce(g, fn {level, index}, acc ->
-        column(acc, level, @left + index * (@slot + @gutter), index == count - 1)
-      end)
-    end)
+    |> slot(panes.left, 0, false)
+    |> slot(panes.center, 1, false)
+    |> slot(sheet, 2, true)
   end
+
+  # The main shape: parent, focus, preview. The parent slot stays blank at
+  # the root -- an empty column on the left is what "there is nothing above"
+  # looks like.
+  defp body(graph, browser) do
+    panes = Browser.panes(browser)
+
+    graph
+    |> separators()
+    |> slot(panes.left, 0, false)
+    |> slot(panes.center, 1, true)
+    |> preview_pane(Browser.preview(browser))
+  end
+
+  defp slot(graph, nil, _index, _focused?), do: graph
+  defp slot(graph, level, index, focused?), do: column(graph, level, slot_x(index), focused?)
+
+  defp slot_x(index), do: @left + index * (@slot + @gutter)
 
   # The grid is fixed at three slots, so the hairlines are too: they say the
   # empty slots are empty, not absent.
@@ -312,6 +351,287 @@ defmodule MayonnaiOS.Scene.Home do
     start = min(max(0, cursor - visible + 1), max(0, count - visible))
 
     %{rows: items |> Enum.slice(start, visible) |> Enum.with_index(start), cursor: cursor}
+  end
+
+  # -- the preview pane -------------------------------------------------------------
+
+  # The third slot: not a column with a cursor but a statement about the
+  # selected entry -- what it contains, what it is, what the buttons do to
+  # it. `nil` -- an empty column -- draws nothing, which is the honest pane
+  # for no selection.
+  defp preview_pane(graph, nil), do: graph
+
+  # An expandable entry previews as the column it would open: same rows,
+  # no cursor, because the cursor is still one A press away.
+  defp preview_pane(graph, %{kind: :level, level: level}) do
+    x = slot_x(2)
+
+    graph
+    |> preview_caption(level.title, x)
+    |> preview_listing(level, x)
+  end
+
+  defp preview_pane(graph, %{kind: :file, title: title, info: info, body: body}) do
+    x = slot_x(2)
+
+    graph
+    |> preview_caption(title, x)
+    |> preview_lines(info, x, @rows_top, @label)
+    |> preview_body(body, x, @rows_top + length(info) * 18 + 8)
+  end
+
+  defp preview_pane(graph, %{kind: :info, title: title, lines: lines}) do
+    x = slot_x(2)
+
+    graph
+    |> preview_caption(title, x)
+    |> preview_lines(lines, x, @rows_top, @label)
+  end
+
+  defp preview_pane(graph, %{kind: :top, title: title, lines: lines}) do
+    x = slot_x(2)
+
+    graph
+    |> preview_caption(title, x)
+    |> mono_lines(lines, x, @rows_top, 12)
+  end
+
+  defp preview_caption(graph, words, x) do
+    text(graph, truncate(words, name_chars()),
+      font_size: 12,
+      fill: {:color, @dim},
+      translate: {x, @caption_y}
+    )
+  end
+
+  defp preview_listing(graph, %{entries: [], note: note}, x) do
+    text(graph, truncate(note || "Empty.", name_chars() + 6),
+      font_size: 13,
+      fill: {:color, @dim},
+      translate: {x, @rows_top + 16}
+    )
+  end
+
+  defp preview_listing(graph, %{entries: entries}, x) do
+    shown = Enum.take(entries, @visible - 1)
+
+    {graph, y} =
+      Enum.reduce(shown, {graph, @rows_top}, fn node, {acc, y} ->
+        acc =
+          text(acc, truncate(node.name, name_chars()),
+            font_size: 14,
+            fill: {:color, name_colour(node, false)},
+            translate: {x + 4, y + 16}
+          )
+
+        {acc, y + 22}
+      end)
+
+    case length(entries) - length(shown) do
+      0 ->
+        graph
+
+      more ->
+        text(graph, "… and #{more} more",
+          font_size: 12,
+          fill: {:color, @dim},
+          translate: {x + 4, y + 14}
+        )
+    end
+  end
+
+  defp preview_lines(graph, lines, x, top, colour) do
+    {graph, _y} =
+      Enum.reduce(lines, {graph, top}, fn line, {acc, y} ->
+        acc =
+          text(acc, truncate(line, 30),
+            font_size: 13,
+            fill: {:color, colour},
+            translate: {x, y + 14}
+          )
+
+        {acc, y + 18}
+      end)
+
+    graph
+  end
+
+  defp mono_lines(graph, lines, x, top, size) do
+    {graph, _y} =
+      Enum.reduce(lines, {graph, top}, fn line, {acc, y} ->
+        acc =
+          text(acc, line,
+            font: @mono,
+            font_size: size,
+            fill: {:color, @title},
+            translate: {x, y + 14}
+          )
+
+        {acc, y + size + 4}
+      end)
+
+    graph
+  end
+
+  defp preview_body(graph, nil, _x, _y), do: graph
+
+  defp preview_body(graph, {:note, words}, x, y) do
+    text(graph, truncate(words, 30), font_size: 13, fill: {:color, @dim}, translate: {x, y + 14})
+  end
+
+  defp preview_body(graph, {:text, lines}, x, y) do
+    mono_lines(graph, Enum.map(lines, &truncate(&1, 27)), x, y, 12)
+  end
+
+  defp preview_body(graph, {:hex, lines}, x, y) do
+    mono_lines(graph, lines, x, y, 12)
+  end
+
+  defp preview_body(graph, {:image, image}, x, y) do
+    bottom = @rows_top + @visible * @pitch
+    image_box(graph, @preview_stream, image, {x, y + 6, @slot - 8, bottom - y - 12})
+  end
+
+  # -- the full view ------------------------------------------------------------------
+
+  # One wide column: what X opened. The heading carries the name and, on the
+  # right, where the window sits in the whole -- the two facts the lines
+  # themselves cannot show.
+  defp full_view(graph, %{kind: :image, title: title, image: image} = full) do
+    facts =
+      Enum.join(
+        ["#{image.width} x #{image.height}", image.format] ++ List.wrap(full.note),
+        "  "
+      )
+
+    graph
+    |> full_heading(title, facts)
+    |> image_box(@full_stream, image, {@left, @rows_top, @span, @message_y - @rows_top - 10})
+  end
+
+  defp full_view(graph, %{kind: :info, title: title, lines: lines}) do
+    graph = full_heading(graph, title, "")
+
+    {graph, _y} =
+      Enum.reduce(lines, {graph, @rows_top}, fn line, {acc, y} ->
+        acc =
+          text(acc, truncate(line, @full_chars),
+            font_size: 15,
+            fill: {:color, @label},
+            translate: {@left, y + 14}
+          )
+
+        {acc, y + 22}
+      end)
+
+    graph
+  end
+
+  defp full_view(graph, %{kind: kind, lines: lines} = full)
+       when kind in [:listing, :text, :hex] do
+    window = Enum.slice(lines, full.offset, Browser.full_rows())
+
+    {graph, _y} =
+      Enum.reduce(window, {graph, @rows_top}, fn line, {acc, y} ->
+        acc =
+          text(acc, truncate(line, @full_chars),
+            font: @mono,
+            font_size: 13,
+            fill: {:color, @title},
+            translate: {@left, y + 14}
+          )
+
+        {acc, y + @full_pitch}
+      end)
+
+    full_heading(graph, full.title, range_words(full))
+  end
+
+  defp full_heading(graph, title, words) do
+    graph
+    |> text(truncate(title, 42),
+      font_size: 16,
+      fill: {:color, @title},
+      translate: {@left, @caption_y + 2}
+    )
+    |> text(truncate(words, 34),
+      font_size: 12,
+      fill: {:color, @dim},
+      translate: {@left + 372, @caption_y + 2}
+    )
+  end
+
+  # Where the window sits, what the cap kept out, and -- for an empty
+  # listing -- why there are no lines at all.
+  defp range_words(%{lines: [], note: note}), do: note || "Empty."
+
+  defp range_words(%{kind: kind, lines: lines, offset: offset} = full) do
+    total = length(lines)
+    window = Browser.full_rows()
+
+    range =
+      if total > window do
+        "#{offset + 1}–#{min(offset + window, total)} of #{total} #{unit(kind)}"
+      else
+        "#{total} #{unit(kind)}"
+      end
+
+    case full.note do
+      nil -> range
+      note -> "#{note}  --  #{range}"
+    end
+  end
+
+  defp unit(:listing), do: "entries"
+  defp unit(_kind), do: "lines"
+
+  # -- streamed images ------------------------------------------------------------
+
+  # The picture, scaled to fit its box and centered in it. The texture is
+  # staged first, because a rect filled from a stream nobody fed is a blank
+  # hole shaped like a bug; when staging fails, the box says so.
+  defp image_box(graph, id, %{bytes: bytes, width: w, height: h}, {x, y, box_w, box_h}) do
+    case stage_image(id, bytes) do
+      :ok ->
+        scale = min(box_w / w, box_h / h)
+
+        rect(graph, {w, h},
+          fill: {:stream, id},
+          scale: scale,
+          pin: {0, 0},
+          translate: {x + (box_w - w * scale) / 2, y + (box_h - h * scale) / 2}
+        )
+
+      :error ->
+        text(graph, "cannot be shown here",
+          font_size: 13,
+          fill: {:color, @dim},
+          translate: {x, y + 16}
+        )
+    end
+  end
+
+  defp stage_image(_id, nil), do: :error
+
+  defp stage_image(id, bytes) do
+    case Scenic.Assets.Stream.Image.from_binary(bytes) do
+      {:ok, image} -> put_stream(id, image)
+      {:error, _reason} -> :error
+    end
+  end
+
+  # Stream.put talks to Scenic's asset table, which is only there while
+  # Scenic runs -- and these graphs are also built by host tests with no
+  # viewport at all. :error then, and the box explains itself.
+  defp put_stream(id, image) do
+    case Scenic.Assets.Stream.put(id, image) do
+      :ok -> :ok
+      _other -> :error
+    end
+  rescue
+    _error -> :error
+  catch
+    :exit, _reason -> :error
   end
 
   # -- the delete confirmation ----------------------------------------------------
@@ -540,15 +860,18 @@ defmodule MayonnaiOS.Scene.Home do
     |> text(headline, font_size: 16, fill: {:color, @wait}, translate: {@left, @footer_y})
   end
 
+  defp hint(%{full: full}) when full != nil,
+    do: "B goes back. Up/Down scroll, L1/R1 page. X also closes."
+
   defp hint(%{overlay: {:actions, _actions, _cursor}}), do: "A does it. B goes back."
   defp hint(%{overlay: {:confirm, _pending}}), do: "Y deletes. Anything else cancels."
   defp hint(%{overlay: {:rename, _rename}}), do: "A saves. B cancels. Y removes a character."
 
   defp hint(browser) do
     if Browser.focused(browser).location == nil do
-      "A opens. B closes a column. L1/R1 page. Menu goes to the top."
+      "A opens. B closes a column. X inspects. L1/R1 page. Menu goes to the top."
     else
-      "A opens. B closes. Y for what can be done here. L1/R1 page. Menu goes to the top."
+      "A opens. B closes. X inspects. Y for file actions. Menu goes to the top."
     end
   end
 
