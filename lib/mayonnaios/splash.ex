@@ -2,38 +2,25 @@ defmodule MayonnaiOS.Splash do
   @moduledoc """
   Puts something on the panel as soon as there is a panel to put it on.
 
-  ## Why this is drawn here rather than earlier
+  ## Why this waits rather than assuming
 
-  It looks like a splash screen belongs in the bootloader, or in the kernel as
-  `CONFIG_LOGO`. On this board neither is earlier in practice, because the
-  panel is the constraint and not the software. Measured on hardware:
+  The panel is the constraint, not the software. `/dev/fb0` does not exist
+  until the DRM stack has bound every component of sun4i's display engine and
+  fbdev emulation has registered a device for it, and that happens during
+  kernel initcalls -- so it can be either side of the moment this process
+  starts, depending on how long the f2fs mount and the BEAM's own startup take
+  on the day.
 
-      2.32s   init starts
-      2.78s   f2fs starts mounting /root
-      5.73s   /root mounted
-      7.10s   the BEAM starts
-      9.47s   panel-mipi binds
-      10.27s  console switches to the framebuffer
-
-  The panel driver is a module (`CONFIG_DRM_PANEL_MIPI=m`) whose panel
-  description is a firmware file, and erlinit loads it from `--pre-run-exec`
-  *after* mounting `/root` -- so the display waits about three seconds behind
-  an f2fs mount that has nothing to do with it. The BEAM is already running
-  two and a half seconds before the panel exists.
-
-  So Elixir is not the late part. Drawing from here lands within a few
-  hundred milliseconds of the first moment the hardware can show anything, and
-  if the panel is later made to come up early -- built in, with its firmware
-  linked into the kernel image -- this same code starts appearing at around
-  two seconds with no change.
+  So `run/0` polls rather than opening the device once. It is first in the
+  supervision tree (see `MayonnaiOS.Application`) and it polls in its own
+  process, which together mean it draws at the first moment the hardware can
+  show anything without holding up anything that follows.
 
   ## Kernel messages will scribble over it
 
-  The kernel command line carries `console=tty0` and deliberately omits
-  `quiet`, because during bring-up a silent screen could not be told apart
-  from a screen that never came up. That decision was right and it is why boot
-  messages scroll past. It also means fbcon owns this framebuffer and will
-  print over anything drawn here.
+  The kernel command line carries `console=tty0`, which is what makes a boot
+  failure visible on a board whose only UART is on internal test pads. It also
+  means fbcon owns this framebuffer and prints over anything drawn here.
 
   `quiesce_console/0` unbinds fbcon from the framebuffer before drawing, which
   stops that without touching the kernel command line, without a rebuild, and
