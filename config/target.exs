@@ -409,6 +409,21 @@ config :mayonnaios, :systems, [
     key: "snes",
     name: "Super Nintendo",
     extensions: [".sfc", ".smc", ".zip"]
+  },
+  %{
+    key: "gb",
+    name: "Game Boy",
+    extensions: [".gb", ".zip"]
+  },
+  %{
+    key: "gbc",
+    name: "Game Boy Color",
+    extensions: [".gbc", ".zip"]
+  },
+  %{
+    key: "gba",
+    name: "Game Boy Advance",
+    extensions: [".gba", ".zip"]
   }
 ]
 
