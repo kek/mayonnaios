@@ -22,7 +22,7 @@ defmodule MayonnaiOS.Application do
         [status()] ++
         viewport() ++
         [controller_sessions(), pairing_sessions(), pickle_sessions()] ++
-        [top_sessions(), update_sessions()] ++
+        [top_sessions(), update_sessions(), moonlight_sessions()] ++
         target_children()
 
     # See https://elixir.hexdocs.pm/Supervisor.html
@@ -101,6 +101,13 @@ defmodule MayonnaiOS.Application do
   # works on a laptop and fails with "no such supervisor" rather than an
   # exception if it is ever started before this line runs.
   defp update_sessions, do: MayonnaiOS.Update.App.sessions()
+
+  # The Moonlight settings screen's DynamicSupervisor, empty until the row is
+  # opened -- same arrangement as the other apps, so
+  # `MayonnaiOS.Moonlight.App` works on a laptop and fails with "no such
+  # supervisor" rather than an exception if it is ever started before this
+  # line runs.
+  defp moonlight_sessions, do: MayonnaiOS.Moonlight.App.sessions()
 
   # List all child processes to be supervised
   if Mix.target() == :host do
