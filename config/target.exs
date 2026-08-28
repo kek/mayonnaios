@@ -352,10 +352,10 @@ config :mayonnaios, pickles_root: "/root/pickles"
 config :mayonnaios, :bundles, %{
   retroarch: %{
     name: "retroarch",
-    version: "1.22.2-7",
+    version: "1.22.2-8",
     url:
-      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-7/retroarch-1.22.2-aarch64.tar.gz",
-    sha256: "fcfeafdf307afac56666a3c9f5004880bee3b9326401a720fe269338ce80824c"
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/retroarch-1.22.2-aarch64.tar.gz",
+    sha256: "4a0181a635c8fd9eb689a0e1ce0fc1076345f8e5b21deaccf8a3a807149a4c71"
   },
   # The sha256 is the one CI printed for the tarball it attached to the
   # moonlight-v2.7.1-1 release -- the release asset, not a local build, since
@@ -475,14 +475,14 @@ config :mayonnaios, core_dir: "/root/.config/retroarch/cores"
 # bundles above: the SHA-256 is here in the firmware, and it is what decides
 # whether the downloaded bytes are unpacked at all.
 #
-# These two also ship inside the RetroArch bundle, so they are already usable
-# without installing anything -- `sync/0` finds them there and the page shows
-# them as available. The entries exist so a core can be updated on its own,
-# without a 2.4 MB bundle download to replace a 1 MB file, and so the
+# All of these also ship inside the RetroArch bundle, so they are already
+# usable without installing anything -- `sync/0` finds them there and the page
+# shows them as available. The entries exist so a core can be updated on its
+# own, without a 4 MB bundle download to replace a 1 MB file, and so the
 # mechanism is exercised by something real before a core that is *only*
 # available this way is added.
 #
-# The checksums are of the tarballs published on release v1.22.2-5, downloaded
+# The checksums are of the tarballs published on release v1.22.2-8, downloaded
 # from that release and hashed here -- not of a local build.
 #
 # That distinction matters and cost a correction. The same source built on
@@ -492,23 +492,52 @@ config :mayonnaios, core_dir: "/root/.config/retroarch/cores"
 # checksum taken from a local build would have failed verification on every
 # device while being perfectly correct about a file nobody downloads.
 config :mayonnaios, :cores, %{
+  fceumm: %{
+    name: "fceumm",
+    label: "Nintendo — FCEUmm",
+    systems: ["nes"],
+    version: "1.22.2-8",
+    url:
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/fceumm-1.22.2-aarch64.tar.gz",
+    sha256: "925e68b116fb214842ca388df77c920c3e30379c644c9c0f281ca02ba9489e9f"
+  },
   snes9x2010: %{
     name: "snes9x2010",
     label: "Super Nintendo — Snes9x 2010",
     systems: ["snes"],
-    version: "1.22.2-6",
+    version: "1.22.2-8",
     url:
-      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-6/snes9x2010-1.22.2-aarch64.tar.gz",
-    sha256: "9a492c7414330d07929d322bb3b643312eb3bafb7386543484d04b393abb7e85"
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/snes9x2010-1.22.2-aarch64.tar.gz",
+    sha256: "4d997634f61688380fdb769491b931fa8383d96dfd4a3c0b9a9b41b52fe2e683"
+  },
+  # One core, two systems: gambatte plays both, and `systems` is a list for
+  # exactly this.
+  gambatte: %{
+    name: "gambatte",
+    label: "Game Boy / Color — Gambatte",
+    systems: ["gb", "gbc"],
+    version: "1.22.2-8",
+    url:
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/gambatte-1.22.2-aarch64.tar.gz",
+    sha256: "59d04670cc1def8da4282b5f60e7dc99555faf1c9c03d6b188feb409c40895ba"
+  },
+  mgba: %{
+    name: "mgba",
+    label: "Game Boy Advance — mGBA",
+    systems: ["gba"],
+    version: "1.22.2-8",
+    url:
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/mgba-1.22.2-aarch64.tar.gz",
+    sha256: "906afe8e3734fef4197d5a918744b0d9554cfc56583586c7d251f8c59be6c35e"
   },
   "2048": %{
     name: "2048",
     label: "2048",
     systems: [],
-    version: "1.22.2-6",
+    version: "1.22.2-8",
     url:
-      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-6/2048-1.22.2-aarch64.tar.gz",
-    sha256: "c6eba3f077baf5fe56766d8213424c38d5ff0787488d4fac455d4ff96ba86518"
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/2048-1.22.2-aarch64.tar.gz",
+    sha256: "3a2f13b408b74fe73b96d0131e15041d0494b3e106f7f7ac5224e0d2b1f375d6"
   }
 }
 
