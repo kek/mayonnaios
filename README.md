@@ -34,6 +34,9 @@ Software:
   device already holds
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
+- A WiFi settings screen: what is on the air, what the device is configured
+  to join, and a character wheel to type a passphrase on — so the network is
+  not fixed at build time
 - A web UI for uploading games from a phone
 - File management built into that browser: copy, move, rename and delete
   across both cards, with a clipboard instead of a destination to type
@@ -59,8 +62,10 @@ Software:
 ## Building and flashing
 
 The WiFi credentials come from the environment, so that firmware without them
-fails the build rather than producing an image you cannot reach. Set them, pick
-the target, and build:
+fails the build rather than producing an image you cannot reach. They are the
+network the device joins on a fresh card; more can be added on the device
+afterwards, from the **WiFi** screen below. Set them, pick the target, and
+build:
 
     export RG40XXV_WIFI_SSID="your-ssid"
     export RG40XXV_WIFI_PSK="your-psk"
@@ -79,6 +84,51 @@ If `mix deps.get` starts compiling Buildroot instead of downloading a system,
 your tree does not match any published release and you are in for a full
 system build, which takes a while. That is usually a sign you changed something
 under `nerves_system_rg40xxv` — a comment is enough.
+
+## Changing which WiFi it joins
+
+Pick **WiFi** under System. It lists what is on the air with signal, security
+and whether this device already knows it, plus any saved network that is out
+of range — so a network can be forgotten from the other end of the house.
+
+    D-pad     move the cursor
+    A         join it. Open networks join straight away; a secured one you
+              have not joined before opens the passphrase wheel
+    X         retype the passphrase of a saved network
+    Y         forget a saved network. Twice — the first press arms the row
+
+Typing happens on a character wheel, because there is no keyboard: up and
+down cycle the character under the caret, left and right move it, and **L1
+and R1 jump between lowercase, uppercase, digits and symbols** — which is
+the difference between reaching `Q` in two presses and in twenty-six. The
+passphrase is shown rather than masked; every character is picked by reading
+the wheel, so hiding the result would only hide a mistake made twenty presses
+ago.
+
+Two things this screen guarantees, both because this device's only reliable
+way in is the radio it is reconfiguring:
+
+- **Joining never replaces the network that already works.** A new network is
+  added alongside the ones already configured, most-recently-chosen first, so
+  a passphrase picked wrong costs one walk back into range rather than a card
+  reflash. The credentials built into the firmware keep working forever.
+- **A refused passphrase says so, and is withdrawn again.** `wpa_supplicant`
+  reports a rejected key as an event rather than as a silence, so the screen
+  can say *the access point refused that passphrase* instead of *something
+  did not work* — and the bad network is removed, because one the supplicant
+  keeps retrying is one that interrupts the network that does work.
+
+Enterprise (802.1X) and WEP networks appear in the list with what they would
+need written on the row, and cannot be joined from here — neither is a
+passphrase, and neither can be picked from a wheel. Configure those over SSH
+with `VintageNet.configure/2`. `MayonnaiOS.WiFi` has the rest, including what
+a join actually writes.
+
+From IEx, if you would rather:
+
+    iex> MayonnaiOS.WiFi.list()
+    iex> MayonnaiOS.WiFi.join(%{ssid: "kitchen", security: :wpa_psk}, "a passphrase")
+    iex> MayonnaiOS.WiFi.forget("kitchen")
 
 ## Putting games on it
 
