@@ -405,6 +405,17 @@ config :mayonnaios,
   ]
 
 config :mayonnaios, :systems, [
+  # Chronological, because that is the order these end up in the head and the
+  # upload page shows them in list order.
+  #
+  # No .fds here: fceumm plays Famicom Disk System images, but only with a
+  # BIOS this device does not ship, so accepting one would take an upload
+  # that cannot be played.
+  %{
+    key: "nes",
+    name: "Nintendo",
+    extensions: [".nes", ".unf", ".zip"]
+  },
   %{
     key: "snes",
     name: "Super Nintendo",
