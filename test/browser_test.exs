@@ -90,7 +90,13 @@ defmodule MayonnaiOS.BrowserTest do
     test "other apps and the actions land in System, verbs last" do
       system = open(Browser.new(), "System")
 
-      assert names(system) == ["Bluetooth devices", "Diagnostics", "Sleep", "Power off"]
+      assert names(system) == [
+               "Bluetooth devices",
+               "Diagnostics",
+               "Sleep",
+               "Theme",
+               "Power off"
+             ]
     end
 
     test "the built-in System rows carry the launcher's own verbs" do
@@ -99,7 +105,7 @@ defmodule MayonnaiOS.BrowserTest do
       actions =
         for node <- List.last(system.levels).entries, do: node.program.action
 
-      assert actions == [nil, :diagnostics, :sleep, :poweroff]
+      assert actions == [nil, :diagnostics, :sleep, :cycle_theme, :poweroff]
     end
   end
 

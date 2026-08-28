@@ -1,7 +1,7 @@
 defmodule MayonnaiOS.LauncherTest do
   use ExUnit.Case, async: false
 
-  alias MayonnaiOS.{Browser, Launcher, Programs}
+  alias MayonnaiOS.{Browser, Launcher, Programs, Theme}
   alias MayonnaiOS.Scene.Home
 
   # No viewport, no driver, no framebuffer. Everything here runs on the host,
@@ -480,10 +480,11 @@ defmodule MayonnaiOS.LauncherTest do
         {Launcher, device: "/nonexistent/event0", poweroff: fn -> send(test, :powered_off) end}
       )
 
-      # Into System -- the last category -- and down past Diagnostics and
-      # Sleep onto the Power off row, which sits last on purpose.
+      # Into System -- the last category -- and down past Diagnostics, Sleep
+      # and Theme onto the Power off row, which sits last on purpose.
       tap(:btn_dpad_up)
       tap(:btn_b)
+      tap(:btn_dpad_down)
       tap(:btn_dpad_down)
       tap(:btn_dpad_down)
 
@@ -534,6 +535,48 @@ defmodule MayonnaiOS.LauncherTest do
       send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 0}]})
       # A call, so both casts above have been handled before the test asserts.
       Launcher.selected()
+    end
+  end
+
+  describe "the Theme row" do
+    setup do
+      # `MayonnaiOS.Theme` keeps its selection in a `:persistent_term`, which
+      # outlives this process and this test -- see the module for why. Reset
+      # it on the way out so a theme picked here cannot leak into a test in
+      # another file that renders a graph and checks its colours.
+      on_exit(fn -> Theme.set(:default) end)
+
+      start_supervised!({Launcher, device: "/nonexistent/event0"})
+
+      # Into System -- the last category -- and down past Diagnostics and
+      # Sleep onto the Theme row.
+      tap(:btn_dpad_up)
+      tap(:btn_b)
+      tap(:btn_dpad_down)
+      tap(:btn_dpad_down)
+
+      assert Browser.selected(Launcher.browser()).name == "Theme"
+      :ok
+    end
+
+    test "A advances the theme without leaving the browser or launching anything" do
+      assert Theme.current().name == :default
+
+      browser_before = Launcher.browser()
+      tap(:btn_b)
+
+      assert Theme.current().name == :c64
+      # Still on the same row in the same column: this is a repaint, not a
+      # descent, and nothing was launched to hold the display.
+      assert Launcher.browser() == browser_before
+      refute Launcher.running?()
+    end
+
+    test "A again wraps back around through every built-in theme" do
+      for name <- [:c64, :synthwave, :default] do
+        tap(:btn_b)
+        assert Theme.current().name == name
+      end
     end
   end
 
