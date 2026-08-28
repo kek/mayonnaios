@@ -116,10 +116,10 @@ defmodule MayonnaiOS.Scene.StatusBar do
   @right 626
   @gap 16
   @baseline 20
-  @font 13
+  @font 14
   # 12 is the smallest size anything on this device draws at; the word "wifi"
   # is context rather than a reading, so it gets the floor and not less.
-  @small 12
+  @small 13
 
   @doc "The height of the strip. Scenes leave this much room and draw below it."
   @spec height() :: pos_integer()
