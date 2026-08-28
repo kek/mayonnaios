@@ -95,9 +95,9 @@ defmodule MayonnaiOS.Scene.Home do
   @pitch 26
   @visible 10
 
-  @left 20
-  @span @width - 40
-  @gutter 12
+  @left 12
+  @span @width - 24
+  @gutter 8
   @slots 3
   @slot div(@span - @gutter * (@slots - 1), @slots)
 
@@ -121,6 +121,9 @@ defmodule MayonnaiOS.Scene.Home do
   @mono :roboto_mono
   @full_pitch 19
   @full_chars 76
+  # The info full view draws in the theme's body font, which is wider than
+  # @mono: 72 glyphs at 17 px is what fits @span.
+  @info_chars 72
 
   # Where streamed textures go, one fixed id per box. Fixed, so a new image
   # replaces the old one instead of leaking a texture per file browsed.
@@ -451,7 +454,7 @@ defmodule MayonnaiOS.Scene.Home do
     {graph, _y} =
       Enum.reduce(lines, {graph, top}, fn line, {acc, y} ->
         acc =
-          text(acc, truncate(line, 30),
+          text(acc, truncate(line, 26),
             font_size: 15,
             fill: {:color, colour},
             translate: {x, y + 14}
@@ -483,7 +486,7 @@ defmodule MayonnaiOS.Scene.Home do
   defp preview_body(graph, nil, _x, _y), do: graph
 
   defp preview_body(graph, {:note, words}, x, y) do
-    text(graph, truncate(words, 30), font_size: 15, fill: {:color, dim()}, translate: {x, y + 14})
+    text(graph, truncate(words, 26), font_size: 15, fill: {:color, dim()}, translate: {x, y + 14})
   end
 
   defp preview_body(graph, {:text, lines}, x, y) do
@@ -522,7 +525,7 @@ defmodule MayonnaiOS.Scene.Home do
     {graph, _y} =
       Enum.reduce(lines, {graph, @rows_top}, fn line, {acc, y} ->
         acc =
-          text(acc, truncate(line, @full_chars),
+          text(acc, truncate(line, @info_chars),
             font_size: 17,
             fill: {:color, label()},
             translate: {@left, y + 14}
@@ -543,7 +546,7 @@ defmodule MayonnaiOS.Scene.Home do
         acc =
           text(acc, truncate(line, @full_chars),
             font: @mono,
-            font_size: 15,
+            font_size: 13,
             fill: {:color, title()},
             translate: {@left, y + 14}
           )
