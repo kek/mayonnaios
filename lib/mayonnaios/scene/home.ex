@@ -16,9 +16,11 @@ defmodule MayonnaiOS.Scene.Home do
   The breadcrumb line names every open level, so the line still says where
   you are when the parents have scrolled off. Below it, a fixed grid of
   three slots: the focused column in the center -- the only cursor the D-pad
-  moves -- its parent on the left (blank at the root, where its highlighted
-  row is the one that is open, which is how a column browser shows where you
-  came from), and on the right the preview of whatever the cursor is on:
+  moves -- its parent on the left (its highlighted row is the one that is
+  open, which is how a column browser shows where you came from; at the
+  root, where there is no parent, the slot carries the
+  `MayonnaiOS.SystemInfo` panel), and on the right the preview of whatever
+  the cursor is on:
   the contents of a directory, the head of a file, the metadata of a
   program, a narrow slice of the process readout.
 
@@ -50,7 +52,7 @@ defmodule MayonnaiOS.Scene.Home do
 
   use Scenic.Scene
 
-  alias MayonnaiOS.{Browser, Files, Theme}
+  alias MayonnaiOS.{Browser, Files, SystemInfo, Theme}
   alias MayonnaiOS.Scene.StatusBar
   alias Scenic.Graph
   import Scenic.Primitives
@@ -233,18 +235,22 @@ defmodule MayonnaiOS.Scene.Home do
     |> slot(sheet, 2, true)
   end
 
-  # The main shape: parent, focus, preview. The parent slot stays blank at
-  # the root -- an empty column on the left is what "there is nothing above"
-  # looks like.
+  # The main shape: parent, focus, preview. At the root there is no parent,
+  # and the left slot carries the system panel instead of sitting empty.
   defp body(graph, browser) do
     panes = Browser.panes(browser)
 
     graph
     |> separators()
-    |> slot(panes.left, 0, false)
+    |> left_slot(panes.left)
     |> slot(panes.center, 1, true)
     |> preview_pane(Browser.preview(browser))
   end
+
+  # The system panel is the same `%{kind: :info, ...}` shape the preview's
+  # info panes carry, so the one line renderer draws both.
+  defp left_slot(graph, nil), do: info_pane(graph, SystemInfo.panel(), slot_x(0))
+  defp left_slot(graph, level), do: slot(graph, level, 0, false)
 
   defp slot(graph, nil, _index, _focused?), do: graph
   defp slot(graph, level, index, focused?), do: column(graph, level, slot_x(index), focused?)
@@ -390,13 +396,7 @@ defmodule MayonnaiOS.Scene.Home do
     |> preview_body(body, x, @rows_top + length(info) * 18 + 8)
   end
 
-  defp preview_pane(graph, %{kind: :info, title: title, lines: lines}) do
-    x = slot_x(2)
-
-    graph
-    |> preview_caption(title, x)
-    |> preview_lines(lines, x, @rows_top, label())
-  end
+  defp preview_pane(graph, %{kind: :info} = pane), do: info_pane(graph, pane, slot_x(2))
 
   defp preview_pane(graph, %{kind: :top, title: title, lines: lines}) do
     x = slot_x(2)
@@ -404,6 +404,14 @@ defmodule MayonnaiOS.Scene.Home do
     graph
     |> preview_caption(title, x)
     |> mono_lines(lines, x, @rows_top, 12)
+  end
+
+  # A generic line panel in any slot: a caption, then dim-labelled lines.
+  # The preview's info panes and the root's system panel are both this.
+  defp info_pane(graph, %{title: title, lines: lines}, x) do
+    graph
+    |> preview_caption(title, x)
+    |> preview_lines(lines, x, @rows_top, label())
   end
 
   defp preview_caption(graph, words, x) do

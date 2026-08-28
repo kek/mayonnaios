@@ -2,7 +2,8 @@ defmodule MayonnaiOS.Browser do
   @moduledoc """
   The launcher's menu as a column browser: a stack of levels, Miller-columns
   style, and the focus is always the center of the panel. The left column is
-  the level above -- blank at the root -- and the right column is not a level
+  the level above -- `nil` at the root, where the scene draws the
+  `MayonnaiOS.SystemInfo` panel instead -- and the right column is not a level
   at all: it previews whatever the cursor is on. A directory previews as its
   contents, a file as its metadata and its first bytes (text, an image, or a
   hexdump, whichever the bytes are), a runnable row as what it is and that A
@@ -271,8 +272,9 @@ defmodule MayonnaiOS.Browser do
 
   @doc """
   The two levels the panel's left and center slots draw: the focused column,
-  where the cursor lives, and its parent -- `nil` at the root, where blank on
-  the left is the honest answer. The third slot is `preview/1`'s.
+  where the cursor lives, and its parent -- `nil` at the root, where there is
+  nothing above and the scene fills the slot with the system panel instead.
+  The third slot is `preview/1`'s.
   """
   @spec panes(t()) :: %{left: level() | nil, center: level()}
   def panes(%{levels: [only]}), do: %{left: nil, center: only}
