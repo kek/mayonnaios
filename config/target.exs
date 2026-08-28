@@ -286,6 +286,12 @@ config :mayonnaios, :programs, [
   # the Bluetooth apps neither takes a device away from anything.
   %{name: "BEAM processes", app: {MayonnaiOS.Top, :beam}},
   %{name: "OS processes", app: {MayonnaiOS.Top, :os}},
+  # Checks kek/mayonnaios's GitHub releases for a newer version than the one
+  # running, and downloads and applies it with fwup if there is one -- the
+  # online half of what `mix upload` does from a dev machine. See
+  # `MayonnaiOS.Update`'s moduledoc for the download/apply/validate flow and
+  # why nothing here has to call `Nerves.Runtime.validate_firmware/0` itself.
+  %{name: "Software update", app: MayonnaiOS.Update.App},
   # Neither a program nor an app: a verb of the launcher's own. Selecting it
   # asks rather than acts -- Y answers, anything else cancels -- and it ends
   # in the same `Nerves.Runtime.poweroff/0` the Select+Menu chord reaches.
