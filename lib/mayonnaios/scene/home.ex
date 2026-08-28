@@ -383,7 +383,7 @@ defmodule MayonnaiOS.Scene.Home do
 
     graph
     |> preview_caption(title, x)
-    |> preview_lines(info, x, @rows_top, @label)
+    |> preview_lines(info, x, @rows_top, label())
     |> preview_body(body, x, @rows_top + length(info) * 18 + 8)
   end
 
@@ -392,7 +392,7 @@ defmodule MayonnaiOS.Scene.Home do
 
     graph
     |> preview_caption(title, x)
-    |> preview_lines(lines, x, @rows_top, @label)
+    |> preview_lines(lines, x, @rows_top, label())
   end
 
   defp preview_pane(graph, %{kind: :top, title: title, lines: lines}) do
@@ -406,7 +406,7 @@ defmodule MayonnaiOS.Scene.Home do
   defp preview_caption(graph, words, x) do
     text(graph, truncate(words, name_chars()),
       font_size: 12,
-      fill: {:color, @dim},
+      fill: {:color, dim()},
       translate: {x, @caption_y}
     )
   end
@@ -414,7 +414,7 @@ defmodule MayonnaiOS.Scene.Home do
   defp preview_listing(graph, %{entries: [], note: note}, x) do
     text(graph, truncate(note || "Empty.", name_chars() + 6),
       font_size: 13,
-      fill: {:color, @dim},
+      fill: {:color, dim()},
       translate: {x, @rows_top + 16}
     )
   end
@@ -441,7 +441,7 @@ defmodule MayonnaiOS.Scene.Home do
       more ->
         text(graph, "… and #{more} more",
           font_size: 12,
-          fill: {:color, @dim},
+          fill: {:color, dim()},
           translate: {x + 4, y + 14}
         )
     end
@@ -470,7 +470,7 @@ defmodule MayonnaiOS.Scene.Home do
           text(acc, line,
             font: @mono,
             font_size: size,
-            fill: {:color, @title},
+            fill: {:color, title()},
             translate: {x, y + 14}
           )
 
@@ -483,7 +483,7 @@ defmodule MayonnaiOS.Scene.Home do
   defp preview_body(graph, nil, _x, _y), do: graph
 
   defp preview_body(graph, {:note, words}, x, y) do
-    text(graph, truncate(words, 30), font_size: 13, fill: {:color, @dim}, translate: {x, y + 14})
+    text(graph, truncate(words, 30), font_size: 13, fill: {:color, dim()}, translate: {x, y + 14})
   end
 
   defp preview_body(graph, {:text, lines}, x, y) do
@@ -524,7 +524,7 @@ defmodule MayonnaiOS.Scene.Home do
         acc =
           text(acc, truncate(line, @full_chars),
             font_size: 15,
-            fill: {:color, @label},
+            fill: {:color, label()},
             translate: {@left, y + 14}
           )
 
@@ -544,7 +544,7 @@ defmodule MayonnaiOS.Scene.Home do
           text(acc, truncate(line, @full_chars),
             font: @mono,
             font_size: 13,
-            fill: {:color, @title},
+            fill: {:color, title()},
             translate: {@left, y + 14}
           )
 
@@ -558,12 +558,12 @@ defmodule MayonnaiOS.Scene.Home do
     graph
     |> text(truncate(title, 42),
       font_size: 16,
-      fill: {:color, @title},
+      fill: {:color, title()},
       translate: {@left, @caption_y + 2}
     )
     |> text(truncate(words, 34),
       font_size: 12,
-      fill: {:color, @dim},
+      fill: {:color, dim()},
       translate: {@left + 372, @caption_y + 2}
     )
   end
@@ -612,7 +612,7 @@ defmodule MayonnaiOS.Scene.Home do
       :error ->
         text(graph, "cannot be shown here",
           font_size: 13,
-          fill: {:color, @dim},
+          fill: {:color, dim()},
           translate: {x, y + 16}
         )
     end
