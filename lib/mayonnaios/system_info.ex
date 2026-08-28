@@ -183,8 +183,8 @@ defmodule MayonnaiOS.SystemInfo do
   # A mount that cannot be measured is a line the panel does not say.
   defp space_line(_name, nil), do: nil
 
-  defp space_line(name, %{free: free, total: total}) do
-    "#{name}: #{bytes(free)} free of #{bytes(total)}"
+  defp space_line(name, %{free: free}) do
+    "#{name}: #{bytes(free)} free"
   end
 
   # Only a mounted card gets measured: `df` on an unmounted mount point

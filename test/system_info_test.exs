@@ -46,8 +46,8 @@ defmodule MayonnaiOS.SystemInfoTest do
                "up 3d 4h",
                "wlan0 192.168.4.17",
                "beam memory 182.2M",
-               "internal: 9.4G free of 12.9G",
-               "games card: 24.0G free of 57.9G"
+               "internal: 9.4G free",
+               "games card: 24.0G free"
              ]
     end
 
@@ -112,12 +112,12 @@ defmodule MayonnaiOS.SystemInfoTest do
     end
 
     test "every line fits the column it is drawn in" do
-      # The slot is 192 px wide (home.ex: (640 - 40 - 2 * 12) / 3) and the
+      # The slot is 200 px wide (home.ex: (640 - 24 - 2 * 8) / 3) and the
       # lines are set at 15 px in the theme's body font. Measured, not
       # counted: a character budget guessed against one font is wrong in the
       # next one.
       for line <- panel().lines do
-        assert Theme.width(line, 15) <= 192, "#{inspect(line)} overflows the slot"
+        assert Theme.width(line, 15) <= 200, "#{inspect(line)} overflows the slot"
       end
     end
   end
