@@ -563,6 +563,11 @@ config :mayonnaios, :cores, %{
   }
 }
 
+# When more than one installed core can play a system, the first available
+# entry wins. Explicit rather than map enumeration order, so a config edit is
+# the only thing that changes which emulator A launches.
+config :mayonnaios, core_priority: [:fceumm, :snes9x2010, :gambatte, :mgba, :"2048"]
+
 # The upload page. Port 80 so the address is just the hostname:
 #
 #     http://nerves-5322903c.local/

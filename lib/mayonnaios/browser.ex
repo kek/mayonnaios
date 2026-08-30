@@ -20,12 +20,10 @@ defmodule MayonnaiOS.Browser do
   ## The tree
 
   The root column is fixed: Games, Files, Apps, System. What each one
-  contains is classified out of the one `config :mayonnaios, :programs` list
-  the launcher already reads, so a row added to config appears in the right
-  column with no code change here:
+  contains comes from the ROM library and the configured programs:
 
-    * a `:path` entry is a game or program to run -- **Games**
-    * a pickle's row (`{MayonnaiOS.Pickles.App, name}`) -- **Apps**
+    * systems and their ROMs -- **Games**
+    * an external `:path` entry, or a pickle -- **Apps**
     * any other app, and every `:action` -- **System**
 
   A row can also name its column outright with `:category`, which overrides
@@ -69,7 +67,7 @@ defmodule MayonnaiOS.Browser do
   Inside a directory column, Y -- and only Y -- opens the **actions sheet**:
   what can be done to the selected entry, plus pasting whatever the clipboard
   holds. A never opens it: A is the button that *opens things* -- it enters a
-  directory, launches a program, views a file -- and a button that sometimes
+  directory, launches a program or recognized ROM, and views any other file -- and a button that sometimes
   opens and sometimes asks is two buttons wearing one cap. The sheet is drawn
   as one more column, because in this UI "a list to pick from" and "a column"
   are the same thing.
@@ -97,12 +95,12 @@ defmodule MayonnaiOS.Browser do
   cursor.
   """
 
-  alias MayonnaiOS.{Files, Pickles, Programs}
+  alias MayonnaiOS.{Files, Game, Library, Pickles, Programs}
   alias MayonnaiOS.Browser.View
 
   @typedoc "One entry in a column."
   @type node_ :: %{
-          required(:kind) => :category | :place | :dir | :file | :program,
+          required(:kind) => :category | :place | :dir | :file | :program | :system | :rom,
           required(:name) => String.t(),
           optional(atom()) => term()
         }
@@ -231,7 +229,7 @@ defmodule MayonnaiOS.Browser do
   sheet.
   """
   @spec expandable?(node_() | nil) :: boolean()
-  def expandable?(%{kind: kind}), do: kind in [:category, :place, :dir]
+  def expandable?(%{kind: kind}), do: kind in [:category, :place, :dir, :system]
   def expandable?(nil), do: false
 
   @doc """
@@ -686,10 +684,26 @@ defmodule MayonnaiOS.Browser do
   defp expand(%{kind: :category, id: id, name: name}), do: category_level(id, name)
   defp expand(%{kind: :place} = node), do: place_level(node)
   defp expand(%{kind: :dir} = node), do: dir_level(node)
+  defp expand(%{kind: :system} = node), do: system_level(node)
 
   defp category_level(:games, name) do
-    rows = for program <- classified(:games), do: program_node(program)
-    level(name, rows, "Nothing to run. Install a bundle, or check the config.")
+    systems = Library.systems()
+
+    rows =
+      if systems == [] do
+        for program <- classified(:games), do: program_node(program)
+      else
+        for system <- systems do
+          %{kind: :system, name: system.name, key: system.key, core: Game.core_for(system.key)}
+        end
+      end
+
+    empty_note =
+      if systems == [],
+        do: "Nothing to run. Install a bundle, or check the config.",
+        else: "No game systems configured."
+
+    level(name, rows, empty_note)
   end
 
   defp category_level(:apps, name) do
@@ -730,7 +744,24 @@ defmodule MayonnaiOS.Browser do
   defp classify(%{action: action}) when action != nil, do: :system
   defp classify(%{app: {Pickles.App, _name}}), do: :apps
   defp classify(%{app: app}) when app != nil, do: :system
-  defp classify(_program), do: :games
+  defp classify(_program), do: if(Library.systems() == [], do: :games, else: :apps)
+
+  defp system_level(%{key: key, name: name, core: core}) do
+    rows =
+      for entry <- Library.entries(key) do
+        {:ok, path} = Library.find(key, entry.name)
+        %{kind: :rom, name: entry.name, entry: entry, system: key, path: path}
+      end
+
+    note =
+      cond do
+        rows == [] -> "No ROMs found."
+        match?({:error, :no_core}, core) -> "No installed core. Install one from the web page."
+        true -> nil
+      end
+
+    level(name, rows, note)
+  end
 
   # A verb of the launcher's own, shaped like a config row so the launcher's
   # `start_program/2` needs no second vocabulary for it.
@@ -822,6 +853,10 @@ defmodule MayonnaiOS.Browser do
       space: nil
     }
   end
+
+  @doc "Put a result or failure on the launcher's status line."
+  def put_message(browser, level, words) when level in [:ok, :error],
+    do: %{browser | message: {level, words}}
 
   # -- words for the panel --------------------------------------------------------
 

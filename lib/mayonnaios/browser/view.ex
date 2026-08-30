@@ -112,6 +112,18 @@ defmodule MayonnaiOS.Browser.View do
     %{kind: :info, title: name, lines: program_lines(program)}
   end
 
+  def preview(%{kind: :system, name: name, core: {:ok, core}}, _column) do
+    %{kind: :info, title: name, lines: ["A opens the ROM library", "Core: #{core.label}"]}
+  end
+
+  def preview(%{kind: :system, name: name}, _column) do
+    %{kind: :info, title: name, lines: ["No installed core", "Install one from the web page"]}
+  end
+
+  def preview(%{kind: :rom, name: name, entry: entry}, _column) do
+    %{kind: :info, title: name, lines: ["A launches this ROM", bytes(entry.size)]}
+  end
+
   def preview(_node, _column), do: nil
 
   # What the entry *is*, before what it contains: its links, its size, its
