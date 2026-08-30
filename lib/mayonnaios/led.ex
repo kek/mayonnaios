@@ -1,6 +1,6 @@
 defmodule MayonnaiOS.Led do
   @moduledoc """
-  The indicator LED, driven as a five-state signal.
+  The indicator LED, driven as a six-state signal.
 
   The window nearest the HDMI port holds two emitters behind one hole, and
   sysfs names both after colors the device tree assigned, not the colors they
@@ -22,6 +22,7 @@ defmodule MayonnaiOS.Led do
   | `:starting` | quick flashing green       | BEAM up, supervision tree rising |
   | `:running`  | solid green                | the whole tree came up           |
   | `:sleeping` | slow flashing green        | backlight off, still running     |
+  | `:low_battery` | slow blinking red       | 20% or less and not charging     |
   | `:failure`  | blinking red               | the application failed to start  |
   | `:off`      | dark                       | (also what a powered-off board shows) |
 
@@ -35,6 +36,13 @@ defmodule MayonnaiOS.Led do
   `CONFIG_LEDS_GPIO` and `CONFIG_LEDS_TRIGGER_TIMER` are built in, so all of
   this is sysfs writes: `timer` with `delay_on`/`delay_off` for the flashing
   states, `none` plus a brightness for solid and dark.
+
+  `MayonnaiOS.Led.Monitor` arbitrates the states once supervision is running:
+  failure wins over low battery, low battery wins over running and sleeping,
+  and starting/off remain explicit. Low battery enters at 20%, clears at 30%,
+  and clears immediately while charging or full. `set/1` routes through that
+  process when it exists and writes directly before it starts or after the
+  supervision tree has failed.
 
   ## On a laptop
 
@@ -60,8 +68,9 @@ defmodule MayonnaiOS.Led do
   @quick {100, 100}
   @slow {1000, 1000}
   @blink {250, 250}
+  @low_battery_blink {1000, 1000}
 
-  @type state :: :starting | :running | :sleeping | :failure | :off
+  @type state :: :starting | :running | :sleeping | :low_battery | :failure | :off
 
   @doc false
   # Two entries in the supervision tree, one state each: `{MayonnaiOS.Led,
@@ -94,6 +103,15 @@ defmodule MayonnaiOS.Led do
   """
   @spec set(state()) :: :ok | {:error, File.posix()}
   def set(state) do
+    case Process.whereis(MayonnaiOS.Led.Monitor) do
+      nil -> write_state(state)
+      _pid -> MayonnaiOS.Led.Monitor.set(state)
+    end
+  end
+
+  @doc false
+  @spec write_state(state()) :: :ok | {:error, File.posix()}
+  def write_state(state) do
     if File.dir?(dir()) do
       apply_state(state)
     else
@@ -105,6 +123,7 @@ defmodule MayonnaiOS.Led do
   defp apply_state(:starting), do: combine(off(@red), flash(@green, @quick))
   defp apply_state(:running), do: combine(off(@red), solid(@green))
   defp apply_state(:sleeping), do: combine(off(@red), flash(@green, @slow))
+  defp apply_state(:low_battery), do: combine(off(@green), flash(@red, @low_battery_blink))
   defp apply_state(:failure), do: combine(off(@green), flash(@red, @blink))
   defp apply_state(:off), do: combine(off(@red), off(@green))
 
