@@ -167,17 +167,67 @@ defmodule MayonnaiOS.LauncherTest do
       says = texts(Home.graph(browser))
 
       assert Enum.any?(says, &(&1 =~ "/a"))
-      assert Enum.any?(says, &(&1 =~ "B goes back"))
+      assert "X closes." in says
       # The columns give way to the one wide view.
       refute "Games" in says
     end
 
-    test "the footer labels the buttons for the state on screen" do
+    test "the footer only labels controls that vary with the state" do
       idle = texts(Home.graph(Browser.new()))
-      assert Enum.any?(idle, &(&1 =~ "A opens."))
+      assert "X inspects." in idle
+      refute Enum.any?(idle, &(&1 =~ "A opens"))
+      refute Enum.any?(idle, &(&1 =~ "B closes"))
+      refute Enum.any?(idle, &(&1 =~ "L1/R1"))
 
       sheet = put_in(Browser.new().overlay, {:actions, [%{id: :delete, label: "Delete x"}], 0})
-      assert Enum.any?(texts(Home.graph(sheet)), &(&1 =~ "A does it."))
+      assert "Up/Down chooses." in texts(Home.graph(sheet))
+    end
+
+    test "the footer mentions paging only when the current content can page" do
+      entries =
+        for i <- 1..11 do
+          %{
+            kind: :file,
+            name: "file#{i}",
+            entry: %{type: :regular, size: 1, link: nil, broken?: false}
+          }
+        end
+
+      browser =
+        Browser.new()
+        |> put_in(
+          [
+            Access.key!(:levels),
+            Access.at(0)
+          ],
+          %{
+            title: "Files",
+            entries: entries,
+            cursor: 0,
+            note: nil,
+            location: %{root: "r", path: []},
+            readable?: true,
+            space: nil
+          }
+        )
+
+      assert "X inspects.  Y file actions.  L1/R1 page." in texts(Home.graph(browser))
+
+      short_full =
+        put_in(browser.full, %{kind: :text, title: "short", lines: ["one"], offset: 0, note: nil})
+
+      assert "X closes." in texts(Home.graph(short_full))
+
+      long_full =
+        put_in(browser.full, %{
+          kind: :text,
+          title: "long",
+          lines: Enum.map(1..30, &Integer.to_string/1),
+          offset: 0,
+          note: nil
+        })
+
+      assert "Up/Down scroll. L1/R1 page. X closes." in texts(Home.graph(long_full))
     end
 
     # Every text primitive's string, so a test can assert what the panel says
