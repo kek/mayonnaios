@@ -86,6 +86,16 @@ defmodule MayonnaiOS.GameTest do
     assert %{kind: :rom, name: "chrono.sfc", system: "snes"} = Browser.selected(roms)
   end
 
+  test "previewing a system ignores regular files that are not ROMs", context do
+    File.write!(Path.join(Path.dirname(context.rom), "notes.txt"), "not a ROM")
+
+    games = Browser.new() |> Browser.descend()
+    assert Browser.selected(games).name == "Super Nintendo"
+
+    assert %{kind: :level, level: %{entries: [entry]}} = Browser.preview(games)
+    assert %{kind: :rom, name: "chrono.sfc", system: "snes"} = entry
+  end
+
   test "builds a direct RetroArch launch from the first available matching core", context do
     assert {:ok, program} = Game.program("snes", context.rom)
     assert program.path == context.retroarch

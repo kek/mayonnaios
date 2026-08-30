@@ -126,10 +126,16 @@ defmodule MayonnaiOS.Library do
         {:error, _} -> []
       end
     end)
-    |> Enum.reject(fn {name, _} -> String.starts_with?(name, ".") end)
     |> Enum.flat_map(fn {name, path} ->
-      case File.stat(path) do
-        {:ok, %{type: :regular, size: size}} -> [%{name: name, size: size}]
+      # A system directory can contain metadata, cover art or files copied by
+      # another OS. Only return names this system can actually launch. Besides
+      # keeping the browser honest, this guarantees that a row returned here
+      # is accepted by `find/2` when the preview resolves it below.
+      with {:ok, name} <- safe_name(name),
+           :ok <- check_extension(sys, name),
+           {:ok, %{type: :regular, size: size}} <- File.stat(path) do
+        [%{name: name, size: size}]
+      else
         _ -> []
       end
     end)
