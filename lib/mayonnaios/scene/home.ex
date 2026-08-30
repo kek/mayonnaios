@@ -52,7 +52,7 @@ defmodule MayonnaiOS.Scene.Home do
 
   use Scenic.Scene
 
-  alias MayonnaiOS.{Browser, Files, SystemInfo, Theme}
+  alias MayonnaiOS.{Browser, Files, Panel, SystemInfo, Theme}
   alias MayonnaiOS.Scene.StatusBar
   alias Scenic.Graph
   import Scenic.Primitives
@@ -132,6 +132,12 @@ defmodule MayonnaiOS.Scene.Home do
   @preview_stream "browser_preview"
   @full_stream "browser_full"
 
+  # Uptime and BEAM memory are cheap and useful at menu speed. Filesystem
+  # space is slower, particularly on the removable card, so it is collected
+  # every tenth refresh rather than on every repaint.
+  @refresh_ms 30_000
+  @disk_refresh_ticks 10
+
   @impl Scenic.Scene
   def init(scene, param, _opts) do
     # The boot root comes from `default_scene:` in config, which Scenic starts
@@ -150,7 +156,80 @@ defmodule MayonnaiOS.Scene.Home do
         _ -> nil
       end
 
-    {:ok, push_graph(scene, graph(browser, confirming, obituary))}
+    refresh_ms = max(1, param_value(param, :refresh_ms, @refresh_ms))
+    disk_refresh_ticks = max(1, param_value(param, :disk_refresh_ticks, @disk_refresh_ticks))
+    disk_reader = param_value(param, :disk_reader, &SystemInfo.disk_lines/0)
+
+    panel_builder =
+      param_value(param, :panel_builder, fn disk_lines ->
+        SystemInfo.panel(disk_lines: disk_lines)
+      end)
+
+    disk_lines = disk_reader.()
+    system_panel = panel_builder.(disk_lines)
+    schedule_refresh(refresh_ms)
+
+    scene =
+      assign(scene,
+        browser: browser,
+        confirming: confirming,
+        obituary: obituary,
+        refresh_ms: refresh_ms,
+        disk_refresh_ticks: disk_refresh_ticks,
+        refresh_tick: 0,
+        disk_reader: disk_reader,
+        panel_builder: panel_builder,
+        disk_lines: disk_lines,
+        system_panel: system_panel
+      )
+
+    {:ok, Panel.draw(scene, graph(browser, confirming, obituary, system_panel))}
+  end
+
+  @impl GenServer
+  def handle_info(:refresh_system_panel, scene) do
+    schedule_refresh(scene.assigns.refresh_ms)
+
+    if Panel.held?() do
+      {:noreply, scene}
+    else
+      tick = scene.assigns.refresh_tick + 1
+
+      disk_lines =
+        if rem(tick, scene.assigns.disk_refresh_ticks) == 0 do
+          scene.assigns.disk_reader.()
+        else
+          scene.assigns.disk_lines
+        end
+
+      system_panel = scene.assigns.panel_builder.(disk_lines)
+
+      scene =
+        assign(scene, refresh_tick: tick, disk_lines: disk_lines, system_panel: system_panel)
+
+      {:noreply,
+       Panel.draw(
+         scene,
+         graph(
+           scene.assigns.browser,
+           scene.assigns.confirming,
+           scene.assigns.obituary,
+           system_panel
+         )
+       )}
+    end
+  end
+
+  def handle_info(_message, scene), do: {:noreply, scene}
+
+  defp param_value(%{} = param, key, default), do: Map.get(param, key, default)
+  defp param_value(_param, _key, default), do: default
+
+  # Rescheduled by hand so a slow filesystem read cannot accumulate timer
+  # messages behind it. The timer belongs to the scene process and disappears
+  # when the launcher re-roots the viewport.
+  defp schedule_refresh(refresh_ms) do
+    Process.send_after(self(), :refresh_system_panel, refresh_ms)
   end
 
   @doc """
@@ -162,12 +241,17 @@ defmodule MayonnaiOS.Scene.Home do
   the rename editor, the power-off question and an obituary -- the shapes
   that would otherwise only be found by looking at the device.
   """
-  @spec graph(Browser.t(), boolean(), map() | nil) :: Scenic.Graph.t()
-  def graph(browser, confirming \\ false, obituary \\ nil) do
+  @spec graph(Browser.t(), boolean(), map() | nil, SystemInfo.panel()) :: Scenic.Graph.t()
+  def graph(
+        browser,
+        confirming \\ false,
+        obituary \\ nil,
+        system_panel \\ SystemInfo.panel()
+      ) do
     base()
     |> breadcrumb(browser)
     |> held(browser)
-    |> body(browser)
+    |> body(browser, system_panel)
     |> status_line(browser)
     |> notice(browser, confirming, obituary)
   end
@@ -211,14 +295,16 @@ defmodule MayonnaiOS.Scene.Home do
 
   # -- the column area ----------------------------------------------------------
 
-  defp body(graph, %{overlay: {:confirm, pending}}), do: confirm_view(graph, pending)
-  defp body(graph, %{overlay: {:rename, rename}}), do: rename_view(graph, rename)
+  defp body(graph, %{overlay: {:confirm, pending}}, _system_panel),
+    do: confirm_view(graph, pending)
 
-  defp body(graph, %{full: full}) when full != nil, do: full_view(graph, full)
+  defp body(graph, %{overlay: {:rename, rename}}, _system_panel), do: rename_view(graph, rename)
+
+  defp body(graph, %{full: full}, _system_panel) when full != nil, do: full_view(graph, full)
 
   # The actions sheet rides in the preview's slot, titled by the entry it is
   # about, so opening it reads as descending into the question.
-  defp body(graph, %{overlay: {:actions, actions, cursor}} = browser) do
+  defp body(graph, %{overlay: {:actions, actions, cursor}} = browser, _system_panel) do
     sheet = %{
       title: truncate(selected_name(browser), 18),
       entries: Enum.map(actions, &%{kind: :action, name: &1.label}),
@@ -237,20 +323,20 @@ defmodule MayonnaiOS.Scene.Home do
 
   # The main shape: parent, focus, preview. At the root there is no parent,
   # and the left slot carries the system panel instead of sitting empty.
-  defp body(graph, browser) do
+  defp body(graph, browser, system_panel) do
     panes = Browser.panes(browser)
 
     graph
     |> separators()
-    |> left_slot(panes.left)
+    |> left_slot(panes.left, system_panel)
     |> slot(panes.center, 1, true)
     |> preview_pane(Browser.preview(browser))
   end
 
   # The system panel is the same `%{kind: :info, ...}` shape the preview's
   # info panes carry, so the one line renderer draws both.
-  defp left_slot(graph, nil), do: info_pane(graph, SystemInfo.panel(), slot_x(0))
-  defp left_slot(graph, level), do: slot(graph, level, 0, false)
+  defp left_slot(graph, nil, system_panel), do: info_pane(graph, system_panel, slot_x(0))
+  defp left_slot(graph, level, _system_panel), do: slot(graph, level, 0, false)
 
   defp slot(graph, nil, _index, _focused?), do: graph
   defp slot(graph, level, index, focused?), do: column(graph, level, slot_x(index), focused?)
