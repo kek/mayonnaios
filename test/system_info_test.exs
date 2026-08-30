@@ -1,5 +1,5 @@
 defmodule MayonnaiOS.SystemInfoTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias MayonnaiOS.{Browser, SystemInfo, Theme}
   alias MayonnaiOS.Scene.Home
@@ -102,6 +102,17 @@ defmodule MayonnaiOS.SystemInfoTest do
       assert up.(2 * 86_400 * 1000 + 3600 * 1000) == "up 2d 1h"
     end
 
+    test "accepts cached disk lines without reading either mount" do
+      lines =
+        panel(
+          disk_lines: ["internal: cached", "games card: cached"],
+          space: fn _path -> flunk("cached disk lines should avoid a filesystem read") end
+        ).lines
+
+      assert "internal: cached" in lines
+      assert "games card: cached" in lines
+    end
+
     test "the defaults survive a host with no device behind them" do
       # No injection at all: the real KV, df, ifaddrs. The point is only that
       # none of them crash and the always-answerable facts are there.
@@ -129,10 +140,71 @@ defmodule MayonnaiOS.SystemInfoTest do
       assert Enum.any?(says, &(&1 =~ "MayonnaiOS"))
     end
 
+    test "draws a supplied system panel, so a refresh need not rebuild browser state" do
+      refreshed = %{kind: :info, title: "This device", lines: ["up 12m 30s"]}
+      says = texts(Home.graph(Browser.new(), nil, refreshed))
+
+      assert "up 12m 30s" in says
+    end
+
     test "gives the slot back to the parent below the root" do
       says = texts(Home.graph(Browser.descend(Browser.new())))
       refute "This device" in says
     end
+  end
+
+  test "the home scene refreshes cheap facts more often than disk space" do
+    start_supervised!({Scenic, []})
+    test = self()
+
+    disk_reader = fn ->
+      send(test, :disk_read)
+      ["internal: cached"]
+    end
+
+    panel_builder = fn disk_lines ->
+      send(test, {:panel_built, disk_lines})
+      %{kind: :info, title: "This device", lines: ["up now" | disk_lines]}
+    end
+
+    {:ok, viewport} =
+      Scenic.ViewPort.start(%{
+        name: :system_info_refresh_test,
+        size: {640, 480},
+        default_scene:
+          {Home,
+           %{
+             refresh_ms: 20,
+             disk_refresh_ticks: 2,
+             disk_reader: disk_reader,
+             panel_builder: panel_builder
+           }},
+        drivers: []
+      })
+
+    on_exit(fn ->
+      MayonnaiOS.Panel.release()
+
+      try do
+        Scenic.ViewPort.stop(viewport)
+      catch
+        :exit, _reason -> :ok
+      end
+    end)
+
+    assert_receive :disk_read
+    assert_receive {:panel_built, ["internal: cached"]}
+
+    # The first refresh rebuilds the cheap facts from cached disk lines.
+    assert_receive {:panel_built, ["internal: cached"]}, 200
+    refute_receive :disk_read, 5
+
+    # The second refresh reaches the slower disk reader.
+    assert_receive :disk_read, 200
+    assert_receive {:panel_built, ["internal: cached"]}
+
+    MayonnaiOS.Panel.hold("test program")
+    refute_receive {:panel_built, _lines}, 60
   end
 
   defp texts(graph) do

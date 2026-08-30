@@ -65,6 +65,8 @@ defmodule MayonnaiOS.SystemInfo do
       `MayonnaiOS.GamesCard.mount_point/0`
     * `:games_mounted?` -- `fn -> boolean end`, default
       `MayonnaiOS.GamesCard.mounted?/0`
+    * `:disk_lines` -- previously collected disk lines; used by the home
+      scene to refresh cheap readings more often than filesystem space
   """
   @spec panel(keyword()) :: panel()
   def panel(opts \\ []) do
@@ -78,7 +80,7 @@ defmodule MayonnaiOS.SystemInfo do
         uptime_line(Keyword.get(opts, :uptime_ms, &vm_uptime_ms/0).()),
         address_line(Keyword.get(opts, :address, &first_address/0).()),
         memory_line(Keyword.get(opts, :memory_bytes, &beam_memory/0).())
-      ] ++ disk_lines(opts)
+      ] ++ Keyword.get_lazy(opts, :disk_lines, fn -> disk_lines(opts) end)
 
     %{kind: :info, title: "This device", lines: Enum.reject(lines, &is_nil/1)}
   end
@@ -168,7 +170,14 @@ defmodule MayonnaiOS.SystemInfo do
 
   # -- disks ------------------------------------------------------------------
 
-  defp disk_lines(opts) do
+  @doc """
+  Read the writable mounts and return their display lines.
+
+  Kept separate from `panel/1` so a scene may cache these comparatively slow
+  filesystem reads while refreshing uptime and memory more often.
+  """
+  @spec disk_lines(keyword()) :: [String.t()]
+  def disk_lines(opts \\ []) do
     space = Keyword.get(opts, :space, &Files.space/1)
     data_mount = Keyword.get(opts, :data_mount, "/root")
     games_mount = Keyword.get(opts, :games_mount, &GamesCard.mount_point/0)
@@ -178,6 +187,7 @@ defmodule MayonnaiOS.SystemInfo do
       space_line("internal", space.(data_mount)),
       games_line(space, games_mount.(), games_mounted?.())
     ]
+    |> Enum.reject(&is_nil/1)
   end
 
   # A mount that cannot be measured is a line the panel does not say.
