@@ -678,7 +678,7 @@ defmodule MayonnaiOS.Browser do
       %{kind: :category, id: :system, name: "System"}
     ]
 
-    level("RG40XXV", category_names, nil)
+    level(MayonnaiOS.Device.current!().name, category_names, nil)
   end
 
   defp expand(%{kind: :category, id: id, name: name}), do: category_level(id, name)

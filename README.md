@@ -45,19 +45,22 @@ Software:
 - Pickles: small sandboxed Lua apps, installed over the network like games,
   for things like controlling lamps on the LAN or polling a web API. See
   [docs/pickles.md](docs/pickles.md)
-- Sleep on the power button: the backlight goes off and any button brings it
-  back. Not suspend — this board's only suspend mode would save almost
-  nothing, and `MayonnaiOS.Sleep`'s moduledoc has the analysis
+- Sleep on the power button, or after three minutes idle in the launcher: the
+  backlight goes off and any button brings it back. The idle timer pauses
+  while charging and while a program or app is active. Not suspend — this
+  board's only suspend mode would save almost nothing, and
+  `MayonnaiOS.Sleep`'s moduledoc has the analysis
 - A NeXTSTEP-style column launcher: Games, Files, Apps and System open
   as columns, three on screen, and Files browses the whole filesystem in
   place
 - Orderly power off: the Select+Menu chord, or the **Power off** row under
   System
 - An indicator LED that means something: quick flashing green while starting,
-  solid green running, slow flashing green asleep, blinking red when the
-  application fails to start. The yellow light in the other window is the
-  PMIC's charge indicator and keeps its own counsel; `MayonnaiOS.Led`'s
-  moduledoc has the color map
+  solid green running, slow flashing green asleep, slow blinking red at 20%
+  battery, and quick blinking red when the application fails to start. Low
+  battery clears at 30% or while charging; failure always wins. The yellow
+  light in the other window is the PMIC's charge indicator and keeps its own
+  counsel; `MayonnaiOS.Led`'s moduledoc has the color map
 
 ## Building and flashing
 
@@ -67,8 +70,8 @@ network the device joins on a fresh card; more can be added on the device
 afterwards, from the **WiFi** screen below. Set them, pick the target, and
 build:
 
-    export RG40XXV_WIFI_SSID="your-ssid"
-    export RG40XXV_WIFI_PSK="your-psk"
+    export MAYONNAIOS_WIFI_SSID="your-ssid"
+    export MAYONNAIOS_WIFI_PSK="your-psk"
     export MIX_TARGET=rg40xxv
 
     mix deps.get
@@ -84,6 +87,14 @@ If `mix deps.get` starts compiling Buildroot instead of downloading a system,
 your tree does not match any published release and you are in for a full
 system build, which takes a while. That is usually a sign you changed something
 under `nerves_system_rg40xxv` — a comment is enough.
+
+Board facts live in `config/<target>.exs` as one validated
+`MayonnaiOS.Device` profile: the display name and size, input device names,
+physical-button mapping, LEDs, power supplies, games-card node, backlight, lid
+switch and RTC presence. Shared bundles, cores, systems and writable paths stay
+in `config/target.exs`. Adding a target requires a bootable Nerves system and a
+complete profile; the application fails at startup when either the profile or
+its panel/viewport agreement is incomplete.
 
 ## Changing which WiFi it joins
 
@@ -361,15 +372,24 @@ tests run:
 
 No hardware required.
 
-The UI runs on the laptop too, in a window at the panel's own 640×480 — a scene
-that looks right at some other size is not evidence about the device:
+The complete development runtime runs on the laptop too, in a window at the
+panel's own 640×480 — a scene that looks right at some other size is not
+evidence about the device:
 
     iex -S mix
-    iex> MayonnaiOS.start_ui()
 
     # ... edit a scene ...
     iex> recompile()
     iex> MayonnaiOS.reload_ui()
+
+In `dev`, that one command starts Scenic, the real launcher, the keyboard
+controller bridge, the web UI on <http://localhost:4000>, and the same Elixir
+and Luerl app supervisors used by the device. A short shell command stands in
+for an external KMS program so the display-handoff path can be exercised
+without installing RetroArch or Moonlight. The Files column is rooted at
+`tmp/host/files`, and the worked `hello` pickle is copied once into the
+gitignored `.pickles` state so its graphical Lua app is present immediately.
+`mix test` stays headless and starts none of these development-only children.
 
 `recompile/0` alone changes nothing on screen. A scene is a process holding an
 already-built graph, and swapping the module's code does not rebuild it;

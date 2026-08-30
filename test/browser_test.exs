@@ -146,7 +146,7 @@ defmodule MayonnaiOS.BrowserTest do
 
       # Directories first is Files.list/1's order; the browser keeps it.
       assert names(browser) == ["backup", "snes", "readme.txt"]
-      assert Browser.trail(browser) == ["RG40XXV", "Files", root]
+      assert Browser.trail(browser) == [MayonnaiOS.Device.current!().name, "Files", root]
     end
 
     test "a directory keeps opening columns, and ascend walks back" do
@@ -195,7 +195,8 @@ defmodule MayonnaiOS.BrowserTest do
     end
 
     test "panes/1 at the root: nothing above, so the left is blank" do
-      assert %{left: nil, center: %{title: "RG40XXV"}} = Browser.panes(Browser.new())
+      assert %{left: nil, center: %{title: title}} = Browser.panes(Browser.new())
+      assert title == MayonnaiOS.Device.current!().name
     end
   end
 

@@ -7,6 +7,10 @@ defmodule MayonnaiOS.Application do
 
   @impl true
   def start(_type, _args) do
+    # Fail with the missing board fact named, before starting any process that
+    # could otherwise degrade into a silent input, LED or power-supply fault.
+    MayonnaiOS.Device.load!()
+
     # Scenic is started on demand rather than from the supervision tree.
     #
     # If it fails during boot the whole application fails, StartupGuard never
@@ -20,6 +24,7 @@ defmodule MayonnaiOS.Application do
     children =
       signs_of_life() ++
         [status()] ++
+        led_monitor() ++
         viewport() ++
         [controller_sessions(), pairing_sessions(), pickle_sessions()] ++
         [top_sessions(), update_sessions(), moonlight_sessions(), wifi_sessions()] ++
@@ -120,17 +125,21 @@ defmodule MayonnaiOS.Application do
   # List all child processes to be supervised
   if Mix.target() == :host do
     defp signs_of_life(), do: []
+    defp led_monitor(), do: []
 
     defp target_children() do
-      [
-        # Children that only run on the host during development or test.
-        # In general, prefer using `config/host.exs` for differences.
-        #
-        # Starts a worker by calling: Host.Worker.start_link(arg)
-        # {Host.Worker, arg},
-      ]
+      if Application.get_env(:mayonnaios, :host_runtime, false) do
+        MayonnaiOS.HostRuntime.children()
+      else
+        []
+      end
     end
   else
+    # Starts after Status so its first subscription gets a battery reading.
+    # The direct :starting write remains ahead of both in signs_of_life/0;
+    # this process is the arbiter once normal supervision is available.
+    defp led_monitor(), do: [MayonnaiOS.Led.Monitor]
+
     # The two children that say the software is alive, at the very front of
     # the tree -- ahead of Scenic and ahead of every poller.
     #

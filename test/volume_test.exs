@@ -354,7 +354,7 @@ defmodule MayonnaiOS.VolumeTest do
           start_supervised!({Volume, mixer: FakeMixer})
         end)
 
-      assert log =~ "gpio-keys-volume"
+      assert log =~ MayonnaiOS.Device.input(:volume)
       refute log =~ "/dev/input/event"
     end
   end

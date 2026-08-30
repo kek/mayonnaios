@@ -23,9 +23,6 @@ config :nerves_runtime, startup_guard_enabled: true
 # https://github.com/nerves-project/erlinit/ for more information on
 # configuring erlinit.
 
-# Advance the system clock on devices without a real-time clock.
-config :nerves, :erlinit, update_clock: true
-
 # Configure the device for SSH IEx prompt access and firmware updates
 #
 # * See https://nerves-ssh.hexdocs.pm/readme.html for general SSH configuration
@@ -56,8 +53,8 @@ wifi = fn var ->
     UART0 is on internal test pads, so firmware that boots without working
     WiFi credentials has to be recovered by reflashing the card.
 
-        export RG40XXV_WIFI_SSID="your-ssid"
-        export RG40XXV_WIFI_PSK="your-psk"
+        export MAYONNAIOS_WIFI_SSID="your-ssid"
+        export MAYONNAIOS_WIFI_PSK="your-psk"
     """
 end
 
@@ -91,8 +88,8 @@ config :vintage_net,
          networks: [
            %{
              key_mgmt: :wpa_psk,
-             ssid: wifi.("RG40XXV_WIFI_SSID"),
-             psk: wifi.("RG40XXV_WIFI_PSK")
+             ssid: wifi.("MAYONNAIOS_WIFI_SSID"),
+             psk: wifi.("MAYONNAIOS_WIFI_PSK")
            }
          ]
        },
@@ -410,7 +407,6 @@ config :mayonnaios, :bundles, %{
 # of a games card; see MayonnaiOS.GamesCard for what that costs on a
 # journal-less filesystem in a device that is switched off by pulling power.
 config :mayonnaios, :games_card,
-  device: "/dev/mmcblk2p1",
   mount_point: "/root/mnt/games",
   filesystems: ["exfat", "vfat"],
   options: "rw,nosuid,nodev,noexec",
@@ -614,6 +610,4 @@ config :mayonnaios, audio_test: true
 
 # Import target specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
-# Uncomment to use target specific configurations
-
-# import_config "#{Mix.target()}.exs"
+import_config "#{Mix.target()}.exs"

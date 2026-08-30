@@ -41,7 +41,6 @@ defmodule MayonnaiOS.GamesCard do
   require Logger
 
   @defaults [
-    device: "/dev/mmcblk2p1",
     mount_point: "/root/mnt/games",
     filesystems: ["exfat", "vfat"],
     options: "rw,nosuid,nodev,noexec",
@@ -185,6 +184,8 @@ defmodule MayonnaiOS.GamesCard do
   end
 
   defp config do
-    Keyword.merge(@defaults, Application.get_env(:mayonnaios, :games_card, []))
+    [device: MayonnaiOS.Device.current!().games_card_device]
+    |> Keyword.merge(@defaults)
+    |> Keyword.merge(Application.get_env(:mayonnaios, :games_card, []))
   end
 end
