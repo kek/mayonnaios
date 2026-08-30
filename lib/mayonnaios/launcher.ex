@@ -201,7 +201,7 @@ defmodule MayonnaiOS.Launcher do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.{Browser, Input, Led, Panel, Sleep, Splash, Theme}
+  alias MayonnaiOS.{Browser, Files, Game, Input, Led, Panel, Sleep, Splash, Theme}
 
   # The name the driver gives the gamepad, which is the only thing this module
   # knows about which device it is. There is no numbered fallback: /dev/input
@@ -1057,7 +1057,8 @@ defmodule MayonnaiOS.Launcher do
       Browser.full?(state.browser) -> state
       Browser.expandable?(node) -> browse(state, Browser.descend(state.browser))
       match?(%{kind: :program}, node) -> start_program(node.program, state)
-      match?(%{kind: :file}, node) -> browse(state, Browser.open_full(state.browser))
+      match?(%{kind: :rom}, node) -> launch_game(node.system, node.path, state)
+      match?(%{kind: :file}, node) -> launch_file(node, state)
       true -> state
     end
   end
@@ -1065,6 +1066,32 @@ defmodule MayonnaiOS.Launcher do
   defp do_launch(state) do
     Logger.info("[launcher] already running")
     state
+  end
+
+  defp launch_file(node, state) do
+    with %{} = system <- Game.system_for(node.name),
+         {:ok, location} <- Files.descend(Browser.focused(state.browser).location, node.name),
+         {:ok, path} <- Files.resolve(location) do
+      launch_game(system.key, path, state)
+    else
+      _ -> browse(state, Browser.open_full(state.browser))
+    end
+  end
+
+  defp launch_game(system, path, state) do
+    case Game.program(system, path) do
+      {:ok, program} ->
+        start_program(program, state)
+
+      {:error, :no_core} ->
+        browse(
+          state,
+          Browser.put_message(state.browser, :error, "No installed core for this system.")
+        )
+
+      {:error, :no_retroarch} ->
+        browse(state, Browser.put_message(state.browser, :error, "RetroArch is not configured."))
+    end
   end
 
   defp start_program(%{installed?: false} = program, state) do
