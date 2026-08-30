@@ -95,7 +95,7 @@ defmodule MayonnaiOS.Browser do
   cursor.
   """
 
-  alias MayonnaiOS.{Files, Game, Library, Pickles, Programs}
+  alias MayonnaiOS.{AutoSleep, Files, Game, Library, Pickles, Programs}
   alias MayonnaiOS.Browser.View
 
   @typedoc "One entry in a column."
@@ -257,6 +257,19 @@ defmodule MayonnaiOS.Browser do
 
   def ascend(%{levels: levels} = browser) do
     %{browser | levels: Enum.drop(levels, -1), message: nil}
+  end
+
+  @doc "Rebuild the focused column from its parent, preserving its cursor."
+  @spec refresh(t()) :: t()
+  def refresh(%{levels: [_root]} = browser), do: browser
+
+  def refresh(%{levels: levels} = browser) do
+    parent = Enum.at(levels, -2)
+    current = List.last(levels)
+    node = Enum.at(parent.entries, parent.cursor)
+    fresh = expand(node)
+    cursor = current.cursor |> min(length(fresh.entries) - 1) |> max(0)
+    %{browser | levels: List.replace_at(levels, -1, %{fresh | cursor: cursor})}
   end
 
   @doc """
@@ -724,6 +737,12 @@ defmodule MayonnaiOS.Browser do
         [
           program_node(builtin("Diagnostics", :diagnostics)),
           program_node(builtin("Sleep", :sleep)),
+          program_node(
+            builtin(
+              "Automatic sleep: #{if(AutoSleep.enabled?(), do: "on", else: "off")}",
+              :toggle_auto_sleep
+            )
+          ),
           program_node(builtin("Theme", :cycle_theme))
         ] ++
         Enum.map(actions, &program_node/1)
@@ -747,10 +766,10 @@ defmodule MayonnaiOS.Browser do
   defp classify(_program), do: if(Library.systems() == [], do: :games, else: :apps)
 
   defp system_level(%{key: key, name: name, core: core}) do
+    # The card can be removed, or a file deleted, between enumeration and
+    # resolution. A stale row is skipped rather than crashing the Scenic
+    # root while the cursor is merely previewing this system.
     rows =
-      # The card can be removed, or a file deleted, between enumeration and
-      # resolution. A stale row is skipped rather than crashing the Scenic
-      # root while the cursor is merely previewing this system.
       for entry <- Library.entries(key),
           {:ok, path} <- [Library.find(key, entry.name)] do
         %{kind: :rom, name: entry.name, entry: entry, system: key, path: path}

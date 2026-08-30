@@ -211,6 +211,7 @@ defmodule MayonnaiOS.Launcher do
   require Logger
 
   alias MayonnaiOS.{
+    AutoSleep,
     Browser,
     Device,
     Files,
@@ -505,6 +506,10 @@ defmodule MayonnaiOS.Launcher do
       kill_timeout: Keyword.get(opts, :kill_timeout, @kill_timeout),
       poll_ms: Keyword.get(opts, :poll_ms, @poll_ms),
       idle_sleep_ms: Keyword.get(opts, :idle_sleep_ms, @idle_sleep_ms),
+      # Read the persisted development switch once per Launcher lifetime.
+      # Button presses reset this timer, so reading the filesystem from every
+      # press would put a cold path in the hottest input path for no benefit.
+      auto_sleep: Keyword.get_lazy(opts, :auto_sleep, &AutoSleep.enabled?/0),
       idle_timer: nil,
       power_state:
         Keyword.get(opts, :power_state, fn ->
@@ -804,7 +809,9 @@ defmodule MayonnaiOS.Launcher do
     do: Enum.any?(events, &match?({:ev_key, _key, 1}, &1))
 
   defp idle_eligible?(state),
-    do: not state.asleep and state.port == nil and state.app == nil and state.scene == :home
+    do:
+      state.auto_sleep and not state.asleep and state.port == nil and state.app == nil and
+        state.scene == :home
 
   defp reset_idle_timer(state) do
     state = cancel_idle_timer(state)
@@ -1283,6 +1290,32 @@ defmodule MayonnaiOS.Launcher do
   defp start_program(%{action: :sleep}, state) do
     {_result, state} = enter_sleep(state)
     state
+  end
+
+  # Persisted development switch: automatic idle sleep is disabled without
+  # weakening either explicit route to sleep (the power key and row above).
+  defp start_program(%{action: :toggle_auto_sleep}, state) do
+    case AutoSleep.toggle() do
+      {:ok, enabled} ->
+        browser =
+          state.browser
+          |> Browser.refresh()
+          |> Browser.put_message(
+            :ok,
+            "Automatic sleep #{if(enabled, do: "enabled", else: "disabled")}."
+          )
+
+        state = %{state | browser: browser, auto_sleep: enabled}
+        state = if enabled, do: reset_idle_timer(state), else: cancel_idle_timer(state)
+        show(:home, state)
+        state
+
+      {:error, reason} ->
+        browse(
+          state,
+          Browser.put_message(state.browser, :error, "Could not save setting: #{inspect(reason)}")
+        )
+    end
   end
 
   # The Theme row: advances `MayonnaiOS.Theme` to the next built-in theme and

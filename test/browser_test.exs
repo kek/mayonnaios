@@ -96,6 +96,7 @@ defmodule MayonnaiOS.BrowserTest do
                "WiFi",
                "Diagnostics",
                "Sleep",
+               "Automatic sleep: on",
                "Theme",
                "Power off"
              ]
@@ -121,7 +122,15 @@ defmodule MayonnaiOS.BrowserTest do
       actions =
         for node <- List.last(system.levels).entries, do: node.program.action
 
-      assert actions == [nil, nil, :diagnostics, :sleep, :cycle_theme, :poweroff]
+      assert actions == [
+               nil,
+               nil,
+               :diagnostics,
+               :sleep,
+               :toggle_auto_sleep,
+               :cycle_theme,
+               :poweroff
+             ]
     end
   end
 
