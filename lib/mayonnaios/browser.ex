@@ -748,8 +748,11 @@ defmodule MayonnaiOS.Browser do
 
   defp system_level(%{key: key, name: name, core: core}) do
     rows =
-      for entry <- Library.entries(key) do
-        {:ok, path} = Library.find(key, entry.name)
+      # The card can be removed, or a file deleted, between enumeration and
+      # resolution. A stale row is skipped rather than crashing the Scenic
+      # root while the cursor is merely previewing this system.
+      for entry <- Library.entries(key),
+          {:ok, path} <- [Library.find(key, entry.name)] do
         %{kind: :rom, name: entry.name, entry: entry, system: key, path: path}
       end
 
