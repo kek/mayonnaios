@@ -46,8 +46,7 @@ defmodule MayonnaiOS.Scene.Home do
   browsing, the delete on a confirmation, remove-a-character in the rename
   editor -- and a handheld has no tooltips and no manual. So the bottom line
   spells the buttons out for the state on screen, and the same line carries
-  the power-off question and a program's obituary when there is one: the
-  panel asking or reporting outranks it labelling.
+  a program's obituary when there is one: reporting outranks labelling.
   """
 
   use Scenic.Scene
@@ -148,8 +147,6 @@ defmodule MayonnaiOS.Scene.Home do
         _ -> Browser.new()
       end
 
-    confirming = match?(%{confirming: true}, param)
-
     obituary =
       case param do
         %{obituary: %{} = obituary} -> obituary
@@ -172,7 +169,6 @@ defmodule MayonnaiOS.Scene.Home do
     scene =
       assign(scene,
         browser: browser,
-        confirming: confirming,
         obituary: obituary,
         refresh_ms: refresh_ms,
         disk_refresh_ticks: disk_refresh_ticks,
@@ -183,7 +179,7 @@ defmodule MayonnaiOS.Scene.Home do
         system_panel: system_panel
       )
 
-    {:ok, Panel.draw(scene, graph(browser, confirming, obituary, system_panel))}
+    {:ok, Panel.draw(scene, graph(browser, obituary, system_panel))}
   end
 
   @impl GenServer
@@ -212,7 +208,6 @@ defmodule MayonnaiOS.Scene.Home do
          scene,
          graph(
            scene.assigns.browser,
-           scene.assigns.confirming,
            scene.assigns.obituary,
            system_panel
          )
@@ -238,13 +233,12 @@ defmodule MayonnaiOS.Scene.Home do
   Public because it is the tested surface: it needs no viewport, no driver
   and no framebuffer, so a host test can assert what the panel says for the
   root column, a deep descent, the actions sheet, the delete confirmation,
-  the rename editor, the power-off question and an obituary -- the shapes
+  the rename editor and an obituary -- the shapes
   that would otherwise only be found by looking at the device.
   """
-  @spec graph(Browser.t(), boolean(), map() | nil, SystemInfo.panel()) :: Scenic.Graph.t()
+  @spec graph(Browser.t(), map() | nil, SystemInfo.panel()) :: Scenic.Graph.t()
   def graph(
         browser,
-        confirming \\ false,
         obituary \\ nil,
         system_panel \\ SystemInfo.panel()
       ) do
@@ -253,7 +247,7 @@ defmodule MayonnaiOS.Scene.Home do
     |> held(browser)
     |> body(browser, system_panel)
     |> status_line(browser)
-    |> notice(browser, confirming, obituary)
+    |> notice(browser, obituary)
   end
 
   defp base do
@@ -924,33 +918,20 @@ defmodule MayonnaiOS.Scene.Home do
 
   # -- the bottom line -------------------------------------------------------------
 
-  # One notice at a time, on the footer line. The power-off question wins
-  # over an obituary: it is the panel asking for a decision, and the obituary
-  # keeps -- it is still in the Launcher's state, and comes back the moment
-  # the question is answered. With nothing to ask or report, the line labels
-  # the buttons for the state on screen.
-  defp notice(graph, _browser, true, _obituary) do
-    graph
-    |> footer_rule()
-    |> text("Power off? Y switches off. Any other button keeps it on.",
-      font_size: 18,
-      fill: {:color, wait()},
-      translate: {@left, @footer_y}
-    )
-  end
-
-  defp notice(graph, browser, false, nil) do
+  # One notice at a time, on the footer line. With nothing to report, the line
+  # labels the buttons for the state on screen.
+  defp notice(graph, browser, nil) do
     graph
     |> footer_rule()
     |> text(hint(browser), font_size: 15, fill: {:color, dim()}, translate: {@left, @footer_y})
   end
 
   # Why the last program died, quoted from its own last words. The headline
-  # is amber like the power-off question -- the panel reporting, not asking --
-  # and the quoted lines are dim so the reason reads before the evidence.
+  # is amber -- the panel reporting -- and the quoted lines are dim so the
+  # reason reads before the evidence.
   # Status nil is a spawn that raised rather than a program that exited; the
   # words are then the exception's, and "exited" would be a lie.
-  defp notice(graph, _browser, false, %{name: name, status: status, lines: lines}) do
+  defp notice(graph, _browser, %{name: name, status: status, lines: lines}) do
     headline =
       case status do
         nil -> "#{name} would not start. B clears this."

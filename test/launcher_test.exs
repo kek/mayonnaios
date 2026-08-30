@@ -118,18 +118,10 @@ defmodule MayonnaiOS.LauncherTest do
       assert Enum.any?(texts(graph), &(&1 =~ "Nothing to run"))
     end
 
-    test "the power-off question is on the panel only while it is being asked" do
-      asked = texts(Home.graph(Browser.new(), true))
-      assert Enum.any?(asked, &(&1 =~ "Power off? Y switches off"))
-
-      idle = texts(Home.graph(Browser.new()))
-      refute Enum.any?(idle, &(&1 =~ "Y switches off"))
-    end
-
     test "an obituary quotes the program's dying words" do
       obituary = %{name: "Moonlight", status: 1, lines: ["Can't open configuration file"]}
 
-      says = texts(Home.graph(Browser.new(), false, obituary))
+      says = texts(Home.graph(Browser.new(), obituary))
       assert Enum.any?(says, &(&1 =~ "Moonlight exited (1)"))
       assert Enum.any?(says, &(&1 =~ "Can't open configuration file"))
 
@@ -139,17 +131,9 @@ defmodule MayonnaiOS.LauncherTest do
 
     test "a spawn that raised says would not start, not exited" do
       obituary = %{name: "Doom", status: nil, lines: ["enoent"]}
-      says = texts(Home.graph(Browser.new(), false, obituary))
+      says = texts(Home.graph(Browser.new(), obituary))
 
       assert Enum.any?(says, &(&1 =~ "Doom would not start"))
-      refute Enum.any?(says, &(&1 =~ "exited"))
-    end
-
-    test "the power-off question outranks the obituary" do
-      obituary = %{name: "Moonlight", status: 1, lines: ["nope"]}
-      says = texts(Home.graph(Browser.new(), true, obituary))
-
-      assert Enum.any?(says, &(&1 =~ "Power off?"))
       refute Enum.any?(says, &(&1 =~ "exited"))
     end
 
@@ -477,7 +461,10 @@ defmodule MayonnaiOS.LauncherTest do
       test = self()
 
       start_supervised!(
-        {Launcher, device: "/nonexistent/event0", poweroff: fn -> send(test, :powered_off) end}
+        {Launcher,
+         device: "/nonexistent/event0",
+         shutdown_splash: fn -> send(test, :splash_drawn) end,
+         poweroff: fn -> send(test, :powered_off) end}
       )
 
       # Into System -- the last category -- and down past Diagnostics, Sleep
@@ -492,37 +479,13 @@ defmodule MayonnaiOS.LauncherTest do
       :ok
     end
 
-    test "A only asks; Y answers" do
+    test "A draws the splash and immediately powers off" do
       tap(:btn_b)
-      refute_received :powered_off
-
-      tap(:btn_x)
+      assert_receive :splash_drawn
       assert_receive :powered_off
     end
 
-    test "any other button keeps the device on, and Y afterwards does not switch off" do
-      tap(:btn_b)
-      tap(:btn_a)
-
-      # The question is gone, so the button that would have answered it is
-      # back to its day job of cycling columns.
-      tap(:btn_x)
-      refute_received :powered_off
-    end
-
-    test "the cancelling press is swallowed, not dispatched" do
-      tap(:btn_b)
-      # A again would re-open the question if it were dispatched -- the cursor
-      # is still on the Power off row; here it may only cancel. Y proving no
-      # question is up also proves no second question was opened.
-      tap(:btn_b)
-      tap(:btn_x)
-      refute_received :powered_off
-    end
-
-    test "Y with no question pending does nothing here" do
-      # Settings is not a directory column, so the second verb has nothing to
-      # offer -- and it must not switch the device off.
+    test "Y remains the browser's second verb" do
       before = Launcher.browser()
       tap(:btn_x)
 

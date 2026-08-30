@@ -142,7 +142,7 @@ defmodule MayonnaiOS.SystemInfoTest do
 
     test "draws a supplied system panel, so a refresh need not rebuild browser state" do
       refreshed = %{kind: :info, title: "This device", lines: ["up 12m 30s"]}
-      says = texts(Home.graph(Browser.new(), false, nil, refreshed))
+      says = texts(Home.graph(Browser.new(), nil, refreshed))
 
       assert "up 12m 30s" in says
     end

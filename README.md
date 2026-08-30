@@ -409,6 +409,7 @@ a scratch directory and start `MayonnaiOS.Web` under a supervisor.
 |---|---|
 | [Pickles](docs/pickles.md) | Writing and deploying sandboxed Lua apps |
 | [The Bluetooth controller](docs/bluetooth-controller.md) | The borrowed identity and its trade-offs, the no-BlueZ stack, recovery, what is not built yet |
+| [On-device data layout](docs/data-layout.md) | Which writable paths belong to MayonnaiOS, players, and removable media |
 | [RetroArch internals](docs/retroarch-internals.md) | How cores, config and saves are kept honest across upgrades and pulled power |
 
 ## The three repositories
