@@ -42,11 +42,17 @@ defmodule MayonnaiOS.Controller do
   `start/0` returns `{:error, reason}` when the controller cannot be opened,
   and the reasons are the bind errors listed in
   `MayonnaiOS.Bluetooth.HCISocket`. The common one on a device where something
-  else took Bluetooth first is `:eusers`; `:enodev` means the Realtek part
-  never appeared, which is a boot-time problem and not this app's.
+  else took Bluetooth first is `:eusers`. `:enodev` means the Realtek part
+  never appeared at boot, and `MayonnaiOS.Bluetooth.Host` tries to fix that
+  one before reporting it: it rebinds the serdev driver and opens again, which
+  on this device is the difference between a menu entry that works and one
+  that needs a reboot. `MayonnaiOS.Bluetooth.Serdev` has the account. Reaching
+  the caller as `:enodev` therefore means the rebind was tried and hci0 still
+  did not appear.
 
-  Nothing retries. A handheld that silently retries a radio it cannot open is
-  a handheld with a flat battery and no explanation.
+  Nothing retries beyond that. One rebind on an explicit press is a recovery;
+  a handheld that silently retries a radio it cannot open is a handheld with a
+  flat battery and no explanation.
   """
 
   use Supervisor
@@ -83,6 +89,16 @@ defmodule MayonnaiOS.Controller do
   @doc "Whether the app is running."
   @spec active?() :: boolean()
   def active?, do: Process.whereis(__MODULE__) != nil
+
+  @doc """
+  B belongs to this app, not to the launcher.
+
+  Every button here is the controller's product -- B is a gamepad button the
+  host is waiting for -- so the launcher must not spend it on leaving. Menu
+  is the way out, as the screen says.
+  """
+  @spec claims_back?() :: true
+  def claims_back?, do: true
 
   @doc """
   Forward an evdev report to the pad.
@@ -146,8 +162,9 @@ defmodule MayonnaiOS.Controller do
       start: {__MODULE__, :start_link, [opts]},
       type: :supervisor,
       # A session that cannot start should not be started again by a
-      # supervisor: the reason is on the panel and in the log, and retrying a
-      # radio that answered :enodev will answer :enodev again.
+      # supervisor: the reason is on the panel and in the log, and a radio that
+      # answered :enodev will answer :enodev again -- `Host` has already spent
+      # its one rebind on it by the time the reason gets this far.
       restart: :temporary
     }
   end

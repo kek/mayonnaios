@@ -130,9 +130,9 @@ defmodule MayonnaiOS.VolumeTest do
 
   describe "Audio.set_level/2" do
     test "level 0 is 0% with the output path left switched on" do
-      # The bug this replaces: level 0 used to switch DAC, Line Out and
-      # Speaker off, and a closed route to the sink is not a quiet device, it
-      # is one where ALSA never powers the DAC. Writes to the PCM then return
+      # A level 0 that switched DAC, Line Out and Speaker off would not be a
+      # quiet device: a closed route to the sink is one where ALSA never
+      # powers the DAC. Writes to the PCM then return
       # EIO, and a program that waits for buffer space instead -- RetroArch --
       # waits in poll() for ever. Measured on the device: `aplay /dev/zero`
       # fails with "Input/output error" in that state and succeeds in this
@@ -331,21 +331,20 @@ defmodule MayonnaiOS.VolumeTest do
     end
 
     test "a mixer that cannot be reached is a warning and not a crash" do
-      # It must not take the boot down. What it leaves behind is worse than it
-      # used to be -- the hardware's own closed path -- which is why the
-      # warning says so, and why this returns rather than raising.
+      # It must not take the boot down. What it leaves behind is the
+      # hardware's own closed path, which is why the warning says so, and why
+      # this returns rather than raising.
       assert Audio.Startup.run(BrokenMixer) == :ok
     end
   end
 
   describe "the device it opens" do
     test "is looked up by name, and its absence is a line naming the name" do
-      # The rocker was `/dev/input/event1` in this file until the numbering
-      # moved, and by then `event1` was the analog stick -- a device with no
-      # keys on it at all. A fallback to that number is not a degraded volume
-      # control, it is a process waiting for ever for `KEY_VOLUMEUP` from
-      # something that has never sent one, and the only visible symptom is
-      # that the buttons do nothing.
+      # A numbered fallback is not a degraded volume control: `/dev/input`
+      # numbering moves, so the number is some other device -- the analog
+      # stick has no keys on it at all -- and the result is a process waiting
+      # for ever for `KEY_VOLUMEUP` from something that never sends one, with
+      # no visible symptom beyond the buttons doing nothing.
       #
       # So there is no number to fall back to, and what makes that better
       # rather than merely stricter is this log line: it names the device tree
@@ -355,7 +354,7 @@ defmodule MayonnaiOS.VolumeTest do
           start_supervised!({Volume, mixer: FakeMixer})
         end)
 
-      assert log =~ "gpio-keys-volume"
+      assert log =~ MayonnaiOS.Device.input(:volume)
       refute log =~ "/dev/input/event"
     end
   end

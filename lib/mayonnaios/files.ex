@@ -1,12 +1,12 @@
 defmodule MayonnaiOS.Files do
   @moduledoc """
-  The filesystem as the file manager is allowed to see it: a fixed set of
+  The filesystem as the panel's file columns are allowed to see it: a fixed set of
   roots, names that are checked rather than cleaned, and writes that are
   fsynced before they count as done.
 
-  This module is the whole boundary. `MayonnaiOS.FileManager` holds a cursor
-  and `MayonnaiOS.Scene.FileManager` draws it; neither of them ever builds a
-  path.
+  This module is the whole boundary. `MayonnaiOS.Browser` holds the cursors
+  and the clipboard and `MayonnaiOS.Scene.Home` draws them; neither of them
+  ever builds a path.
 
   ## What is reachable, and why nothing else is
 
@@ -21,10 +21,11 @@ defmodule MayonnaiOS.Files do
 
   The roots come from the configuration this application already has --
   `:rom_roots`, `:bundle_root`, `:core_root` -- plus `/root` itself, because
-  the writable partition is the thing a file manager on this device is for.
-  Nothing names `/`: that is a 69 MB read-only squashfs and there is nothing
-  a file manager could do to it. `:file_roots` overrides the list, which is
-  how the tests point it at a temporary directory.
+  the writable partition is where everything worth editing lives, and `/`,
+  so the whole filesystem can be browsed. The rootfs is a read-only squashfs,
+  so a write anywhere under it fails with `:erofs` and the panel says so.
+  `:file_roots` overrides the list, which is how the tests point it at a
+  temporary directory.
 
   ## Names are rejected, not repaired
 
@@ -171,7 +172,8 @@ defmodule MayonnaiOS.Files do
       [
         %{key: "bundles", path: Bundle.root(), note: "installed bundles"},
         %{key: "cores", path: Cores.root(), note: "installed cores"},
-        %{key: "root", path: "/root", note: "the writable partition"}
+        %{key: "root", path: "/root", note: "the writable partition"},
+        %{key: "fs", path: "/", note: "the whole filesystem"}
       ]
   end
 
@@ -338,6 +340,39 @@ defmodule MayonnaiOS.Files do
       end
 
     %{name: name, type: type, size: size, link: link, broken?: type == :missing}
+  end
+
+  @doc """
+  The first `count` bytes of a file, or fewer if the file is shorter.
+
+  This is the read behind the browser's previews, and the cap is the caller's
+  contract: whatever the file's size, at most `count` bytes come off the disk,
+  so a cursor resting on a 200 MB ROM costs one bounded read and not a load
+  of the whole thing into a VM with the panel to run.
+
+  Follows a symlink, like every other read here -- the symlink caveat in the
+  moduledoc applies. A directory answers `{:error, :eisdir}`.
+  """
+  @spec peek(location(), pos_integer()) :: {:ok, binary()} | {:error, reason()}
+  def peek(location, count) do
+    with {:ok, path} <- resolve(location),
+         {:ok, _name} <- basename(location) do
+      case File.open(path, [:read, :binary, :raw]) do
+        {:ok, io} ->
+          result =
+            case :file.read(io, count) do
+              {:ok, data} -> {:ok, data}
+              :eof -> {:ok, <<>>}
+              {:error, reason} -> {:error, reason}
+            end
+
+          File.close(io)
+          result
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
   end
 
   @doc """

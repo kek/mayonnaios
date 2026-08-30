@@ -23,9 +23,6 @@ config :nerves_runtime, startup_guard_enabled: true
 # https://github.com/nerves-project/erlinit/ for more information on
 # configuring erlinit.
 
-# Advance the system clock on devices without a real-time clock.
-config :nerves, :erlinit, update_clock: true
-
 # Configure the device for SSH IEx prompt access and firmware updates
 #
 # * See https://nerves-ssh.hexdocs.pm/readme.html for general SSH configuration
@@ -56,8 +53,8 @@ wifi = fn var ->
     UART0 is on internal test pads, so firmware that boots without working
     WiFi credentials has to be recovered by reflashing the card.
 
-        export RG40XXV_WIFI_SSID="your-ssid"
-        export RG40XXV_WIFI_PSK="your-psk"
+        export MAYONNAIOS_WIFI_SSID="your-ssid"
+        export MAYONNAIOS_WIFI_PSK="your-psk"
     """
 end
 
@@ -91,8 +88,8 @@ config :vintage_net,
          networks: [
            %{
              key_mgmt: :wpa_psk,
-             ssid: wifi.("RG40XXV_WIFI_SSID"),
-             psk: wifi.("RG40XXV_WIFI_PSK")
+             ssid: wifi.("MAYONNAIOS_WIFI_SSID"),
+             psk: wifi.("MAYONNAIOS_WIFI_PSK")
            }
          ]
        },
@@ -163,6 +160,15 @@ config :mayonnaios, :viewport,
 # with a usage message would look exactly like a working launcher.
 #
 #     %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]}
+# The one place the Moonlight config file is named. It is used twice below --
+# on Moonlight's own command line, and by `MayonnaiOS.Moonlight`, which is
+# what the settings screen writes through -- and a screen that edited a
+# different file from the one the stream reads would be the kind of bug that
+# looks like the setting having no effect.
+moonlight_config = "/root/.config/moonlight/moonlight.conf"
+
+config :mayonnaios, moonlight_config: moonlight_config
+
 config :mayonnaios, :programs, [
   # Not in the firmware. This path only exists once MayonnaiOS.Bundle has
   # installed RetroArch onto the writable partition, and until then Programs
@@ -224,6 +230,37 @@ config :mayonnaios, :programs, [
     ],
     needs_udev: true
   },
+  # Game streaming from a Sunshine or GeForce host, decoded in software on
+  # the A53s and drawn through SDL on the same KMS stack RetroArch uses.
+  # Until the bundle is installed this is a visible, unlaunchable row --
+  # `MayonnaiOS.Programs` stats the path on every render.
+  #
+  # -config names the player's own file rather than the bundle's, because the
+  # one thing a stream cannot start without is the host's address, and no
+  # bundle can know it. The System menu's "Moonlight settings" row below
+  # writes that file -- it seeds it from the bundle's template, which is the
+  # copy this used to ask for -- so the only step left that needs SSH is
+  # pairing, which prints a PIN that must be typed into the host:
+  #
+  #     /root/bundles/moonlight/current/bin/moonlight pair <host>
+  #
+  # The bundle's template carries the hardware-dictated defaults (720p30,
+  # h264, SDL) and comments on what to lower first if decode cannot keep up.
+  %{
+    name: "Moonlight",
+    path: "/root/bundles/moonlight/current/bin/moonlight",
+    args: ["stream", "-config", moonlight_config],
+    needs_udev: true
+  },
+  # The screen that writes the file above: host address, resolution, frame
+  # rate, bitrate, codec and app. An app rather than a program, and with no
+  # `category`, so `MayonnaiOS.Browser` files it under System -- it is a
+  # setting, not a thing to play.
+  #
+  # It is listed whether or not the Moonlight bundle is installed, and says
+  # which: a config file written before the program that reads it arrives is
+  # still a config file, and the row that greys out is the Moonlight one.
+  %{name: "Moonlight settings", app: MayonnaiOS.Moonlight.App},
   %{name: "Spinning cube (kmscube)", path: "/usr/bin/kmscube"},
   %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]},
   # An app rather than a program: a module in this firmware, started in this
@@ -233,19 +270,19 @@ config :mayonnaios, :programs, [
   # It takes hci0 for as long as it runs, so it cannot be up at the same time
   # as anything else that wants the Bluetooth controller. That is why it is
   # here as a menu entry and not in the boot supervision tree.
-  %{name: "Bluetooth controller", app: MayonnaiOS.Controller},
-  # Also an app, and for a much duller reason than Bluetooth: it needs the
-  # buttons and the panel and nothing else. Reading a directory is a syscall,
-  # not a device, so there is nothing here for it to take away from anything
-  # else -- which is why, unlike the controller, two of these running at once
-  # would be harmless rather than a bug. It is still one entry and one process.
   #
-  # It reaches only the roots `MayonnaiOS.Files` derives from the configuration
-  # below -- the ROM roots, the bundles, the cores, and /root -- and it builds
-  # every path from a root key plus checked names rather than from a string.
-  # See that module's moduledoc for what the boundary does and does not
-  # promise; the symlink caveat is the part worth reading.
-  %{name: "Files", app: MayonnaiOS.FileManager},
+  # `category: :apps` puts it in the launcher's Apps column, next to the
+  # pickles: it is a thing to use, not a setting. Rows without a category are
+  # classified by `MayonnaiOS.Browser`.
+  %{name: "Bluetooth controller", app: MayonnaiOS.Controller, category: :apps},
+  # There is no file manager row: the launcher's own Files column *is* the
+  # file manager. It reaches only the roots `MayonnaiOS.Files` derives from
+  # the configuration below -- the ROM roots, the bundles, the cores, /root,
+  # and `/` for the whole filesystem -- and it builds every path from a root
+  # key plus checked names rather than from a string. See that module's
+  # moduledoc for what the boundary does and does not promise; the symlink
+  # caveat is the part worth reading.
+  #
   # The other direction, and it takes hci0 for the same reason, so these two
   # are mutually exclusive and the launcher's one-app-at-a-time rule is what
   # enforces it.
@@ -256,6 +293,28 @@ config :mayonnaios, :programs, [
   # BR/EDR host in this firmware. `MayonnaiOS.Pairing` has the full account,
   # and the screen says it in the first line rather than in a footnote.
   %{name: "Bluetooth devices", app: MayonnaiOS.Pairing},
+  # Two rows, one app: `MayonnaiOS.Top` with which world to read as the
+  # argument, the same {module, arg} shape graphical pickles use. Both are
+  # readings of things that are always there -- the VM and /proc -- so unlike
+  # the Bluetooth apps neither takes a device away from anything.
+  %{name: "BEAM processes", app: {MayonnaiOS.Top, :beam}},
+  %{name: "OS processes", app: {MayonnaiOS.Top, :os}},
+  # The WiFi settings screen: what is on the air, what this device is
+  # configured to join, and a character wheel to type a passphrase on.
+  #
+  # It is what makes the credentials above a *default* rather than the only
+  # network this firmware can ever reach: `MayonnaiOS.WiFi.join/3` appends to
+  # the network list instead of replacing it, so a network picked on the panel
+  # is added alongside the one built in and the built-in one goes on working.
+  # See that module for why appending is the only safe shape for this on a
+  # device whose sole reliable way in is the radio being configured.
+  %{name: "WiFi", app: MayonnaiOS.WiFi.App},
+  # Checks kek/mayonnaios's GitHub releases for a newer version than the one
+  # running, and downloads and applies it with fwup if there is one -- the
+  # online half of what `mix upload` does from a dev machine. See
+  # `MayonnaiOS.Update`'s moduledoc for the download/apply/validate flow and
+  # why nothing here has to call `Nerves.Runtime.validate_firmware/0` itself.
+  %{name: "Software update", app: MayonnaiOS.Update.App},
   # Neither a program nor an app: a verb of the launcher's own. Selecting it
   # asks rather than acts -- Y answers, anything else cancels -- and it ends
   # in the same `Nerves.Runtime.poweroff/0` the Select+Menu chord reaches.
@@ -303,7 +362,7 @@ config :mayonnaios, pickles_root: "/root/pickles"
 #
 #     iex> MayonnaiOS.Bundle.install(MayonnaiOS.Bundle.spec(:retroarch))
 #
-# Built by github.com/kek/retroarch-rg40xxv against this system's own staging
+# Built by github.com/kek/mayonnaios_bundles against this system's own staging
 # sysroot, so the sonames match what the rootfs ships.
 #
 # `version` must change whenever the tarball does, and it is the *release*
@@ -316,10 +375,20 @@ config :mayonnaios, pickles_root: "/root/pickles"
 config :mayonnaios, :bundles, %{
   retroarch: %{
     name: "retroarch",
-    version: "1.22.2-7",
+    version: "1.22.2-8",
     url:
-      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-7/retroarch-1.22.2-aarch64.tar.gz",
-    sha256: "fcfeafdf307afac56666a3c9f5004880bee3b9326401a720fe269338ce80824c"
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/retroarch-1.22.2-aarch64.tar.gz",
+    sha256: "4a0181a635c8fd9eb689a0e1ce0fc1076345f8e5b21deaccf8a3a807149a4c71"
+  },
+  # The sha256 is the one CI printed for the tarball it attached to the
+  # moonlight-v2.7.1-1 release -- the release asset, not a local build, since
+  # two builds of the same sources are not byte-identical across machines.
+  moonlight: %{
+    name: "moonlight",
+    version: "2.7.1-1",
+    url:
+      "https://github.com/kek/mayonnaios_bundles/releases/download/moonlight-v2.7.1-1/moonlight-2.7.1-aarch64.tar.gz",
+    sha256: "9208fc553210f82cb07828cd13e7d16609ec0734d540a36ceb33e17af44147db"
   }
 }
 
@@ -338,7 +407,6 @@ config :mayonnaios, :bundles, %{
 # of a games card; see MayonnaiOS.GamesCard for what that costs on a
 # journal-less filesystem in a device that is switched off by pulling power.
 config :mayonnaios, :games_card,
-  device: "/dev/mmcblk2p1",
   mount_point: "/root/mnt/games",
   filesystems: ["exfat", "vfat"],
   options: "rw,nosuid,nodev,noexec",
@@ -359,10 +427,36 @@ config :mayonnaios,
   ]
 
 config :mayonnaios, :systems, [
+  # Chronological, because that is the order these end up in the head and the
+  # upload page shows them in list order.
+  #
+  # No .fds here: fceumm plays Famicom Disk System images, but only with a
+  # BIOS this device does not ship, so accepting one would take an upload
+  # that cannot be played.
+  %{
+    key: "nes",
+    name: "Nintendo",
+    extensions: [".nes", ".unf", ".zip"]
+  },
   %{
     key: "snes",
     name: "Super Nintendo",
     extensions: [".sfc", ".smc", ".zip"]
+  },
+  %{
+    key: "gb",
+    name: "Game Boy",
+    extensions: [".gb", ".zip"]
+  },
+  %{
+    key: "gbc",
+    name: "Game Boy Color",
+    extensions: [".gbc", ".zip"]
+  },
+  %{
+    key: "gba",
+    name: "Game Boy Advance",
+    extensions: [".gba", ".zip"]
   }
 ]
 
@@ -403,14 +497,14 @@ config :mayonnaios, core_dir: "/root/.config/retroarch/cores"
 # bundles above: the SHA-256 is here in the firmware, and it is what decides
 # whether the downloaded bytes are unpacked at all.
 #
-# These two also ship inside the RetroArch bundle, so they are already usable
-# without installing anything -- `sync/0` finds them there and the page shows
-# them as available. The entries exist so a core can be updated on its own,
-# without a 2.4 MB bundle download to replace a 1 MB file, and so the
+# All of these also ship inside the RetroArch bundle, so they are already
+# usable without installing anything -- `sync/0` finds them there and the page
+# shows them as available. The entries exist so a core can be updated on its
+# own, without a 4 MB bundle download to replace a 1 MB file, and so the
 # mechanism is exercised by something real before a core that is *only*
 # available this way is added.
 #
-# The checksums are of the tarballs published on release v1.22.2-5, downloaded
+# The checksums are of the tarballs published on release v1.22.2-8, downloaded
 # from that release and hashed here -- not of a local build.
 #
 # That distinction matters and cost a correction. The same source built on
@@ -420,25 +514,59 @@ config :mayonnaios, core_dir: "/root/.config/retroarch/cores"
 # checksum taken from a local build would have failed verification on every
 # device while being perfectly correct about a file nobody downloads.
 config :mayonnaios, :cores, %{
+  fceumm: %{
+    name: "fceumm",
+    label: "Nintendo — FCEUmm",
+    systems: ["nes"],
+    version: "1.22.2-8",
+    url:
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/fceumm-1.22.2-aarch64.tar.gz",
+    sha256: "925e68b116fb214842ca388df77c920c3e30379c644c9c0f281ca02ba9489e9f"
+  },
   snes9x2010: %{
     name: "snes9x2010",
     label: "Super Nintendo — Snes9x 2010",
     systems: ["snes"],
-    version: "1.22.2-6",
+    version: "1.22.2-8",
     url:
-      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-6/snes9x2010-1.22.2-aarch64.tar.gz",
-    sha256: "9a492c7414330d07929d322bb3b643312eb3bafb7386543484d04b393abb7e85"
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/snes9x2010-1.22.2-aarch64.tar.gz",
+    sha256: "4d997634f61688380fdb769491b931fa8383d96dfd4a3c0b9a9b41b52fe2e683"
+  },
+  # One core, two systems: gambatte plays both, and `systems` is a list for
+  # exactly this.
+  gambatte: %{
+    name: "gambatte",
+    label: "Game Boy / Color — Gambatte",
+    systems: ["gb", "gbc"],
+    version: "1.22.2-8",
+    url:
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/gambatte-1.22.2-aarch64.tar.gz",
+    sha256: "59d04670cc1def8da4282b5f60e7dc99555faf1c9c03d6b188feb409c40895ba"
+  },
+  mgba: %{
+    name: "mgba",
+    label: "Game Boy Advance — mGBA",
+    systems: ["gba"],
+    version: "1.22.2-8",
+    url:
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/mgba-1.22.2-aarch64.tar.gz",
+    sha256: "906afe8e3734fef4197d5a918744b0d9554cfc56583586c7d251f8c59be6c35e"
   },
   "2048": %{
     name: "2048",
     label: "2048",
     systems: [],
-    version: "1.22.2-6",
+    version: "1.22.2-8",
     url:
-      "https://github.com/kek/retroarch-rg40xxv/releases/download/v1.22.2-6/2048-1.22.2-aarch64.tar.gz",
-    sha256: "c6eba3f077baf5fe56766d8213424c38d5ff0787488d4fac455d4ff96ba86518"
+      "https://github.com/kek/mayonnaios_bundles/releases/download/v1.22.2-8/2048-1.22.2-aarch64.tar.gz",
+    sha256: "3a2f13b408b74fe73b96d0131e15041d0494b3e106f7f7ac5224e0d2b1f375d6"
   }
 }
+
+# When more than one installed core can play a system, the first available
+# entry wins. Explicit rather than map enumeration order, so a config edit is
+# the only thing that changes which emulator A launches.
+config :mayonnaios, core_priority: [:fceumm, :snes9x2010, :gambatte, :mgba, :"2048"]
 
 # The upload page. Port 80 so the address is just the hostname:
 #
@@ -456,6 +584,15 @@ config :mayonnaios, web_port: 80
 # debug_fps, antialias, calibration, position, window, cursor, key_map,
 # on_close, input_blacklist.
 config :mayonnaios, autostart_ui: true
+
+# Sleep switches off more than the backlight: the Scenic renderer, WiFi, the
+# cpufreq governor and three of the four cores. `MayonnaiOS.LowPower` has what
+# each is worth, measured, and what it costs.
+#
+# Set this false while debugging sleep over SSH on WiFi, because taking
+# `wlan0` down ends that session. The USB gadget's `usb0` is untouched either
+# way and stays the way in.
+config :mayonnaios, low_power_sleep: true
 
 # Audio works, so `MayonnaiOS.Audio.run/0` is allowed to make a sound.
 #
@@ -482,6 +619,4 @@ config :mayonnaios, audio_test: true
 
 # Import target specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
-# Uncomment to use target specific configurations
-
-# import_config "#{Mix.target()}.exs"
+import_config "#{Mix.target()}.exs"

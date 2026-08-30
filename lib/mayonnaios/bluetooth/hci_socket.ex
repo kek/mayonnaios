@@ -66,7 +66,10 @@ defmodule MayonnaiOS.Bluetooth.HCISocket do
 
       :eperm     not CAP_NET_ADMIN. Nerves runs as root, so this means the
                  call came from somewhere else.
-      :enodev    no hci0 -- the serdev never bound, so btrtl never ran
+      :enodev    no hci0 -- btrtl never ran. Usually because the serdev never
+                 bound, but not always: it has also happened with the driver
+                 bound and no hci0 behind it, which is what
+                 `MayonnaiOS.Bluetooth.Serdev` is for
       :ebusy     HCI_INIT/HCI_SETUP/HCI_CONFIG in progress, or the controller
                  is powered up without the AUTO_OFF grace period
       :eusers    HCI_USER_CHANNEL is already set: another socket has it

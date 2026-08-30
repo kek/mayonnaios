@@ -202,11 +202,11 @@ defmodule MayonnaiOS.PanelTest do
   end
 
   describe "an app is not an external program" do
-    test "the bar keeps drawing while the file manager is on screen" do
+    test "the bar keeps drawing while an app is on screen" do
       # The other direction of the same distinction. An app is a Scenic scene
       # in this VM: it takes no display away from anything, so a bar with a
-      # frozen clock on the file manager would be this fix overreaching.
-      %{bar: bar} = start_viewport(MayonnaiOS.Scene.FileManager, %{error: nil})
+      # frozen clock on the process readout would be this fix overreaching.
+      %{bar: bar} = start_viewport(MayonnaiOS.Scene.Top, %{error: nil})
 
       refute Panel.held?()
       send(bar, {:mayonnaios_status, reading(41)})
@@ -243,20 +243,23 @@ defmodule MayonnaiOS.PanelTest do
       # `cat` with no arguments stands in for RetroArch: a real external
       # process, spawned the same way through `Port.open/2`, that stays up
       # until it is killed. What it draws is irrelevant -- the launcher's job
-      # here is not drawing.
+      # here is not drawing. `launch/0` is A: the first press opens the Games
+      # column, the second runs its first row.
+      Launcher.launch()
       Launcher.launch()
       assert Panel.owner() == {:program, "sleeper"}
       settle()
 
-      # X, which flips between the menu and diagnostics. During a game this
-      # used to re-root the viewport and paint a whole screen into a
-      # framebuffer the game owned.
-      press(:btn_y)
-      assert :sys.get_state(Launcher).scene == :diagnostics
-      refute_write("pressing X during a game")
+      # The pad is still the launcher's during a game, so a D-pad press walks
+      # the browser -- left closes the Games column. It must not re-root the
+      # viewport and paint the menu into a framebuffer the game owns.
+      assert MayonnaiOS.Browser.depth(Launcher.browser()) == 2
+      press(:btn_dpad_left)
+      assert MayonnaiOS.Browser.depth(Launcher.browser()) == 1
+      refute_write("pressing left during a game")
 
-      # And Menu out of the game: the hold is lifted and the screen X asked
-      # for is finally painted.
+      # And Menu out of the game: the hold is lifted and the menu the cursor
+      # moved on is finally painted.
       Launcher.stop_program()
       refute Panel.held?()
       assert_write("the repaint after the program was stopped")

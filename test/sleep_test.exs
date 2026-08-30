@@ -85,12 +85,12 @@ defmodule MayonnaiOS.SleepTest do
       assert Sleep.trigger?(MapSet.new([:btn_select, :btn_start, :btn_mode]), :key_power)
     end
 
-    test "the chord it replaced does nothing at all" do
-      # This is the test that fails if Select+Start is kept "just in case".
-      # It is not a spare tyre: it is a second trigger to write down in the
-      # moduledoc, the launcher, the README, the keyboard bridge and the
-      # supervision tree, and `@binding` is one tuple so that there is one
-      # place to read it off. The full argument is in MayonnaiOS.Sleep.
+    test "a Select+Start chord does nothing at all" do
+      # This is the test that fails if a Select+Start chord is added "just in
+      # case". A second trigger is not a spare tyre: it is one more thing to
+      # write down in the moduledoc, the launcher, the README, the keyboard
+      # bridge and the supervision tree, and `@binding` is one tuple so that
+      # there is one place to read it off. See MayonnaiOS.Sleep.
       refute Sleep.trigger?(MapSet.new([:btn_select]), :btn_start)
       refute Sleep.trigger?(MapSet.new([:btn_select, :btn_start]), :btn_start)
     end
@@ -106,9 +106,9 @@ defmodule MayonnaiOS.SleepTest do
 
   describe "the device the key arrives on" do
     test "is nil here, and never a number" do
-      # The fallback used to be `/dev/input/event0`, which is the power key's
-      # number on this firmware and was the gamepad's on the one before. Both
-      # of those are accidents; the name is the thing that is meant.
+      # Never a number: `/dev/input` numbers are accidents of probe order --
+      # `event0` is the power key on this firmware and the gamepad on another.
+      # The name is the thing that is meant.
       assert Sleep.device() == nil
     end
 
@@ -180,14 +180,12 @@ defmodule MayonnaiOS.SleepTest do
       assert Launcher.asleep?()
     end
 
-    # There is no longer a test that the held set is cleared on waking.
-    #
-    # It was worth having and its last observable consequence went away with
-    # the chord: the held set now feeds exactly one thing, the Select+Menu
-    # power-off, and a test that presses that chord calls
-    # `Nerves.Runtime.poweroff/0`, which on the host begins stopping the VM
-    # and takes the whole run down with no summary. `wake_up/1` still clears
-    # it, for that chord's sake; see the comment there.
+    # Held-set clearing on waking is untested on purpose: its only
+    # observable consequence is the Select+Menu power-off, and a test that
+    # presses that chord calls `Nerves.Runtime.poweroff/0`, which on the host
+    # begins stopping the VM and takes the whole run down with no summary.
+    # `wake_up/1` clears the held set for that chord's sake; see the comment
+    # there.
 
     test "a backlight that cannot be written does not swallow anything" do
       Application.put_env(:mayonnaios, :backlight_brightness, "/nonexistent/dir/brightness")
@@ -207,6 +205,62 @@ defmodule MayonnaiOS.SleepTest do
 
       assert Launcher.sleep() == {:error, :enoent}
       refute Launcher.asleep?()
+    end
+
+    test "sleeping takes the cores down, and waking brings them back" do
+      # The wiring test: sleep is the backlight plus MayonnaiOS.LowPower, and
+      # the cores are the step that is checkable on a laptop. Ordering is the
+      # thing worth pinning -- LowPower runs only once the backlight write has
+      # landed, so a device that could not darken its panel does not offline
+      # three cores either. See the test below for that half.
+      cpus = Path.join(System.tmp_dir!(), "cpus-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(cpus, "cpu0"))
+      File.mkdir_p!(Path.join(cpus, "cpu1"))
+      File.write!(Path.join(cpus, "cpu1/online"), "1\n")
+      Application.put_env(:mayonnaios, :cpu_dir, cpus)
+      # config/host.exs turns the measures off so that a suite run on a Linux
+      # machine cannot offline that machine's own cores. :cpu_dir is a temp
+      # tree by the line above, so turning them on here reaches nothing real.
+      Application.put_env(:mayonnaios, :low_power_sleep, true)
+
+      on_exit(fn ->
+        Application.delete_env(:mayonnaios, :cpu_dir)
+        Application.delete_env(:mayonnaios, :low_power_sleep)
+        File.rm_rf(cpus)
+      end)
+
+      press(:key_power)
+      assert Launcher.asleep?()
+      assert File.read!(Path.join(cpus, "cpu1/online")) == "0"
+
+      press(:key_power)
+      refute Launcher.asleep?()
+      assert File.read!(Path.join(cpus, "cpu1/online")) == "1"
+    end
+
+    test "a backlight that cannot be written leaves the cores alone" do
+      # The other half of the ordering. A sleep that did not happen must not
+      # take three cores offline behind a lit screen -- that is a device that
+      # looks awake, feels slow, and has no button that fixes it.
+      cpus = Path.join(System.tmp_dir!(), "cpus-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(cpus, "cpu1"))
+      File.write!(Path.join(cpus, "cpu1/online"), "1\n")
+      Application.put_env(:mayonnaios, :cpu_dir, cpus)
+      Application.put_env(:mayonnaios, :low_power_sleep, true)
+      Application.put_env(:mayonnaios, :backlight_brightness, "/nonexistent/dir/brightness")
+
+      on_exit(fn ->
+        Application.delete_env(:mayonnaios, :cpu_dir)
+        Application.delete_env(:mayonnaios, :low_power_sleep)
+        File.rm_rf(cpus)
+      end)
+
+      press(:key_power)
+
+      refute Launcher.asleep?()
+      # Untouched, so still carrying the newline sysfs writes back; the point
+      # is that nothing wrote "0" over it.
+      assert File.read!(Path.join(cpus, "cpu1/online")) |> String.trim() == "1"
     end
 
     test "sleep and wake from a console are idempotent", %{path: path} do
@@ -258,7 +312,11 @@ defmodule MayonnaiOS.SleepTest do
 
       start_supervised!({Launcher, device: "/nonexistent/event0"})
 
-      # A starts it. :btn_b is the button silkscreened A; see the Launcher.
+      # Up wraps the root column onto Settings, where an app's row lives; A
+      # opens it, and A again starts the app. :btn_b is the button
+      # silkscreened A; see the Launcher.
+      press(:btn_dpad_up)
+      press(:btn_b)
       press(:btn_b)
       assert FakeApp.log().started == 1
       :ok

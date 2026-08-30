@@ -26,10 +26,9 @@ defmodule MayonnaiOS.Diagnostics do
   on the device rather than assumed. They happen to be the obvious ones this
   time; the gamepad's were not, which is the reason for looking.
 
-  No numbers in that table, because the numbers have moved twice and the
-  numbers this module used to name are now other devices -- `event1` is the
-  analog stick and `event2` is the gamepad. `MayonnaiOS.Input` has the current
-  numbering and the argument for not writing it down here.
+  No numbers in that table, because `/dev/input` numbering moves whenever a
+  device is added to the board. `MayonnaiOS.Input` has the current numbering
+  and the argument for not writing it down here.
 
   `MayonnaiOS.Volume` opens the rocker as well, and acts on it. Both readers
   get every event -- evdev is only exclusive to a reader that asks for
@@ -58,16 +57,14 @@ defmodule MayonnaiOS.Diagnostics do
   use GenServer
   require Logger
 
+  alias MayonnaiOS.{Clock, Device}
   alias MayonnaiOS.Bluetooth.HCISocket
 
-  # Looked up by name at startup, and by name only. These used to carry a
-  # numbered fallback each -- `event1` and `event2` -- and both numbers had
-  # already moved: they are the analog stick and the gamepad now, so the
-  # fallbacks would have counted volume presses on a device that has no keys
-  # and queried a jack switch on one that has no switch. See `MayonnaiOS.Input`.
-  @volume_name "gpio-keys-volume"
-  @jack_name "H616 Audio Codec Headphone Jack"
-
+  # Looked up by name at startup, and by name only -- no numbered fallbacks.
+  # A number reached when the name is missing is a different device: `event1`
+  # is the analog stick and `event2` is the gamepad, so a fallback would count
+  # volume presses on a device that has no keys and query a jack switch on one
+  # that has no switch. See `MayonnaiOS.Input`.
   # The blob whose absence stops Bluetooth from initialising. See the long
   # comment against BR2_PACKAGE_LINUX_FIRMWARE_RTL_87XX_BT in nerves_defconfig.
   @bt_config "/lib/firmware/rtl_bt/rtl8821cs_config.bin"
@@ -83,6 +80,7 @@ defmodule MayonnaiOS.Diagnostics do
   defstruct battery: %{},
             thermal: [],
             rtc: %{},
+            time_sync: :unavailable,
             bluetooth: %{},
             audio: %{},
             gpu: %{client: nil, engines: %{}},
@@ -134,21 +132,43 @@ defmodule MayonnaiOS.Diagnostics do
 
   @impl GenServer
   def init(_opts) do
-    open(@volume_name)
-    open(@jack_name)
+    open(Device.input(:volume))
+    open(Device.input(:headphone))
 
     # Without this the fdinfo engine counters stay at zero, which would look
     # exactly like a GPU doing nothing.
     File.write("#{@gpu}/profiling", "1")
 
+    :timer.send_interval(@poll_ms, :poll)
+    {:ok, %__MODULE__{}, {:continue, :first_reading}}
+  end
+
+  # The first reading is taken here rather than in `init/1` because of where
+  # this process sits in the boot: the application supervisor starts its
+  # children one at a time and waits for each `start_link` to return, so
+  # anything done in `init/1` is time the games card, the cores, the web
+  # server and the launcher spend not existing.
+  #
+  # And the first reading is the expensive one. It spawns four programs off a
+  # read-only squashfs that has none of them in the page cache yet -- `evtest`
+  # for the jack, `dmesg` for the Realtek firmware line (whose whole output is
+  # then scanned), `amixer` for the mixer, `hwclock` where it exists -- which
+  # is several hundred milliseconds of fork/exec in front of every child below
+  # this one.
+  #
+  # `handle_continue` runs before this process handles any other message, so
+  # `snapshot/0` still cannot observe the empty struct: a caller that asks
+  # immediately waits for the reading rather than being told nothing. What
+  # moves is only when the *rest of the supervision tree* is allowed to start.
+  @impl GenServer
+  def handle_continue(:first_reading, state) do
     state =
-      %__MODULE__{}
+      state
       |> Map.put(:jack, %{inserted: query_jack(), changes: 0})
       |> Map.put(:rtl, rtl_status())
       |> poll()
 
-    :timer.send_interval(@poll_ms, :poll)
-    {:ok, state}
+    {:noreply, state}
   end
 
   @impl GenServer
@@ -167,14 +187,9 @@ defmodule MayonnaiOS.Diagnostics do
   def handle_info(:poll, state), do: {:noreply, poll(%{state | ticks: state.ticks + 1})}
 
   # One handler for both devices, matching on what the event *is* rather than
-  # on which path it came from.
-  #
-  # These used to be two clauses keyed on the two devices' numbered paths. That
-  # worked while those numbers were stable, and /dev/input numbering is probe
-  # order rather than a promise -- adding one device to the board is enough to
-  # move it, which has since happened twice. The two kinds of event here are
-  # disjoint, a volume key and a jack switch, so the path was never carrying
-  # information in the first place.
+  # on which path it came from: the two kinds of event here are disjoint, a
+  # volume key and a jack switch, so the path carries no information -- and
+  # /dev/input numbering is probe order rather than a promise anyway.
   def handle_info({:input_event, _device, events}, state) do
     state =
       Enum.reduce(events, state, fn
@@ -207,6 +222,7 @@ defmodule MayonnaiOS.Diagnostics do
       | battery: read_battery(),
         thermal: read_thermal(),
         rtc: read_rtc(),
+        time_sync: Clock.status(),
         bluetooth: read_bluetooth(state.rtl, state.bt_probe),
         audio: audio,
         gpu: gpu,
@@ -435,7 +451,7 @@ defmodule MayonnaiOS.Diagnostics do
   # means nil -- "nobody could ask", which is what nil already means for this
   # field and is not the same as "nothing is plugged in".
   defp query_jack do
-    case MayonnaiOS.Input.find(@jack_name) do
+    case MayonnaiOS.Input.find(Device.input(:headphone)) do
       nil ->
         nil
 

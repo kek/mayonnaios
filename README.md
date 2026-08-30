@@ -30,29 +30,49 @@ Software:
 - A Bluetooth LE gamepad that presents as an Xbox Wireless Controller, so a
   Steam Deck, a Mac or a PC recognises it with no mapping step — a whole BLE
   HID stack in Elixir, with no BlueZ in the image
+- A Bluetooth devices app: an LE scan of what is nearby, and the bonds this
+  device already holds
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
+- A WiFi settings screen: what is on the air, what the device is configured
+  to join, and a character wheel to type a passphrase on — so the network is
+  not fixed at build time
 - A web UI for uploading games from a phone
+- File management built into that browser: copy, move, rename and delete
+  across both cards, with a clipboard instead of a destination to type
+- A process readout like `top`, twice: the BEAM's processes by reductions and
+  memory, and the Linux ones from `/proc`
 - Pickles: small sandboxed Lua apps, installed over the network like games,
   for things like controlling lamps on the LAN or polling a web API. See
   [docs/pickles.md](docs/pickles.md)
-- Sleep on the power button: the backlight goes off and any button brings it
-  back. Not suspend — only `s2idle` exists here, it aborts inside rtw88's SDIO
-  suspend handler, and with no cpuidle driver the cores are in a bare WFI
-  either way, so a successful one would save almost nothing
-- Orderly power off, two ways: the Select+Menu chord, and a **Power off** row
-  at the bottom of the menu — A asks, Y answers, anything else keeps it on,
-  which is the file manager's delete rule applied to the other irreversible
-  thing on the device
+- Sleep on the power button, or after three minutes idle in the launcher: the
+  backlight goes off, the renderer stops, WiFi goes down and three of the four
+  cores go offline; any button brings it all back. The idle timer pauses while
+  charging and while a program or app is active. Not suspend — this board has
+  no suspend-to-RAM at all, and `MayonnaiOS.Sleep` and `MayonnaiOS.LowPower`
+  have the analysis and measurements
+- A NeXTSTEP-style column launcher: Games, Files, Apps and System open
+  as columns, three on screen, and Files browses the whole filesystem in
+  place
+- Orderly power off: the Select+Menu chord, or the **Power off** row under
+  System
+- An indicator LED that means something: quick flashing green while starting,
+  solid green running, slow flashing green asleep, slow blinking red at 20%
+  battery, and quick blinking red when the application fails to start. Low
+  battery clears at 30% or while charging; failure always wins. The yellow
+  light in the other window is the PMIC's charge indicator and keeps its own
+  counsel; `MayonnaiOS.Led`'s moduledoc has the color map
 
 ## Building and flashing
 
 The WiFi credentials come from the environment, so that firmware without them
-fails the build rather than producing an image you cannot reach. Set them, pick
-the target, and build:
+fails the build rather than producing an image you cannot reach. They are the
+network the device joins on a fresh card; more can be added on the device
+afterwards, from the **WiFi** screen below. Set them, pick the target, and
+build:
 
-    export RG40XXV_WIFI_SSID="your-ssid"
-    export RG40XXV_WIFI_PSK="your-psk"
+    export MAYONNAIOS_WIFI_SSID="your-ssid"
+    export MAYONNAIOS_WIFI_PSK="your-psk"
     export MIX_TARGET=rg40xxv
 
     mix deps.get
@@ -65,9 +85,62 @@ written to whichever of the two slots is not in use, so a bad update reverts on
 the next boot instead of leaving you with a brick.
 
 If `mix deps.get` starts compiling Buildroot instead of downloading a system,
-your tree does not match any published release and you are in for about three
-and a half hours. That is usually a sign you changed something under
-`nerves_system_rg40xxv` — a comment is enough.
+your tree does not match any published release and you are in for a full
+system build, which takes a while. That is usually a sign you changed something
+under `nerves_system_rg40xxv` — a comment is enough.
+
+Board facts live in `config/<target>.exs` as one validated
+`MayonnaiOS.Device` profile: the display name and size, input device names,
+physical-button mapping, LEDs, power supplies, games-card node, backlight, lid
+switch and RTC presence. Shared bundles, cores, systems and writable paths stay
+in `config/target.exs`. Adding a target requires a bootable Nerves system and a
+complete profile; the application fails at startup when either the profile or
+its panel/viewport agreement is incomplete.
+
+## Changing which WiFi it joins
+
+Pick **WiFi** under System. It lists what is on the air with signal, security
+and whether this device already knows it, plus any saved network that is out
+of range — so a network can be forgotten from the other end of the house.
+
+    D-pad     move the cursor
+    A         join it. Open networks join straight away; a secured one you
+              have not joined before opens the passphrase wheel
+    X         retype the passphrase of a saved network
+    Y         forget a saved network. Twice — the first press arms the row
+
+Typing happens on a character wheel, because there is no keyboard: up and
+down cycle the character under the caret, left and right move it, and **L1
+and R1 jump between lowercase, uppercase, digits and symbols** — which is
+the difference between reaching `Q` in two presses and in twenty-six. The
+passphrase is shown rather than masked; every character is picked by reading
+the wheel, so hiding the result would only hide a mistake made twenty presses
+ago.
+
+Two things this screen guarantees, both because this device's only reliable
+way in is the radio it is reconfiguring:
+
+- **Joining never replaces the network that already works.** A new network is
+  added alongside the ones already configured, most-recently-chosen first, so
+  a passphrase picked wrong costs one walk back into range rather than a card
+  reflash. The credentials built into the firmware keep working forever.
+- **A refused passphrase says so, and is withdrawn again.** `wpa_supplicant`
+  reports a rejected key as an event rather than as a silence, so the screen
+  can say *the access point refused that passphrase* instead of *something
+  did not work* — and the bad network is removed, because one the supplicant
+  keeps retrying is one that interrupts the network that does work.
+
+Enterprise (802.1X) and WEP networks appear in the list with what they would
+need written on the row, and cannot be joined from here — neither is a
+passphrase, and neither can be picked from a wheel. Configure those over SSH
+with `VintageNet.configure/2`. `MayonnaiOS.WiFi` has the rest, including what
+a join actually writes.
+
+From IEx, if you would rather:
+
+    iex> MayonnaiOS.WiFi.list()
+    iex> MayonnaiOS.WiFi.join(%{ssid: "kitchen", security: :wpa_psk}, "a passphrase")
+    iex> MayonnaiOS.WiFi.forget("kitchen")
 
 ## Putting games on it
 
@@ -75,7 +148,7 @@ Open the device from a phone on the same WiFi:
 
     http://nerves.local/
 
-Pick a file and it uploads, with a progress bar. The same page lists the
+Pick a file and it uploads. The same page lists the
 emulator cores RetroArch can see and offers to install more. Uploads stream
 straight to disk, so a several-hundred-megabyte disc image is fine.
 
@@ -93,7 +166,7 @@ Use plain `scp` and not `scp -O`, which forces a legacy protocol that needs an
 
 ### Pickles
 
-Small Lua apps -- lamp remotes, API pollers -- run sandboxed inside the
+Small Lua apps — lamp remotes, API pollers — run sandboxed inside the
 firmware and install the same way games do:
 
     tar -czf hello.tar.gz -C pickles/hello .
@@ -101,8 +174,8 @@ firmware and install the same way games do:
 
 What a pickle can touch is declared in its manifest and enforced by the
 sandbox: HTTP, the local network, a small persistent store, timers, the
-panel -- and nothing else. A pickle with the `ui` capability appears on the
-launcher menu and draws on the screen; the others run headless.
+panel — and nothing else. A pickle with the `ui` capability appears in the
+launcher's Apps column and draws on the screen; the others run headless.
 [docs/pickles.md](docs/pickles.md) is the guide to writing one; the
 `pickle` Claude skill in `.claude/skills/` automates the whole
 develop-and-deploy loop.
@@ -128,54 +201,18 @@ power.
 
 ## Moving files around on the device
 
-Pick **Files** in the launcher. It opens on a short list of the places worth
-looking at — the ROM roots from `:rom_roots`, the installed bundles, the
-installed cores, and `/root` — and browsing starts inside one of them. It is an
-app rather than a program: a module in this firmware, no external process, no
-screen handed over.
+Pick **Files** in the launcher: copy, move, rename and delete across both
+cards, browsing from the ROM roots, the installed bundles, the installed
+cores, `/root` and the whole filesystem from `/`. Copy and move go through
+a clipboard, since there is nothing to type a destination with.
 
-    D-pad up/down     move
-    D-pad left/right  a screen at a time
-    A                 open a directory, or the actions for a file
-    B                 back
-    Y                 the second verb; the bottom line says what it is
-    Menu              leave
-
-Copy, move, rename and delete. Copy and move are a clipboard, because there is
-nothing to type a destination with: pick the file, walk to where it should go,
-press Y and paste it. Renaming is a character picker for the same reason —
-slow, and reachable from the device, which a text field would not have been.
-
-Nothing overwrites. A destination that already exists is refused rather than
-replaced, because on this device the file being replaced is somebody's save.
-
-**Deleting asks, and the answer is not the button that asked.** A opens the
-confirmation and **Y** carries it out; A cancels, as does B and as does any
-direction. There is no undo and no trash on a handheld that is switched off by
-pulling its power, so a second press of the same button would not be a
-confirmation. A directory with anything in it is refused outright.
-
-Free space is shown for the filesystem the current directory is on, not for the
-device: the roots span the writable partition and, with a card in, the games
-card, and one number would be wrong for whichever it was not measuring. `/` is
-a full read-only squashfs and is not reachable from the app at all.
-
-Every copy is fsynced before it counts as done — there is no `sync` on this
-device, and an unsynced write survives exactly as long as the page cache. Bytes
-go to a `.part` file beside the destination, get fsynced, and are then renamed
-into place, so an interrupted copy leaves a `.part` rather than a ROM that
-looks complete and fails three hours into a game.
-
-Paths are built from a root key and checked names; nothing takes a path.
-`MayonnaiOS.Files` rejects a name rather than cleaning it, the same line
-`MayonnaiOS.Library` takes for uploads, and its moduledoc has the one honest
-caveat: symlinks already in the tree are followed for reading, because
-`bundles/retroarch/current` is one and the core directory is nothing but them.
-Deleting a link removes the link and never its target.
-
-None of this has been run on the handheld yet — it is 74 host tests and a
-target compile, and the panel layout in particular has been checked only as a
-graph, not with eyes on the glass.
+Two guarantees that are not visible on screen: nothing ever overwrites — an
+existing destination is refused, because on this device the file being
+replaced is somebody's save — and every copy is fsynced via a `.part` file
+renamed into place, so an interrupted copy leaves a `.part` rather than a
+ROM that looks complete and fails three hours into a game.
+`MayonnaiOS.Files` has the rest, including the path policy and how symlinks
+are treated.
 
 ## Emulator cores
 
@@ -189,254 +226,122 @@ offers to install the catalogued ones that are missing. From IEx:
     iex> MayonnaiOS.Cores.install(:snes9x2010)
 
 `install/1` downloads the tarball, checks its SHA-256 **before** unpacking
-anything, and installs into a versioned directory under `/root/cores` with a
-`current` symlink — so an install never overwrites what is running, and undoing
-one is a symlink move. The expected checksum is compiled into the firmware, not
-fetched alongside the download: a checksum served from the same place as the
-file it describes is not evidence of anything.
+anything, and installs into a versioned directory with a `current` symlink —
+so an install never overwrites what is running, and undoing one is a symlink
+move.
 
-RetroArch's own online core updater is compiled out of this build. The libretro
-buildbot's cores are linked against a different glibc and sysroot and will not
-load here; cores for this device are cross-built in
-[`retroarch-rg40xxv`](https://github.com/kek/retroarch-rg40xxv) against the same
-sysroot as the rest of the system.
+Cores for this device are cross-built in
+[`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) against the
+same sysroot as the rest of the system; RetroArch's own online core updater is
+compiled out, because the libretro buildbot's cores will not load here.
 
-### Where cores end up
+Two things this firmware quietly guarantees, with the full mechanics in
+[docs/retroarch-internals.md](docs/retroarch-internals.md):
 
-RetroArch reads them from its own default directory,
-`/root/.config/retroarch/cores`, and no config file tells it to — that is the
-default with nothing set. The directory holds symlinks; the real `.so` files
-stay in the RetroArch bundle or under `/root/cores`. So upgrading RetroArch
-cannot lose a core, and installing a core never writes inside a bundle.
+- **Cores survive upgrades.** RetroArch reads symlinks that are rebuilt at
+  every boot, so upgrading RetroArch cannot lose a core and installing a core
+  never writes inside a bundle.
+- **Saves reach the card within ten seconds.** RetroArch is configured to
+  autosave SRAM every ten seconds and the launcher fsyncs the files when a
+  game ends — because this handheld is switched off by pulling power, and a
+  save that only lands on clean exit is a save that lands on the good days.
+  The firmware owns that setting: changing it in RetroArch's Saving menu does
+  not survive a reboot.
 
-`MayonnaiOS.Cores.sync/0` rebuilds those links and runs at every boot, which is
-what makes them follow `current` across an upgrade. Running it by hand is safe.
+## Game streaming (Moonlight)
 
-If RetroArch shows *no* cores at all, the cause is a `libretro_directory`
-pointing somewhere nothing fills. RetroArch takes that setting verbatim — it
-does not check that the directory exists, the way it does for the save
-directories — so the symptom is an empty list and nothing in the log.
+Moonlight Embedded streams a Sunshine or GeForce host to the handheld —
+decoded in software on the A53s and drawn through SDL on the same KMS stack
+RetroArch uses. It installs the same way RetroArch does, as a bundle:
 
-Two things put it there, and they need different answers.
+    iex> MayonnaiOS.Bundle.install(MayonnaiOS.Bundle.spec(:moonlight))
 
-A value **left in the player's own config** by an older bundle is removed by
-`MayonnaiOS.Cores.clear_stale_directory/0`, which also runs at boot.
+**Moonlight settings**, in the System column, is where the stream is set up:
+the host's address, the resolution, the frame rate, the bitrate, the codec,
+and which app to launch. Saving writes
+`/root/.config/moonlight/moonlight.conf`, which is the file the launcher
+passes Moonlight on its command line — so what the screen says and what the
+stream does cannot drift apart.
 
-A value **the installed bundle sets** is the harder one, because the launcher
-passes that bundle's config with `--appendconfig` on every launch. Clearing at
-boot then loses: the launch appends the value again, RetroArch reads it, and
-writes it back into the player's config on exit. Repaired once per boot,
-broken once per launch — which is exactly what the RetroArch bundle installed
-here does, naming `/root/retroarch/cores` in a comment block that refers to a
-module this project renamed away from.
+- **The first save seeds from the bundle's own template**, so the
+  hardware-dictated defaults and the comments explaining them are what a new
+  file starts as: 720p30, h264, SDL, a modest bitrate.
+- **It edits, it does not regenerate.** A key the screen does not offer —
+  `surround`, `rotate`, `packetsize`, anything set over SSH — is copied
+  through untouched, comments included.
+- **The row is there before the bundle is**, and says so. A config file
+  written before the program that reads it arrives is still a config file.
+- **Nothing is written until the Save row**, and the header says "unsaved
+  changes" until then. A write that fails — read-only filesystem, no space —
+  says why, on the panel.
+- Moonlight reads the file when it starts, so a change takes effect on the
+  next stream rather than the running one.
 
-So a second config is appended after the bundle's own, and `--appendconfig`
-merges its files in order, last one winning.
-`MayonnaiOS.Cores.write_append_config/0` generates it from `MayonnaiOS.Cores.dir/0`
-at boot, so it always names the directory the symlinks actually go into.
-Fixing the bundle would be tidier and is worth doing in
-[`retroarch-rg40xxv`](https://github.com/kek/retroarch-rg40xxv) — but a bundle
-is versioned separately and installed independently, so relying on it to *not*
-set something is the arrangement that already failed once.
+One step still needs SSH: pairing prints a PIN that has to be typed into the
+host, and there is no way to show it on a screen the launcher has handed to
+another program.
 
-### Saves
+    /root/bundles/moonlight/current/bin/moonlight pair <host>
 
-RetroArch writes a game's SRAM every ten seconds
-(`autosave_interval`), and this firmware asserts that in the same
-appended config as the core directory — because the device was found with
-`autosave_interval = "0"`, RetroArch's own default, which writes the `.srm`
-only when content closes cleanly. On a handheld with no clean shutdown, that
-means a kill or a pulled cable discards every in-game save made since the ROM
-was loaded. It did, repeatedly, to a Chrono Trigger file.
-
-Ten seconds costs almost nothing in writes: RetroArch compares the SRAM
-against its last copy and writes only when it differs, so the interval decides
-how *soon* a save reaches the card, not how often anything is written.
-
-The setting is scrubbed out of the player's own config at every boot by
-`MayonnaiOS.Cores.clear_persisted_autosave/0`, for the same reason
-`libretro_directory` is: RetroArch persists whatever `--appendconfig` supplied
-as though the player had chosen it, so without the scrub, a value could not be
-changed later by any firmware. Changing the interval is editing one line;
-there is no device to go and repair afterwards. The cost is that this firmware
-owns the setting — changing it in RetroArch's Saving menu does not survive a
-reboot.
-
-RetroArch flushes those writes to the kernel and never fsyncs them, and there
-is no `sync` on this device, so `MayonnaiOS.Saves.flush/1` fsyncs the save
-files at the two moments the launcher knows the program is *gone*: when it is
-reaped, and when a deliberate stop has confirmed the process died. A stop that
-could not confirm it — the one that reports `{:error, {:still_running, pid}}`
-— does not flush. Deliberately: fsyncing while a game runs could catch an
-autosave between its truncate and its write, which is the one way this could
-destroy the file it exists to protect. A cable pulled mid-game is covered by
-the interval and by f2fs writeback, and by nothing else.
+None of this has been run on the handheld yet; the
+[`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) README lists
+what only hardware can answer.
 
 ## Using it as a Bluetooth controller
 
 The handheld can be the gamepad instead of the console. Pick **Bluetooth
 controller** in the launcher and it advertises itself as an Xbox Wireless
-Controller — Microsoft's numbers, the real pad's name, and that pad's HID
-descriptor byte for byte; pair from a Steam Deck, a Mac, a Windows machine, a
-phone or anything else that speaks HID over GATT, and every button and the
-stick go there instead of to the launcher. Menu comes back.
+Controller; pair from anything that speaks HID over GATT, and every button
+and the stick go there instead of to the launcher. Menu comes back.
 
-The identity is the point. An earlier firmware said honestly who it was, and
-this section was a page of workarounds for what that honesty cost: SDL
-matches controllers against a database keyed by vendor and product numbers,
-an unlisted device is a joystick rather than a gamepad, and a game that asks
-only for gamepads saw nothing at all — with Steam on macOS unable to bridge
-the gap, because it has no virtual controller there to bridge it with.
-Claiming the identity of the one pad every host tests against gets all of
-those code paths for free: recognised on sight, correct glyphs, no mapping
-step. `MayonnaiOS.Controller.Report` has the full account, including why the
-borrowed layout must be byte-exact and the test that pins all 283 bytes of
-it against a capture from a real pad.
+- **Steam Deck**: Settings → Bluetooth. It appears as `Xbox Wireless
+  Controller` with a gamepad icon — Xbox glyphs, working defaults, nothing to
+  map.
+- **Windows**: Settings → Bluetooth & devices → Add device → Bluetooth. It
+  pairs without a code.
+- **macOS**: System Settings → Bluetooth. The GameController framework has
+  first-class Xbox support, so anything built on it — Steam included — sees a
+  pad it knows.
 
-The panel shows how far along it is, because the four stages all look
-identical from the other machine — a controller that does nothing:
+The host receives the left stick, the D-pad, A/B/X/Y by their printed labels,
+LB/RB, the triggers, and View and Menu from Select and Start. **Select and
+Start held together are the Xbox button** — on a Steam Deck, the Steam
+button.
 
-    Advertising            on the air, nobody has connected
-    Host connected         a host is talking to us, still in the clear
-    Paired and encrypted   the HID service is readable
-    Reports subscribed     the host is receiving button presses
+Two rules worth knowing before anything goes wrong:
 
-If it stops at *connected*, the pairing was not finished on the host. If it
-stops at *paired*, the host has not decided the device is a gamepad.
+- **On macOS, a game that lists the pad but sees no presses is missing the
+  Input Monitoring permission** (System Settings → Privacy & Security).
+  Enumerating HID devices needs no permission but receiving input does, so
+  the symptom looks exactly like a broken controller. Quit Steam completely
+  and reopen it after granting.
+- **A firmware update that changes the controller's descriptor means
+  re-pairing on every host**: forget the device on the host *and* run
+  `MayonnaiOS.Controller.unpair()` here. Doing only one of the two leaves a
+  host that reconnects, cannot decrypt, and reports a broken device.
 
-### Pairing
+The panel shows how far a connection has come — advertising, connected,
+paired, subscribed — because those stages all look identical from the other
+machine. Everything else, including why the borrowed identity is the right
+trade and what it costs, how the no-BlueZ stack works, and the recovery when
+hci0 is missing, is in
+[docs/bluetooth-controller.md](docs/bluetooth-controller.md).
 
-**Steam Deck**: Settings → Bluetooth, and it appears as `Xbox Wireless
-Controller` with a gamepad icon. SteamOS knows exactly what that is: Xbox
-glyphs, working defaults, nothing to map.
+## Seeing what Bluetooth is nearby
 
-**Windows**: Settings → Bluetooth & devices → Add device → Bluetooth. It
-pairs without a code — see below for why there is no code — and comes up as
-an Xbox controller.
+Pick **Bluetooth devices** in the launcher. It runs an active LE scan and
+lists what answers, alongside the bonds this device already holds — so
+forgetting a bond happens on the device instead of over SSH.
 
-**macOS**: System Settings → Bluetooth. The GameController framework has
-first-class Xbox support, so anything built on it — Steam included — sees a
-pad it knows. The one macOS-specific trap is in the next section.
+It does not connect headphones: Bluetooth audio is A2DP over BR/EDR, and
+none of that transport is here. `MayonnaiOS.Pairing` has the full account.
 
-What the host receives: the left stick, the D-pad as a hat switch, A/B/X/Y
-by their printed labels, LB and RB from L1 and R1, the triggers fully pulled
-or fully released from L2 and R2 — they are switches on this shell — and
-View and Menu from Select and Start. **Select and Start held together are
-the Xbox button**, which on a Steam Deck is the Steam button; the first
-half-pressed leaks one brief View or Menu press while the chord forms, and
-`MayonnaiOS.Controller.Report` has the account of why that beats a timer. The right stick, the stick clicks, the
-Share button and the Xbox button are declared because the real pad declares
-them, and they rest untouched forever; rumble is accepted from the host and
-dropped, because there is no motor and a refused write reads as a fault
-where a silent one reads as a dead motor.
+It holds hci0 for as long as it runs, so it and the controller app are
+mutually exclusive.
 
-**This firmware update means re-pairing, on every host.** A host reads the
-report descriptor once, when it pairs, and caches it forever after — so a
-host paired with the previous firmware's three-byte pad will parse the new
-sixteen-byte reports against the old layout and report garbage with total
-confidence. Remove the device on the host and run
-`MayonnaiOS.Controller.unpair()` here; the same applies to any future
-descriptor change.
-
-### When a game does not see it
-
-On macOS, check that Steam — or the game — has **Input Monitoring**
-permission, in System Settings → Privacy & Security. Enumerating HID devices
-needs no permission on macOS but *receiving input from them* does, so an
-application without it shows the controller in its device list and then
-behaves as though every button were stuck up. Steam has to be quit
-completely and reopened after the permission is granted. This looks exactly
-like a broken controller and is not one — the browser gamepad testers work
-throughout, because the browser has the permission.
-
-Everything else this section used to prescribe — Steam's generic-gamepad
-switch, per-game keyboard bindings, hand-rolled `SDL_GAMECONTROLLERCONFIG`
-lines — was the cost of not being recognised, and went with the cause. What
-is still true: a game with no controller support at all still has none, and
-Steam Input on macOS still cannot fabricate a virtual controller for such a
-game. It never could; this device just no longer needs it to.
-
-### What claiming the identity costs
-
-The previous firmware refused to borrow a real controller's numbers, and the
-reason it wrote down was correct: a host with a driver for the claimed pad
-stops reading the descriptor and parses reports against that pad's fixed
-layout, so any deviation is scrambled buttons the host is certain are
-correct. That is an argument against claiming the numbers while shipping
-your own layout. It is not an argument against shipping the layout too,
-which is what this firmware does — the drivers' fixed belief is now a
-correct belief, and the test suite holds the descriptor byte-for-byte
-against a capture from a real pad, so a drift is a failing test rather than
-a scrambled A button.
-
-What is genuinely given up: the device now says it is something it is not,
-to hosts and to anyone reading a Bluetooth device list, and controls it does
-not have — the right stick, rumble — are promised and permanently inert. A
-host that someday probes deeper than any known host does, say for firmware
-versions over Microsoft's accessory protocol, will find the seams; nothing
-on macOS, SteamOS, Windows or a phone does that today. The trade is written
-down here rather than left implicit, because it was made on purpose and the
-thing bought with it is the section above shrinking to one paragraph.
-
-Pairing is *Just Works*: no passkey, no confirmation, exactly like every
-commercial BLE gamepad. That means no protection against someone active on
-the air at the moment of pairing. It is written down here rather than left
-implicit, because it is a real property of the device and the reason it is
-acceptable is that the link carries button presses.
-
-Once paired the keys are kept, so the next connection needs nothing. To
-undo it, forget the device on the host **and** clear the keys here:
-
-    iex> MayonnaiOS.Controller.unpair()
-
-Doing only one of the two leaves a host that reconnects, cannot decrypt, and
-reports a broken device.
-
-### From IEx
-
-    iex> MayonnaiOS.Controller.start()
-    iex> MayonnaiOS.Controller.status()
-    %{advertising: true, connected: false, encrypted: false, subscribed: false,
-      name: "Xbox Wireless Controller", address: "...", sent: 0,
-      dropped: %{disconnected: 0, unencrypted: 0, unsubscribed: 0, no_credits: 0},
-      ...}
-    iex> MayonnaiOS.Controller.stop()
-
-`sent` climbing while buttons are pressed is the proof that reports are going
-out. The `dropped` counters say why they are not: `unsubscribed` for the first
-second of every connection is normal, `no_credits` is not.
-
-### There is no BlueZ on this device, and none was added
-
-The whole stack is Elixir, on top of the raw HCI user channel that
-`MayonnaiOS.Bluetooth.HCISocket` already used for the diagnostics probe —
-L2CAP, ATT, GATT, the HID profile and the pairing, about fifteen hundred
-lines under `lib/mayonnaios/bluetooth/`. Nothing was added to the Buildroot
-system and no kernel option was changed.
-
-That is not a stunt. `# CONFIG_BT_LE is not set` in this kernel's config
-means the in-kernel Bluetooth stack does no LE at all, so the ordinary route
-— BlueZ over the kernel's own L2CAP sockets — would have needed a BSP change
-and a three-and-a-half hour Buildroot rebuild. A user channel switches the
-kernel stack off for that controller anyway and hands over raw HCI, so what
-the kernel can and cannot do above HCI stops mattering: the controller is a
-Bluetooth 5.0 dual-mode part and speaks LE perfectly well when asked
-directly.
-
-Everything above the socket is a pure function over binaries and is tested
-on a laptop, including the pairing arithmetic — `c1` and `s1` are checked
-against the sample data in the Core specification, which is the only way to
-know the byte order is right. `mix test` covers it with no hardware.
-
-While the app runs it holds hci0, so `MayonnaiOS.Diagnostics.probe_bluetooth/0`
-answers `:eusers` until it is stopped. That is the same device being used for
-something, not a fault.
-
-What is deliberately not implemented is LE Secure Connections; a central that
-asks for it is answered with a pairing response that does not offer it, and
-every host tested falls back to legacy pairing. A host in Secure Connections
-Only mode would answer `Pairing Failed 0x03` instead, and
-`MayonnaiOS.Bluetooth.SMP`'s moduledoc says what adding it would take.
+    iex> MayonnaiOS.Pairing.start()
+    iex> MayonnaiOS.Pairing.status()
+    iex> MayonnaiOS.Pairing.stop()
 
 ## Poking at a running device
 
@@ -468,15 +373,24 @@ tests run:
 
 No hardware required.
 
-The UI runs on the laptop too, in a window at the panel's own 640×480 — a scene
-that looks right at some other size is not evidence about the device:
+The complete development runtime runs on the laptop too, in a window at the
+panel's own 640×480 — a scene that looks right at some other size is not
+evidence about the device:
 
     iex -S mix
-    iex> MayonnaiOS.start_ui()
 
     # ... edit a scene ...
     iex> recompile()
     iex> MayonnaiOS.reload_ui()
+
+In `dev`, that one command starts Scenic, the real launcher, the keyboard
+controller bridge, the web UI on <http://localhost:4000>, and the same Elixir
+and Luerl app supervisors used by the device. A short shell command stands in
+for an external KMS program so the display-handoff path can be exercised
+without installing RetroArch or Moonlight. The Files column is rooted at
+`tmp/host/files`, and the worked `hello` pickle is copied once into the
+gitignored `.pickles` state so its graphical Lua app is present immediately.
+`mix test` stays headless and starts none of these development-only children.
 
 `recompile/0` alone changes nothing on screen. A scene is a process holding an
 already-built graph, and swapping the module's code does not rebuild it;
@@ -489,19 +403,18 @@ host-only path:
 
 | | |
 |---|---|
-| arrows, `j` / `k` | D-pad |
+| arrows, `h` `j` `k` `l` | D-pad |
 | `z` | A — launch the highlighted entry |
-| `c` | X — the diagnostics screen |
 | enter | Menu — back to the home screen |
 | backspace | Select |
 | `p` | the power button — sleep, and any key wakes it |
 | escape | Select+Menu, the power-off chord |
 
-`x`, `v` and `s` are sent too, as B, Y and Start, and do nothing — the launcher
-binds none of them. None of this is conditional on the target, so a USB
-keyboard plugged into the handheld gets the same bindings. `p` is the one key
-that is not a pad button: it sends `KEY_POWER`, which on the device arrives
-from `axp20x-pek` rather than from the gamepad.
+`x`, `c`, `v` and `s` are sent too, as B, X, Y and Start. None of this is
+conditional on the target, so a USB keyboard plugged into the handheld gets
+the same bindings. `p` is the one key that is not a pad button: it sends
+`KEY_POWER`, which on the device arrives from `axp20x-pek` rather than from
+the gamepad.
 
 Rendering on the host goes through `scenic_driver_local`'s cairo-gtk backend,
 which wants `gtk+3`, `cairo`, `pkgconf` and, on macOS, XQuartz. On the device
@@ -511,33 +424,14 @@ the same scene code draws straight into `/dev/fb0` instead; the backend follows
 The web UI runs on the host as well — point `:rom_roots` and the other paths at
 a scratch directory and start `MayonnaiOS.Web` under a supervisor.
 
-## Not done yet
+## Going deeper
 
-**Pairing devices *to* the handheld.** The controller app is this device
-advertising itself to a host — the peripheral role. Scanning for headphones or
-another gamepad and pairing them to this device is the central role, and none
-of it is here.
-
-It is a separate app rather than a setting on the existing one, because very
-little is shared. Scanning, connecting and pairing all run the other way
-round: `MayonnaiOS.Bluetooth.SMP` answers a pairing today and would need the
-initiator half of one, and `MayonnaiOS.Bluetooth.GATT` is a server where a
-central needs a client. What does carry over unchanged is everything below
-that — `Bluetooth.Host`, the HCI codec, L2CAP framing, and the pairing
-arithmetic, which is role-independent.
-
-Discovery itself is cheap: LE scanning is three HCI commands and an event, and
-BR/EDR inquiry is much the same, so a list of what is nearby is a small piece
-of work. The expensive part is what happens *after* pairing, because a bonded
-device does nothing until there is a profile to use it with. Audio means A2DP,
-which is SDP, AVDTP and an SBC encoder. A paired gamepad means a HID host and
-then some way to present it to Linux as an input device, since RetroArch reads
-evdev and nothing in this VM can hand it a device node without the kernel's
-help.
-
-So the honest first version of that app is discover, pair, and say what a
-device claims to be — with the profiles as separate work after it, and worth
-deciding one at a time whether each is worth having.
+| | |
+|---|---|
+| [Pickles](docs/pickles.md) | Writing and deploying sandboxed Lua apps |
+| [The Bluetooth controller](docs/bluetooth-controller.md) | The borrowed identity and its trade-offs, the no-BlueZ stack, recovery, what is not built yet |
+| [On-device data layout](docs/data-layout.md) | Which writable paths belong to MayonnaiOS, players, and removable media |
+| [RetroArch internals](docs/retroarch-internals.md) | How cores, config and saves are kept honest across upgrades and pulled power |
 
 ## The three repositories
 
@@ -545,4 +439,4 @@ deciding one at a time whether each is worth having.
 |---|---|
 | [`nerves_system_rg40xxv`](https://github.com/kek/nerves_system_rg40xxv) | The Buildroot BSP: kernel, device tree, U-Boot, fwup layout. |
 | `mayonnaios` | This one: the OTP release and the bundle mechanism. |
-| [`retroarch-rg40xxv`](https://github.com/kek/retroarch-rg40xxv) | Cross-builds RetroArch and cores against the system's own sysroot; publishes checksummed tarballs. |
+| [`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) | Cross-builds the native apps — RetroArch and its cores, Moonlight — against the system's own sysroot; publishes checksummed tarballs. |

@@ -36,6 +36,7 @@ defmodule MayonnaiOS.Programs do
           app: module() | {module(), term()} | nil,
           action: atom() | nil,
           args: [String.t()],
+          category: atom() | nil,
           installed?: boolean()
         }
 
@@ -66,29 +67,6 @@ defmodule MayonnaiOS.Programs do
     _ -> []
   end
 
-  @doc """
-  The program at `index`, or `nil` when nothing is configured.
-
-  The index is taken modulo the list length rather than trusted. The cursor
-  lives in the Launcher and the list is re-read on every use, so a config
-  that lost an entry (or a firmware update that shortened it) would otherwise
-  leave the cursor pointing past the end and make A do nothing at all.
-  """
-  @spec at([program()], integer()) :: program() | nil
-  def at([], _index), do: nil
-  def at(programs, index), do: Enum.at(programs, Integer.mod(index, length(programs)))
-
-  @doc """
-  Move the cursor by `delta`, wrapping at both ends.
-
-  Wrapping rather than clamping because the D-pad is the only way to move:
-  with six entries, reaching the last one from the first is one press up
-  instead of five presses down.
-  """
-  @spec step([program()], integer(), integer()) :: non_neg_integer()
-  def step([], _index, _delta), do: 0
-  def step(programs, index, delta), do: Integer.mod(index + delta, length(programs))
-
   defp normalize(entry) when is_list(entry), do: entry |> Map.new() |> normalize()
 
   # A pickle's row: the app module is shared and the argument names which
@@ -102,6 +80,10 @@ defmodule MayonnaiOS.Programs do
       app: {module, arg},
       action: nil,
       args: [],
+      # Which launcher column the row lands in, or nil to let
+      # `MayonnaiOS.Browser` classify it. Carried through explicitly because
+      # this function rebuilds the map rather than merging into it.
+      category: Map.get(entry, :category),
       needs_udev: false,
       installed?: true
     }
@@ -130,6 +112,7 @@ defmodule MayonnaiOS.Programs do
       app: nil,
       action: action,
       args: [],
+      category: Map.get(entry, :category),
       needs_udev: false,
       installed?: true
     }
@@ -142,6 +125,7 @@ defmodule MayonnaiOS.Programs do
       app: module,
       action: nil,
       args: [],
+      category: Map.get(entry, :category),
       needs_udev: false,
       installed?: true
     }
@@ -154,6 +138,7 @@ defmodule MayonnaiOS.Programs do
       app: nil,
       action: nil,
       args: Map.get(entry, :args, []),
+      category: Map.get(entry, :category),
       # Programs that read input through udev; see MayonnaiOS.Udev. Carried
       # through explicitly because this function rebuilds the map rather than
       # merging into it, so anything not named here is dropped -- and a flag
@@ -183,6 +168,7 @@ defmodule MayonnaiOS.Programs do
       app: nil,
       action: nil,
       args: [],
+      category: nil,
       needs_udev: false,
       installed?: false
     }

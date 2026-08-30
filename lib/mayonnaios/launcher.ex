@@ -38,32 +38,31 @@ defmodule MayonnaiOS.Launcher do
   this firmware draw on their own clock: `MayonnaiOS.Scene.StatusBar`, whose
   clock turns over once a minute on every screen, and
   `MayonnaiOS.Scene.Diagnostics`, which refreshes once a second. Either one
-  writing `/dev/fb0` while RetroArch holds DRM master hangs this board -- it
-  did, on the first SNES game launched after the bar shipped.
+  writing `/dev/fb0` while RetroArch holds DRM master hangs this board --
+  observed on hardware, not inferred.
 
   So "a program owns the panel" is a fact rather than an implication, and it
   lives in `MayonnaiOS.Panel`. This module is its only writer: it holds
   before `Port.open/2` and releases when the program is reaped, which is the
   same pair of moments that already bracket the handover. Everything that
   draws consults it. And `set_root/2` below refuses while it is held, because
-  re-rooting the viewport is itself a write -- pressing X during a game would
-  otherwise paint the diagnostics screen into a framebuffer the game owns.
+  re-rooting the viewport is itself a write -- a button pressed during a game
+  must not paint a menu into a framebuffer the game owns.
 
   ## Giving the screen back requires the program to actually be dead
 
-  The other half of that promise, and the one this module got wrong for
-  longer: a program is not stopped because it was sent a signal. RetroArch
-  catches SIGTERM and its handler only sets a flag for a main loop that may
-  never look again, so `kill -TERM` on a hung one returns 0 having achieved
-  nothing -- while the process keeps `/dev/dri/card0` open and the launcher
-  reports it stopped. Every launch after that failed with `[KMS] Error when
-  switching mode`, which reads as a display bug in a completely different
-  place.
+  The other half of that promise: a program is not stopped because it was
+  sent a signal. RetroArch catches SIGTERM and its handler only sets a flag
+  for a main loop that may never look again, so `kill -TERM` on a hung one
+  returns 0 having achieved nothing -- while the process keeps
+  `/dev/dri/card0` open. A launcher that reports it stopped anyway makes
+  every later launch fail with `[KMS] Error when switching mode`, which reads
+  as a display bug in a completely different place.
 
   So the stop path escalates to SIGKILL, waits for the process to be gone, and
   only then releases the hold and repaints. `do_stop/1` has the detail; the
   part that belongs up here is that "the program owns the panel until it
-  exits" now means *exits*, not *was asked to*.
+  exits" means *exits*, not *was asked to*.
 
   ## Getting the saves onto the card
 
@@ -82,13 +81,39 @@ defmodule MayonnaiOS.Launcher do
 
   ## The full set of bindings
 
-      D-pad up/down move the menu cursor
-      A             launch the selected program
-      Menu          go back to the home screen
-      X             switch between the menu and diagnostics
-      Y             answer the Power off row's question, and nothing else
-      Power         sleep -- backlight off, and any press wakes it
-      Select+Menu   power off
+      D-pad up/down   move the cursor in the focused column
+      D-pad right     open the selected entry as another column
+      D-pad left      close a column
+      L1 / R1         page the focused column a screenful at a time
+      A               open the selected entry: enter a directory, launch a
+                      program, or -- on a file -- open its full view, which
+                      is what "open" means for the one thing that cannot be
+                      entered or run
+      B               go back: close the full view, a sheet or a column;
+                      first, clear an obituary. B also leaves the apps that
+                      are readouts and the diagnostics screen -- but never
+                      an app that needs B for itself, the controller and
+                      the pickles; see `claims_back?/1`
+      X               toggle the full view: one wide column about the
+                      selected entry -- a detailed listing, a text viewer,
+                      the image, a hexdump. On a process monitor it opens
+                      the readout app, which is that row's detailed view
+      Y               the second verb, and the panel says what it is: the
+                      actions sheet in a directory -- Y and only Y, A never
+                      opens it -- the delete on its confirmation, and
+                      remove-a-character in the rename editor
+      Menu            go back to the home screen, at its root column
+      Power           sleep -- backlight off and low-power, any press wakes it
+      Select+Menu     power off
+
+  While the browser has a sheet up -- actions, a delete confirmation, the
+  rename editor -- `MayonnaiOS.Browser.busy?/1` is true and every pad button
+  is routed to `Browser.overlay_input/2` instead of the bindings above, so a
+  D-pad press cannot both move a caret and a cursor. The full view is the
+  same arrangement through `Browser.full_input/2`: the directions scroll it
+  and B closes it. Menu and the power-off chord stay the launcher's in both
+  cases, because "put me back where I started" must not depend on what is on
+  the panel.
 
   These are the buttons as printed on the shell. Two of the atoms above name
   the opposite button; see the note on the attributes below.
@@ -96,26 +121,30 @@ defmodule MayonnaiOS.Launcher do
   Menu is the one way back. It stops a running program if there is one and
   otherwise leaves diagnostics, so the same press always means the same thing
   -- "put me back where I started" -- rather than depending on what is
-  currently on the panel. Start used to do the stopping, which split "get out
-  of this" across two keys depending on which kind of thing you were in.
+  currently on the panel. One key does all the stopping, so "get out of this"
+  is never split across keys by which kind of thing you are in.
 
-  Select+Menu still powers off, so the chord is checked before the plain
-  press. The chord was the only power-off for a long time, on the argument
-  that switching off is not undoable and this is a handheld that gets carried
-  in a pocket; the menu now also has a Power off row, and the same argument
-  shapes how the row answers. Pressing A on it does nothing but put a
-  question on the bottom line; Y -- the button that did not ask -- switches
-  off, and any other press takes the question down and is swallowed, so a
-  cancel cannot also launch what the cursor is on. That is the file manager's
-  delete rule, applied to the other irreversible thing on the device. Both
-  routes end in the same `Nerves.Runtime.poweroff/0`.
+  Select+Menu powers off, so the chord is checked before the plain press.
+  Switching off from the menu is immediate: the launcher replaces the UI with
+  the boot splash and then calls `Nerves.Runtime.poweroff/0`. The splash makes
+  the accepted press visible during the short orderly-shutdown interval and
+  avoids leaving a live-looking menu on a device that is already going down.
+  Select+Menu reaches the same power-off function without redrawing first.
 
   ## Sleep, and the press that wakes it
 
   The power button turns the backlight off; `MayonnaiOS.Sleep` owns both the
-  mechanism and the choice of key, including why it is that button now that
-  Linux can see it, why the Select+Start chord it replaced is gone rather than
-  kept as well, and why sleep is still not suspend.
+  mechanism and the choice of key, including why it is that button and why
+  sleep is not suspend. `MayonnaiOS.LowPower` is everything else that goes
+  quiet with it -- the renderer, WiFi, the governor and three of the four
+  cores -- and this process holds its undo list in `low_power` so that waking
+  puts each back in reverse.
+
+  The same mechanism runs after three minutes without a real button press on
+  the home launcher. Autorepeat does not buy another interval, charging does
+  not time out, and neither an external program nor a BEAM app has an idle
+  timer: still controls can be active use in all three cases. Returning to the
+  launcher starts a fresh interval rather than inheriting time spent away.
 
   What belongs here is the other half: while the panel is dark, **the next
   press is consumed**. Waking is not a binding of its own -- any button wakes,
@@ -134,21 +163,19 @@ defmodule MayonnaiOS.Launcher do
   reaches it too. Only the launcher's own bindings can be swallowed, which is
   the half that would have launched something.
 
-  An app running in this VM used to be a third limit -- it kept every button,
-  the sleep chord included, for the same reason it keeps Menu. That stops with
-  the move onto the power key, and the sleep binding is now taken out of the
-  report before the app sees it. Three reasons, in the order that decides it.
-  The key is not on the pad at all, so this is not the launcher reaching into
-  a button an app might want. `MayonnaiOS.Controller.Report` describes fifteen
-  gamepad keys and `KEY_POWER` is not one of them, so forwarding it means it
-  is dropped on the floor -- and a power button that does nothing while the
-  controller screen is open is exactly the failure this codebase keeps naming.
-  And it was already asymmetric: the sleeping clause below is tested before
-  the app clause, so *waking* has always been the launcher's whoever has the
-  buttons. Sleeping now matches.
+  An app running in this VM is not a limit: the sleep binding is taken out of
+  the report before the app sees it. Three reasons, in the order that decides
+  it. The key is not on the pad at all, so this is not the launcher reaching
+  into a button an app might want. `MayonnaiOS.Controller.Report` describes
+  fifteen gamepad keys and `KEY_POWER` is not one of them, so forwarding it
+  means it is dropped on the floor -- and a power button that does nothing
+  while the controller screen is open is exactly the failure this codebase
+  keeps naming. And it matches waking: the sleeping clause below is tested
+  before the app clause, so *waking* is the launcher's whoever has the
+  buttons, and sleeping behaves the same.
 
   That is a property of a one-key binding rather than of the mechanism. Move
-  `MayonnaiOS.Sleep`'s `@binding` back onto a pad chord and an app loses those
+  `MayonnaiOS.Sleep`'s `@binding` onto a pad chord and an app loses those
   keys, which is a reason to leave it on a key no app wants.
 
   This process owns the gamepad and the power key's device, so everything on
@@ -156,12 +183,14 @@ defmodule MayonnaiOS.Launcher do
   `MayonnaiOS.Diagnostics` owns the rocker and the jack for the same reason in
   reverse.
 
-  ## Where the menu lives, and why the cursor is here
+  ## Where the menu lives, and why the browser is here
 
-  The list of programs comes from `MayonnaiOS.Programs`, which reads
-  `config :mayonnaios, :programs`. The *cursor* -- which entry is
-  selected -- is state in this process rather than in the scene, for two
-  reasons that are both about how this device is put together.
+  The home screen is a column browser -- `MayonnaiOS.Browser`, whose root
+  column is the categories and whose deeper columns are whatever was opened:
+  games, pickles, settings, or the file tree. The browser -- which columns
+  are open and which row each cursor is on -- is state in this process rather
+  than in the scene, for two reasons that are both about how this device is
+  put together.
 
   First, the cairo-fb driver delivers no input. The gamepad reaches Elixir
   only through `InputEvent` on the `gpio-keys-gamepad` node, which this
@@ -174,59 +203,61 @@ defmodule MayonnaiOS.Launcher do
   top every time someone came back from a game -- the one moment it most
   obviously should not.
 
-  So the cursor is pushed *into* the scene as the `set_root/3` argument, and
-  the scene renders it. The scene reads the program list itself.
+  So the browser is pushed *into* the scene as the `set_root/3` argument, and
+  the scene renders it and owns nothing.
   """
 
   use GenServer
   require Logger
 
-  alias MayonnaiOS.{Input, Panel, Programs, Sleep}
+  alias MayonnaiOS.{
+    Browser,
+    Device,
+    Files,
+    Game,
+    Input,
+    Led,
+    LowPower,
+    Panel,
+    Power,
+    Sleep,
+    Splash,
+    Theme
+  }
 
   # The name the driver gives the gamepad, which is the only thing this module
-  # knows about which device it is. There is no numbered fallback: this used to
-  # be `/dev/input/event0` and that number is the power key now, so a fallback
-  # would have opened the one device on the board with no gamepad buttons on
-  # it. See `MayonnaiOS.Input`.
-  @device_name "gpio-keys-gamepad"
+  # knows about which device it is. There is no numbered fallback: /dev/input
+  # numbering is probe order, and `event0` is the power key -- the one device
+  # on the board with no gamepad buttons on it. See `MayonnaiOS.Input`.
 
   # The analog stick. Opened for the same reason as the power key -- evdev is
   # not a broadcast, so a device nobody holds open is a device whose events
   # nobody sees. The launcher itself does nothing with `ev_abs`: its own
   # handlers ignore them, and the one consumer is the controller app, which
   # gets them through the same forwarding as everything else.
-  @stick_name "adc-joystick"
 
   # See the moduledoc: this is physical A, not the atom's name.
-  @launch_button :btn_b
 
   # X and Y are swapped too, and the device tree does not admit it.
   #
-  # The first version of this file said X and Y needed no translation: the DT
-  # labels "Action-Pad X" 307 and "Action Pad Y" 308, and Linux has
-  # BTN_X == BTN_NORTH == 307 and BTN_Y == BTN_WEST == 308, so the labels
-  # looked self-consistent. Pressing the buttons says otherwise. The button
-  # silkscreened X emits 308 and the one silkscreened Y emits 307 -- the DT's
-  # X/Y labels are the wrong way round for this board's shell.
+  # The DT labels look self-consistent -- "Action-Pad X" 307 and "Action Pad
+  # Y" 308, and Linux has BTN_X == BTN_NORTH == 307 and BTN_Y == BTN_WEST ==
+  # 308 -- but pressing the buttons says otherwise. The button silkscreened X
+  # emits 308 and the one silkscreened Y emits 307: the DT's X/Y labels are
+  # the wrong way round for this board's shell, the same way A and B are.
   #
-  # So :btn_y below really is the X button. Reading the device tree was not
-  # enough here, which is the same lesson as A and B and was available the
-  # whole time; it just was not applied twice.
+  # So :btn_x below really is the Y button, and :btn_y -- physical X -- is
+  # bound to nothing.
   #
-  # Y (:btn_x) has no plain binding. It played the audio test while audio
-  # was the open question on this board; that is answered, and a key on a
-  # handheld that makes a noise when pressed by accident is not worth keeping
-  # for a check that belongs in IEx. `MayonnaiOS.Audio.run/0` still does it.
-  # Its one job now is answering the Power off row's question -- the same
-  # "Y is the second verb" it has in `MayonnaiOS.Files`, and only while the
-  # question is on the panel.
-  @confirm_button :btn_x
-  @diagnostics_button :btn_y
+  # Y (:btn_x) is the second verb, and the panel says what it is: the actions
+  # sheet in a directory, the delete on a confirmation, and
+  # remove-a-character in the rename editor.
+
+  # Physical X, which the device tree's swap makes :btn_y -- the note above.
+  # X toggles the full view: the wide column about the selected entry.
 
   # Menu, doing double duty: alone it is the way back to the home screen,
   # and held with Select it powers off. The chord is tested first.
-  @poweroff_modifier :btn_select
-  @home_button :btn_mode
 
   # The D-pad. Codes 544-547 are BTN_DPAD_UP..RIGHT, and InputEvent decodes
   # them to these atoms (deps/input_event types table). Unlike the face
@@ -235,8 +266,24 @@ defmodule MayonnaiOS.Launcher do
   # so the catch-all `bound/2` logs unhandled keys at debug: if up and down
   # turn out to be swapped, `log_attach_all(:debug)` on the device says so
   # immediately instead of leaving a menu that scrolls the wrong way.
-  @up_button :btn_dpad_up
-  @down_button :btn_dpad_down
+
+  # Left and right walk the columns: right opens the selected entry as a new
+  # column and left closes one. Right never launches -- A is the button that
+  # commits -- so walking the tree with the directions cannot start a game.
+
+  # The shoulders page the focused column a screenful at a time. Autorepeat
+  # is dropped on this menu (each move re-roots the viewport), so a directory
+  # of two hundred ROMs needs a faster step than one row per press, and the
+  # shoulders are the two buttons a handheld rests fingers on anyway.
+
+  # Physical B, which is BTN_SOUTH and therefore InputEvent's :btn_a -- the
+  # table at the top of this module is the authority. The "back" gesture
+  # everywhere: it clears an obituary, closes the full view, a sheet or a
+  # column, and leaves the readout apps and diagnostics.
+
+  # How many of a program's last lines the obituary keeps. Three is what the
+  # panel has room to draw without pushing into the menu rows.
+  @obituary_lines 3
 
   # How long a stop waits for the program to go, per signal. See `do_stop/1`.
   #
@@ -255,8 +302,13 @@ defmodule MayonnaiOS.Launcher do
 
   # How often the wait asks the OS whether the process is still there, in
   # between watching for the port's exit message. Small enough that the normal
-  # path is not noticeably slower than the old fire-and-forget one.
+  # path is not noticeably slower than fire-and-forget.
   @poll_ms 50
+
+  # The launcher is the only screen where inactivity means nobody is using
+  # the device. Programs and BEAM apps can sit untouched while somebody
+  # watches or uses another controller, so they disable this timer entirely.
+  @idle_sleep_ms :timer.minutes(3)
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -277,7 +329,8 @@ defmodule MayonnaiOS.Launcher do
   def os_pid, do: GenServer.call(__MODULE__, :os_pid)
 
   @doc """
-  Start or stop it from a console, without pressing anything.
+  Press A from a console, without pressing anything: open the selected
+  entry as a column, or launch it.
 
   `stop_program/0` returns `:ok` only when the OS process is confirmed gone.
   A program that survives both SIGTERM and SIGKILL comes back as
@@ -293,7 +346,7 @@ defmodule MayonnaiOS.Launcher do
   def stop_program(timeout \\ 10_000), do: GenServer.call(__MODULE__, :stop, timeout)
 
   @doc """
-  The index of the highlighted menu entry.
+  The index of the highlighted row in the focused column.
 
   Exposed so a console -- or a test that has just injected a synthetic D-pad
   event -- can read the cursor without looking at the panel. There is
@@ -301,6 +354,21 @@ defmodule MayonnaiOS.Launcher do
   which is the part worth testing.
   """
   def selected, do: GenServer.call(__MODULE__, :selected)
+
+  @doc """
+  The whole column browser, for a console: every open level and its cursor.
+  """
+  def browser, do: GenServer.call(__MODULE__, :browser)
+
+  @doc """
+  Why the last program died, or nil.
+
+  `%{name: name, status: status, lines: lines}` after a program exits nonzero
+  (`status` is the exit status) or refuses to spawn (`status` is nil and
+  `lines` is the spawn error). The home scene draws it; B clears it. Public
+  so a console can read the same thing the panel shows.
+  """
+  def obituary, do: GenServer.call(__MODULE__, :obituary)
 
   @doc """
   Sleep and wake without pressing anything, and ask which it is.
@@ -325,7 +393,7 @@ defmodule MayonnaiOS.Launcher do
     Panel.release()
 
     Enum.each(devices(opts), &watch/1)
-    {:ok, new_state(opts)}
+    {:ok, opts |> new_state() |> reset_idle_timer()}
   end
 
   # The gamepad, the analog stick, and whatever device the sleep key is on.
@@ -347,7 +415,12 @@ defmodule MayonnaiOS.Launcher do
       nil ->
         case Enum.uniq(
                Enum.reject(
-                 [Input.find(@device_name), Input.find(@stick_name), Sleep.device()],
+                 [
+                   Input.find(Device.input(:gamepad)),
+                   Input.find(Device.input(:stick)),
+                   Sleep.device(),
+                   lid_device()
+                 ],
                  &is_nil/1
                )
              ) do
@@ -398,17 +471,31 @@ defmodule MayonnaiOS.Launcher do
       app_error: nil,
       running: nil,
       held: MapSet.new(),
+      buttons: Keyword.get(opts, :buttons, Device.current!().buttons),
+      lid_switch: Keyword.get(opts, :lid_switch, Device.current!().lid_switch),
       scene: :home,
-      selected: 0,
-      # Whether the Power off row has asked its question and is waiting for
-      # Y. Armed by `start_program/2`, answered or dismissed by `press/2`,
-      # and never true while anything is running -- the row can only be
-      # activated from an idle menu.
-      confirming: false,
+      # The home screen's column browser: which columns are open, which row
+      # each cursor is on, and how many columns the panel draws. Here rather
+      # than in the scene so it survives every repaint; see the moduledoc.
+      browser: Browser.new(),
+      # The last few lines the running program wrote, kept so that if it dies
+      # they can be put on the panel and not only in the ring logger. Reset
+      # on every launch; capped, because a chatty program earns no more rows.
+      output: [],
+      # Why the last program died, or nil. Set when a program exits nonzero
+      # or refuses to spawn, drawn by the home scene, cleared by B or by the
+      # next launch. It exists because a program that exits in its first
+      # hundred milliseconds is indistinguishable from "nothing happened"
+      # from the couch -- Moonlight without its config file taught that.
+      obituary: nil,
       # What actually switches the device off, injectable because the real
       # one cannot be called on a laptop and a confirmation flow nobody can
       # test is a confirmation flow that silently rots.
       poweroff: Keyword.get(opts, :poweroff, &Nerves.Runtime.poweroff/0),
+      # Drawn synchronously before the menu's orderly power-off, so the last
+      # visible frame acknowledges the selection. Injectable to make the
+      # ordering testable without a framebuffer.
+      shutdown_splash: Keyword.get(opts, :shutdown_splash, fn -> Splash.run(timeout: 0) end),
       # The seam the stop path is tested against: signalling an OS process and
       # asking whether it is still there. Injectable because the one case that
       # matters most cannot be produced for real -- a process that survives
@@ -417,6 +504,12 @@ defmodule MayonnaiOS.Launcher do
       term_timeout: Keyword.get(opts, :term_timeout, @term_timeout),
       kill_timeout: Keyword.get(opts, :kill_timeout, @kill_timeout),
       poll_ms: Keyword.get(opts, :poll_ms, @poll_ms),
+      idle_sleep_ms: Keyword.get(opts, :idle_sleep_ms, @idle_sleep_ms),
+      idle_timer: nil,
+      power_state:
+        Keyword.get(opts, :power_state, fn ->
+          Power.values() |> Power.state()
+        end),
       # Pushing the save files onto the card, at the only moments it is safe
       # to: after the program that owns them is confirmed gone. Injectable
       # because what a test can check is that it happens then and not when a
@@ -428,7 +521,16 @@ defmodule MayonnaiOS.Launcher do
       # that has to decide whether to swallow a press and because the panel
       # can be dark for reasons this process did not cause -- and the reading
       # that matters is "did we turn it off", not "is it off".
-      asleep: false
+      asleep: false,
+      # What `MayonnaiOS.LowPower` needs in order to undo itself: the cores it
+      # took offline, the governors it changed, the WiFi configuration it put
+      # away and the Scenic driver it stopped. Empty while awake.
+      #
+      # Held here and nowhere else, and deliberately not persisted: if this
+      # process dies asleep, the supervisor restarts it knowing nothing, and
+      # knowing nothing is recoverable -- a remembered "the governor was
+      # ondemand" that no longer matches the hardware is not.
+      low_power: []
     }
 
   @impl GenServer
@@ -443,17 +545,26 @@ defmodule MayonnaiOS.Launcher do
     end
   end
 
-  def handle_call(:launch, _from, state), do: {:reply, :ok, do_launch(state)}
+  def handle_call(:launch, _from, state) do
+    state = state |> do_launch() |> reset_idle_timer()
+    {:reply, :ok, state}
+  end
 
   # The reply is the result rather than a cheerful `:ok`, because there is now
   # an outcome worth having: `{:error, {:still_running, pid}}` means the
   # program is still on the display and this process could not shift it.
   def handle_call(:stop, _from, state) do
     {result, state} = do_stop(state)
-    {:reply, result, state}
+    {:reply, result, reset_idle_timer(state)}
   end
 
-  def handle_call(:selected, _from, state), do: {:reply, state.selected, state}
+  def handle_call(:selected, _from, state) do
+    {:reply, List.last(state.browser.levels).cursor, state}
+  end
+
+  def handle_call(:browser, _from, state), do: {:reply, state.browser, state}
+
+  def handle_call(:obituary, _from, state), do: {:reply, state.obituary, state}
   def handle_call(:asleep?, _from, state), do: {:reply, state.asleep, state}
 
   def handle_call(:sleep, _from, state) do
@@ -479,18 +590,18 @@ defmodule MayonnaiOS.Launcher do
   # Releases are still tracked, and only a press wakes: the chord that put the
   # device to sleep is still held at that moment, and its release arriving a
   # moment later must not wake the device straight back up.
-  def handle_info({:input_event, _device, events}, %{asleep: true} = state) do
-    if Enum.any?(events, &match?({:ev_key, _key, 1}, &1)) do
-      {_result, state} = wake_up(state)
-      {:noreply, state}
-    else
-      state =
-        Enum.reduce(events, state, fn
-          {:ev_key, key, 0}, acc -> release(acc, key)
-          _, acc -> acc
-        end)
+  def handle_info({:input_event, _device, events}, state) do
+    case lid_transition(state, events) do
+      :closed ->
+        {_result, state} = enter_sleep(state)
+        {:noreply, state}
 
-      {:noreply, state}
+      :opened when state.asleep ->
+        {_result, state} = wake_up(state)
+        {:noreply, state}
+
+      _other ->
+        handle_input(events, state)
     end
   end
 
@@ -514,37 +625,39 @@ defmodule MayonnaiOS.Launcher do
   # Whole reports go across rather than single events, so a diagonal or a
   # button and a direction pressed in the same kernel report reach the app as
   # one thing and become one HID report.
-  def handle_info({:input_event, _device, events}, %{app: app} = state) when app != nil do
-    {state, slept?} = Enum.reduce(events, {state, false}, &app_event/2)
+  # Only the newest timeout is authoritative. Button presses cancel and
+  # replace timers, but a message already delivered to this mailbox cannot be
+  # recalled; the token makes that stale message harmless.
+  def handle_info({:idle_sleep, token}, %{idle_timer: {_timer, token}} = state) do
+    state = %{state | idle_timer: nil}
 
-    if not slept?, do: app_module(app).input(events)
+    cond do
+      not idle_eligible?(state) ->
+        {:noreply, state}
 
-    {:noreply, leave_app(state, events)}
+      state.power_state.() in [:charging, :full] ->
+        {:noreply, reset_idle_timer(state)}
+
+      true ->
+        {_result, state} = enter_sleep(state)
+        {:noreply, if(state.asleep, do: state, else: reset_idle_timer(state))}
+    end
   end
 
-  def handle_info({:input_event, _device, events}, state) do
-    state =
-      Enum.reduce(events, state, fn
-        # value 1 is press and 0 is release; 2 is autorepeat and is ignored.
-        # Releases matter now: the power-off chord needs to know what is held.
-        #
-        # Dropping autorepeat means the D-pad does not scroll when held: one
-        # press, one row. That is a simplification, not an oversight -- each
-        # move re-roots the viewport, and holding down would queue a scene
-        # restart per repeat. Worth revisiting only if the list grows long.
-        {:ev_key, key, 1}, acc -> acc |> hold(key) |> press(key)
-        {:ev_key, key, 0}, acc -> release(acc, key)
-        _, acc -> acc
-      end)
-
-    {:noreply, state}
-  end
+  def handle_info({:idle_sleep, _stale_token}, state), do: {:noreply, state}
 
   # The program exited on its own. Name it from `running` rather than from the
   # cursor: the cursor may well have moved while the program had the screen,
   # and a log line that names the wrong binary is worse than none.
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     Logger.info("[launcher] #{name_of(state.running)} exited (#{status})")
+
+    # A nonzero exit becomes an obituary before the repaint, so the menu that
+    # comes back says what just happened instead of merely coming back. Zero
+    # is a program that meant to exit -- quitting RetroArch from its own menu
+    # -- and gets no banner. Deliberate stops never reach this clause at all:
+    # `await_exit/3` consumes their exit message itself.
+    state = %{state | obituary: obituary(state, status)}
 
     # Released before the repaint, and in that order: the repaint *is* a write
     # to the framebuffer, and it is only allowed because the program that
@@ -560,40 +673,123 @@ defmodule MayonnaiOS.Launcher do
     # before this clause returns, so the panel comes back first.
     state.flush_saves.()
 
-    {:noreply, %{state | port: nil, running: nil}}
+    state = %{state | port: nil, running: nil, output: []}
+    {:noreply, reset_idle_timer(state)}
   end
 
   # Log what the program says, rather than dropping it.
   #
-  # This used to discard the data outright, and it cost an evening. RetroArch
-  # started, rendered one frame and exited, and the entire visible evidence was
-  # "a quick flash on the screen and nothing" -- while the program had been
-  # printing the exact reason to the pipe the whole time:
-  #
-  #     [ERROR] [Video] Cannot initialize input driver. Exiting...
-  #
   # An external program that dies on this device has no other way to tell
   # anyone why: there is no console, the screen belongs to whatever ran last,
-  # and the ring logger is the only thing anybody can read afterwards.
+  # and the ring logger is the only thing anybody can read afterwards. A
+  # RetroArch that renders one frame and exits looks like "a quick flash on
+  # the screen and nothing" -- while the exact reason is on the pipe:
+  #
+  #     [ERROR] [Video] Cannot initialize input driver. Exiting...
   #
   # Trimmed and length-capped because a chatty program should not be able to
   # push everything else out of a fixed-size ring buffer.
   def handle_info({port, {:data, data}}, %{port: port} = state) do
-    log_output(state, data)
-    {:noreply, state}
+    {:noreply, log_output(state, data)}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
 
+  defp handle_input(events, %{asleep: true} = state) do
+    if Enum.any?(events, &match?({:ev_key, _key, 1}, &1)) do
+      {_result, state} = wake_up(state)
+      {:noreply, state}
+    else
+      state =
+        Enum.reduce(events, state, fn
+          {:ev_key, key, 0}, acc -> release(acc, key)
+          _, acc -> acc
+        end)
+
+      {:noreply, state}
+    end
+  end
+
+  defp handle_input(events, %{app: app} = state) when app != nil do
+    {state, slept?} = Enum.reduce(events, {state, false}, &app_event/2)
+
+    # B leaves the apps that do not claim it -- the readouts, where back
+    # should go back -- and is then held out of the report the way the sleep
+    # key is from everything: the press that closes a screen must not also
+    # act inside it. The apps that need B for themselves keep it whole; see
+    # claims_back?/1.
+    leaving? = not slept? and back_press?(state, events) and not claims_back?(app)
+
+    if not slept? and not leaving?, do: app_module(app).input(events)
+
+    state = if leaving?, do: state |> stop_app() |> go_home(), else: state
+    state = leave_app(state, events)
+    state = if real_press?(events), do: reset_idle_timer(state), else: state
+    {:noreply, state}
+  end
+
+  defp handle_input(events, state) do
+    state =
+      Enum.reduce(events, state, fn
+        # value 1 is press and 0 is release; 2 is autorepeat and is ignored.
+        # Releases matter now: the power-off chord needs to know what is held.
+        #
+        # Dropping autorepeat means the D-pad does not scroll when held: one
+        # press, one row. That is a simplification, not an oversight -- each
+        # move re-roots the viewport, and holding down would queue a scene
+        # restart per repeat. Worth revisiting only if the list grows long.
+        {:ev_key, key, 1}, acc -> acc |> hold(key) |> press(key)
+        {:ev_key, key, 0}, acc -> release(acc, key)
+        _, acc -> acc
+      end)
+
+    state = if real_press?(events), do: reset_idle_timer(state), else: state
+    {:noreply, state}
+  end
+
+  defp lid_transition(%{lid_switch: nil}, _events), do: nil
+
+  defp lid_transition(%{lid_switch: %{key: key}}, events) do
+    cond do
+      Enum.any?(events, &match?({:ev_sw, ^key, 1}, &1)) -> :closed
+      Enum.any?(events, &match?({:ev_sw, ^key, 0}, &1)) -> :opened
+      true -> nil
+    end
+  end
+
+  defp lid_device do
+    case Device.current!().lid_switch do
+      nil -> nil
+      %{device: name} -> Input.find(name)
+    end
+  end
+
+  # What the panel will say about a program that died. Status zero is a
+  # program that meant to exit and merits nothing; anything else is paired
+  # with the last lines it wrote, because "exited (1)" without its dying
+  # words is a riddle and with them is usually the whole diagnosis.
+  defp obituary(_state, 0), do: nil
+
+  defp obituary(state, status),
+    do: %{name: name_of(state.running), status: status, lines: state.output}
+
   # Trimmed and length-capped because a chatty program should not be able to
   # push everything else out of a fixed-size ring buffer. Shared with the stop
-  # path, which reads the same pipe while it waits for the program to die.
+  # path, which reads the same pipe while it waits for the program to die --
+  # that caller drops the returned state, which is fine: a deliberate stop
+  # writes no obituary, so its tail of output is never read.
+  #
+  # Returns the state with the last few lines retained, which is what the
+  # obituary quotes if the program then exits nonzero.
   defp log_output(state, data) do
-    data
-    |> String.split("\n", trim: true)
-    |> Enum.each(fn line ->
-      Logger.info("[#{program_name(state)}] #{String.slice(line, 0, 300)}")
-    end)
+    lines =
+      data
+      |> String.split("\n", trim: true)
+      |> Enum.map(&String.slice(&1, 0, 300))
+
+    Enum.each(lines, fn line -> Logger.info("[#{program_name(state)}] #{line}") end)
+
+    %{state | output: Enum.take(state.output ++ lines, -@obituary_lines)}
   end
 
   # The running program's name, for log lines. Falls back to "program" rather
@@ -604,10 +800,35 @@ defmodule MayonnaiOS.Launcher do
   defp hold(state, key), do: %{state | held: MapSet.put(state.held, key)}
   defp release(state, key), do: %{state | held: MapSet.delete(state.held, key)}
 
+  defp real_press?(events),
+    do: Enum.any?(events, &match?({:ev_key, _key, 1}, &1))
+
+  defp idle_eligible?(state),
+    do: not state.asleep and state.port == nil and state.app == nil and state.scene == :home
+
+  defp reset_idle_timer(state) do
+    state = cancel_idle_timer(state)
+
+    if idle_eligible?(state) and is_integer(state.idle_sleep_ms) and state.idle_sleep_ms > 0 do
+      token = make_ref()
+      timer = Process.send_after(self(), {:idle_sleep, token}, state.idle_sleep_ms)
+      %{state | idle_timer: {timer, token}}
+    else
+      state
+    end
+  end
+
+  defp cancel_idle_timer(%{idle_timer: nil} = state), do: state
+
+  defp cancel_idle_timer(%{idle_timer: {timer, _token}} = state) do
+    Process.cancel_timer(timer)
+    %{state | idle_timer: nil}
+  end
+
   # The held set is folded one event at a time and the trigger is asked after
-  # each press, exactly as the ordinary path does it, so that a `@binding` with
-  # a modifier in it would still see the set the way the user pressed it rather
-  # than the set the whole report leaves behind.
+  # each press, exactly as the ordinary path does it, so a future binding with
+  # a modifier would still see the set the way the user pressed it rather than
+  # the set the whole report leaves behind.
   #
   # The whole report is dropped when the sleep key is in it, not just that one
   # event. A report cannot span two devices and the sleep device carries one
@@ -632,8 +853,8 @@ defmodule MayonnaiOS.Launcher do
   # never be able to switch the device off, and someone holding Select while
   # using the controller is holding Select on purpose.
   defp leave_app(state, events) do
-    if Enum.any?(events, &match?({:ev_key, @home_button, 1}, &1)) do
-      if MapSet.member?(state.held, @poweroff_modifier) do
+    if pressed?(events, button(state, :home)) do
+      if MapSet.member?(state.held, button(state, :poweroff_modifier)) do
         poweroff(state, "Select+Menu")
       else
         state |> stop_app() |> go_home()
@@ -641,6 +862,20 @@ defmodule MayonnaiOS.Launcher do
     else
       state
     end
+  end
+
+  defp back_press?(state, events), do: pressed?(events, button(state, :back))
+
+  # Whether the app keeps B for itself. The controller forwards it to the
+  # host as a gamepad button and a pickle's script reads it as "b"; for
+  # those, a launcher that eats B is a controller with a dead button. An app
+  # says so by exporting `claims_back?/0` returning true; the readouts do
+  # not, so for them B is the way back. RetroArch and the other external
+  # programs are not in question here at all -- they read evdev themselves,
+  # and nothing in this clause sees their buttons.
+  defp claims_back?(app) do
+    module = app_module(app)
+    function_exported?(module, :claims_back?, 0) and module.claims_back?()
   end
 
   defp stop_app(%{app: nil} = state), do: state
@@ -674,25 +909,76 @@ defmodule MayonnaiOS.Launcher do
         {_result, state} = enter_sleep(state)
         state
 
-      state.confirming ->
-        answer_poweroff(state, key)
+      Browser.busy?(state.browser) ->
+        overlay(state, key)
+
+      Browser.full?(state.browser) ->
+        full_view(state, key)
 
       true ->
         bound(state, key)
     end
   end
 
-  # The Power off row's question, answered the way `MayonnaiOS.Files` answers
-  # a delete: A asked, so A cannot also be the answer. Y -- and only Y --
-  # switches off; anything else keeps the device on, is swallowed rather than
-  # dispatched, and takes the question off the panel. Swallowed matters: the
-  # cancelling press must not also launch whatever the cursor is on.
-  defp answer_poweroff(state, @confirm_button), do: poweroff(state, "the menu")
+  # A sheet has the buttons: the actions list, a delete confirmation, or the
+  # rename editor. Everything goes to the browser except the two things that
+  # must mean the same wherever they are pressed -- the power-off chord, and
+  # Menu as the way home. The sleep key was already tested above.
+  defp overlay(state, key) do
+    if key == button(state, :home) do
+      overlay_home(state)
+    else
+      browse(state, Browser.overlay_input(state.browser, semantic(state, key)))
+    end
+  end
 
-  defp answer_poweroff(state, _key) do
-    state = %{state | confirming: false}
-    show(:home, state)
-    state
+  defp overlay_home(state) do
+    if MapSet.member?(state.held, button(state, :poweroff_modifier)) do
+      poweroff(state, "Select+Menu")
+    else
+      go_home(state)
+    end
+  end
+
+  # The full view has the buttons: scrolling to the browser, and the same two
+  # exceptions as the sheets -- the power-off chord, and Menu as the way
+  # home. The sleep key was already tested above.
+  defp full_view(state, key) do
+    if key == button(state, :home) do
+      full_home(state)
+    else
+      browse(state, Browser.full_input(state.browser, semantic(state, key)))
+    end
+  end
+
+  defp full_home(state) do
+    if MapSet.member?(state.held, button(state, :poweroff_modifier)) do
+      poweroff(state, "Select+Menu")
+    else
+      go_home(state)
+    end
+  end
+
+  # The browser speaks verbs, not scan codes: it should not have to know that
+  # this board's device tree swaps A/B and X/Y, and `:other` still matters --
+  # on the delete confirmation any unnamed button cancels.
+  defp semantic(state, key) do
+    Enum.find_value(
+      [
+        up: :up,
+        down: :down,
+        left: :left,
+        right: :right,
+        page_up: :l1,
+        page_down: :r1,
+        launch: :a,
+        back: :b,
+        confirm: :y,
+        full: :x
+      ],
+      :other,
+      fn {binding, verb} -> if key == button(state, binding), do: verb end
+    )
   end
 
   # Entering sleep only counts if the backlight write landed. A dark-panel
@@ -701,8 +987,28 @@ defmodule MayonnaiOS.Launcher do
   # `Sleep` has already logged why.
   defp enter_sleep(state) do
     case Sleep.sleep() do
-      :ok -> {:ok, %{state | asleep: true}}
-      {:error, reason} -> {{:error, reason}, state}
+      :ok ->
+        # Slow flashing green: asleep, still running. Only when the backlight
+        # write landed, for the same reason as the flag -- a sleep signal over
+        # a lit screen would be the LED lying about the panel.
+        Led.set(:sleeping)
+        # And only then the rest of it. The backlight is the measure that is
+        # certain to work and the only one the user can see, so it goes first
+        # and it alone decides whether this counts as sleep; the cores, the
+        # governor, the radio and the renderer are what make the dark panel
+        # actually cost less. `LowPower.enter/0` cannot fail -- a step that
+        # will not run is logged and left out of the undo list -- so there is
+        # nothing here to branch on. See MayonnaiOS.LowPower.
+        state =
+          state
+          |> Map.put(:asleep, true)
+          |> Map.put(:low_power, LowPower.enter())
+          |> cancel_idle_timer()
+
+        {:ok, state}
+
+      {:error, reason} ->
+        {{:error, reason}, state}
     end
   end
 
@@ -715,28 +1021,66 @@ defmodule MayonnaiOS.Launcher do
   # The held set goes too: the press that woke the device was consumed, so it
   # must not also count as the modifier half of a chord.
   defp wake_up(state) do
-    {Sleep.wake(), %{state | asleep: false, held: MapSet.new()}}
+    # Back to solid green whether or not the backlight write landed, matching
+    # the flag: this process now treats the device as awake, and the LED
+    # reports what this process does with button presses, not the panel.
+    Led.set(:running)
+    # Before the backlight, and in reverse: cores back, governor back, WiFi
+    # back, renderer back. The renderer coming back last is what makes the
+    # order matter -- the frame is redrawn while the panel is still dark, so
+    # the light comes up over a finished picture instead of over whatever the
+    # framebuffer was left holding. `leave/1` is always :ok and rescues each
+    # step separately; see MayonnaiOS.LowPower.
+    LowPower.leave(state.low_power)
+
+    state = %{state | asleep: false, held: MapSet.new(), low_power: []}
+    {Sleep.wake(), reset_idle_timer(state)}
   end
 
-  defp bound(state, @launch_button), do: do_launch(state)
-  defp bound(state, @diagnostics_button), do: toggle_scene(state)
-  defp bound(state, @up_button), do: move(state, -1)
-  defp bound(state, @down_button), do: move(state, +1)
+  defp bound(state, key) do
+    cond do
+      key == button(state, :launch) -> do_launch(state)
+      key == button(state, :up) -> move(state, -1)
+      key == button(state, :down) -> move(state, +1)
+      key == button(state, :left) -> browse(state, Browser.ascend(state.browser))
+      key == button(state, :right) -> browse(state, Browser.descend(state.browser))
+      key == button(state, :page_up) -> browse(state, Browser.page(state.browser, :up))
+      key == button(state, :page_down) -> browse(state, Browser.page(state.browser, :down))
+      key == button(state, :actions) -> browse(state, Browser.open_actions(state.browser))
+      key == button(state, :full) -> full(state)
+      key == button(state, :back) -> back(state)
+      key == button(state, :home) -> home(state)
+      true -> unhandled(state, key)
+    end
+  end
+
+  # X: the full view of the selected entry -- except the process monitors,
+  # whose detailed view is the readout app itself, so X opens it the way A
+  # does. `MayonnaiOS.Browser` owns every other shape of the full view.
+  defp full(state) do
+    case Browser.selected(state.browser) do
+      %{kind: :program, program: %{app: {MayonnaiOS.Top, _which}} = program} ->
+        start_program(program, state)
+
+      _node ->
+        browse(state, Browser.open_full(state.browser))
+    end
+  end
 
   # Menu: back to the home screen, or -- with Select held -- power off.
   #
   # The chord is checked first, so the modifier is not decorative: a bare
   # Menu must never be able to shut the device down, because it is the key
   # someone reaches for to get out of a game.
-  defp bound(state, @home_button) do
-    if MapSet.member?(state.held, @poweroff_modifier) do
+  defp home(state) do
+    if MapSet.member?(state.held, button(state, :poweroff_modifier)) do
       poweroff(state, "Select+Menu")
     else
       go_home(state)
     end
   end
 
-  defp bound(state, key) do
+  defp unhandled(state, key) do
     # Debug, not info: this fires for every unbound button on the pad. It
     # exists because the D-pad codes are inherited from the device tree and
     # this board's device tree has been wrong before -- if up and down feel
@@ -745,37 +1089,68 @@ defmodule MayonnaiOS.Launcher do
     state
   end
 
-  # Move the menu cursor. The list is re-read here rather than kept in state:
-  # it is deterministic, cheap, and there is then no way for the cursor to be
-  # bounded by a stale length.
-  defp move(state, delta) do
-    programs = Programs.list()
-    moved = Programs.step(programs, state.selected, delta)
+  defp button(state, semantic), do: Map.fetch!(state.buttons, semantic)
+  defp pressed?(events, key), do: Enum.any?(events, &match?({:ev_key, ^key, 1}, &1))
 
-    # Repaint only when the menu is actually the thing on screen. While an
-    # external program is running it owns KMS, and pushing the viewport would
-    # write the menu into /dev/fb0 underneath its output -- visible as the
-    # menu bleeding through a game. On the diagnostics screen the cursor is
-    # not drawn at all, so a repaint there would be pure cost. The cursor
-    # still moves in both cases; only the redraw waits.
-    #
-    # The program half of that is now also enforced one level down --
-    # `set_root/2` refuses while `MayonnaiOS.Panel` is held, which is what
-    # catches the buttons this clause does not. It stays here because the
-    # diagnostics half is this function's own business and because a guard
-    # that says why it exists is worth more than one line saved.
-    #
-    # And only when the cursor actually moved. `set_root/3` is not a redraw:
-    # it stops the running scene process and starts a new one. At the ends of
-    # the list -- and with the single-entry list this ships with, on every
-    # press -- `step/3` returns the index it was given, so without this guard
-    # holding down a direction would tear down and rebuild the scene at the
-    # repeat rate for no visible change.
-    if moved != state.selected and state.port == nil and state.scene == :home do
-      show(:home, %{state | selected: moved})
+  # B: on the diagnostics screen there is no column to close, so back is the
+  # way out -- the same press that leaves the readout apps. Only with nothing
+  # running: while a program has the display, its buttons are its own and a
+  # stop stays Menu's.
+  defp back(%{scene: scene, port: nil} = state) when scene != :home, do: go_home(state)
+
+  # The obituary goes next -- it is the thing most recently put on the
+  # panel, and "back" should take back the last thing shown. With nothing to
+  # clear, B closes a column, which is what B means on every other screen.
+  defp back(%{obituary: nil} = state), do: browse(state, Browser.ascend(state.browser))
+  defp back(state), do: dismiss_obituary(state)
+
+  # Takes the obituary off the panel. The repaint is gated the same way
+  # `browse/2` gates its own: only when the menu is the thing on screen. A B
+  # pressed during a game reaches here (the pad is this process's), and the
+  # state clears either way -- only the write waits, and the exit-time repaint
+  # draws whatever the state then says.
+  defp dismiss_obituary(state) do
+    state = %{state | obituary: nil}
+
+    if state.port == nil and state.scene == :home do
+      show(:home, state)
     end
 
-    %{state | selected: moved}
+    state
+  end
+
+  defp move(state, delta), do: browse(state, Browser.move(state.browser, delta))
+
+  # Adopt a changed browser, and repaint only when the menu is actually the
+  # thing on screen. While an external program is running it owns KMS, and
+  # pushing the viewport would write the menu into /dev/fb0 underneath its
+  # output -- visible as the menu bleeding through a game. On the diagnostics
+  # screen the browser is not drawn at all, so a repaint there would be pure
+  # cost. The state still moves in both cases; only the redraw waits.
+  #
+  # The program half of that is also enforced one level down -- `set_root/2`
+  # refuses while `MayonnaiOS.Panel` is held, which is what catches the
+  # buttons this clause does not. It stays here because the diagnostics half
+  # is this function's own business and because a guard that says why it
+  # exists is worth more than one line saved.
+  #
+  # And only when something actually changed. `set_root/3` is not a redraw:
+  # it stops the running scene process and starts a new one. A move in an
+  # empty column, a descend on a leaf and an ascend at the root all return
+  # the browser they were given, so an idle press does not tear down and
+  # rebuild the scene for no visible change.
+  defp browse(state, browser) do
+    if browser == state.browser do
+      state
+    else
+      state = %{state | browser: browser}
+
+      if state.port == nil and state.scene == :home do
+        show(:home, state)
+      end
+
+      state
+    end
   end
 
   # Back to the menu, from wherever we are.
@@ -800,22 +1175,15 @@ defmodule MayonnaiOS.Launcher do
         show(:home, home)
         home
 
-      # Already home with nothing running. Deliberately not a repaint: this is
-      # the button people press when unsure, and `set_root/3` tears the scene
-      # down and builds a new one, so answering an idle press with a rebuild
-      # would make the panel flicker for no reason.
+      # Already home with nothing running: back to the root column. This is
+      # the button people press to get out of wherever they are, and deep in
+      # the file tree that is the top of the menu, not one column up. When the
+      # browser is already at its root the reset changes nothing and nothing
+      # repaints -- `browse/2` is the guard -- so an idle press does not make
+      # the panel flicker.
       true ->
-        state
+        browse(state, Browser.reset(state.browser))
     end
-  end
-
-  # Flip between the menu and the diagnostics readout. The readout is
-  # what makes the physical checks -- charger, volume keys, headphone jack --
-  # answerable by looking at the device instead of over SSH.
-  defp toggle_scene(state) do
-    next = if state.scene == :home, do: :diagnostics, else: :home
-    show(next, state)
-    %{state | scene: next}
   end
 
   defp poweroff(state, how) do
@@ -835,12 +1203,26 @@ defmodule MayonnaiOS.Launcher do
     state
   end
 
-  # Three outcomes, logged apart from each other on purpose. "Nothing
-  # configured" and "configured but not in the image" are different bugs in
-  # different files, and a single "could not launch" would hide which.
+  # A on the browser: a category, a root or a directory opens as another
+  # column; a program, a pickle or a verb starts; a file opens its full
+  # view, because "open" on the one kind of thing that cannot be entered or
+  # run means "show me it". A never opens the actions sheet -- that is Y's,
+  # and only Y's.
+  #
+  # The busy and full clauses are for `launch/0` from a console -- a pad
+  # press never reaches here in those states, `press/2` routes it first.
   defp do_launch(%{port: nil, app: nil} = state) do
-    programs = Programs.list()
-    start_program(Programs.at(programs, state.selected), state)
+    node = Browser.selected(state.browser)
+
+    cond do
+      Browser.busy?(state.browser) -> browse(state, Browser.overlay_input(state.browser, :a))
+      Browser.full?(state.browser) -> state
+      Browser.expandable?(node) -> browse(state, Browser.descend(state.browser))
+      match?(%{kind: :program}, node) -> start_program(node.program, state)
+      match?(%{kind: :rom}, node) -> launch_game(node.system, node.path, state)
+      match?(%{kind: :file}, node) -> launch_file(node, state)
+      true -> state
+    end
   end
 
   defp do_launch(state) do
@@ -848,9 +1230,30 @@ defmodule MayonnaiOS.Launcher do
     state
   end
 
-  defp start_program(nil, state) do
-    Logger.warning("[launcher] no programs configured (config :mayonnaios, :programs)")
-    state
+  defp launch_file(node, state) do
+    with %{} = system <- Game.system_for(node.name),
+         {:ok, location} <- Files.descend(Browser.focused(state.browser).location, node.name),
+         {:ok, path} <- Files.resolve(location) do
+      launch_game(system.key, path, state)
+    else
+      _ -> browse(state, Browser.open_full(state.browser))
+    end
+  end
+
+  defp launch_game(system, path, state) do
+    case Game.program(system, path) do
+      {:ok, program} ->
+        start_program(program, state)
+
+      {:error, :no_core} ->
+        browse(
+          state,
+          Browser.put_message(state.browser, :error, "No installed core for this system.")
+        )
+
+      {:error, :no_retroarch} ->
+        browse(state, Browser.put_message(state.browser, :error, "RetroArch is not configured."))
+    end
   end
 
   defp start_program(%{installed?: false} = program, state) do
@@ -858,12 +1261,37 @@ defmodule MayonnaiOS.Launcher do
     state
   end
 
-  # The Power off row. Not a program and not an app: pressing A here only
-  # asks, and the repaint puts the question on the panel. `press/2` owns the
-  # answer -- Y switches off, anything else keeps the device on -- because A
-  # opened the question and the answer must not be the button that asked.
+  # The Power off row. Draw the splash before asking the runtime to shut down,
+  # so the panel immediately acknowledges the selection while services and
+  # filesystems stop.
   defp start_program(%{action: :poweroff}, state) do
-    state = %{state | confirming: true}
+    state.shutdown_splash.()
+    poweroff(state, "the menu")
+  end
+
+  # The Diagnostics row: the readout that makes the physical checks --
+  # charger, volume keys, headphone jack -- answerable by looking at the
+  # device instead of over SSH. Menu is the way back out.
+  defp start_program(%{action: :diagnostics}, state) do
+    state = %{state | scene: :diagnostics}
+    show(:diagnostics, state)
+    state
+  end
+
+  # The Sleep row: the same backlight-off the power key does, and waking is
+  # unchanged -- the next press is consumed on turning the panel back on.
+  defp start_program(%{action: :sleep}, state) do
+    {_result, state} = enter_sleep(state)
+    state
+  end
+
+  # The Theme row: advances `MayonnaiOS.Theme` to the next built-in theme and
+  # repaints in place. Not a program and not an app -- it neither takes the
+  # display nor changes what scene is showing, so `show(:home, state)` rather
+  # than `browse/2`: the browser value itself has not changed, and `browse/2`
+  # would see that and skip the repaint that is the entire point here.
+  defp start_program(%{action: :cycle_theme}, state) do
+    Theme.cycle()
     show(:home, state)
     state
   end
@@ -941,7 +1369,10 @@ defmodule MayonnaiOS.Launcher do
           args: program.args
         ])
 
-      %{state | port: port, running: program}
+      # A fresh spawn clears the previous obituary and starts a fresh tail of
+      # output: whatever the panel says when this program exits should be
+      # about this program.
+      %{state | port: port, running: program, obituary: nil, output: []}
     rescue
       e ->
         Logger.warning("[launcher] #{program.path} would not start: #{Exception.message(e)}")
@@ -951,6 +1382,17 @@ defmodule MayonnaiOS.Launcher do
         # screen to explain why -- the worst failure in this file, because it
         # looks exactly like a dead device.
         Panel.release()
+
+        # And the reason goes on the panel, not only in the log: a spawn that
+        # raised has status nil and the exception's message for last words.
+        # The repaint is safe -- the hold was just released -- and needed,
+        # because unlike an exit there is no later :exit_status to trigger one.
+        state = %{
+          state
+          | obituary: %{name: program.name, status: nil, lines: [Exception.message(e)]}
+        }
+
+        repaint(state)
         state
     end
   end
@@ -973,19 +1415,18 @@ defmodule MayonnaiOS.Launcher do
   #
   # ## Why it waits, and why the wait is the point
   #
-  # The old code signalled, closed the port, released the panel and repainted,
-  # in that order, without ever asking whether the program had gone. Every one
-  # of those steps is wrong about a program that has not died yet:
+  # Signalling, closing the port, releasing the panel and repainting, in that
+  # order, without ever asking whether the program has gone, is wrong at every
+  # step about a program that has not died yet:
   #
-  #   * A hung RetroArch keeps `/dev/dri/card0` and `card1` open. The launcher
-  #     reported it stopped, and then every later launch failed with `[KMS]
+  #   * A hung RetroArch keeps `/dev/dri/card0` and `card1` open. A launcher
+  #     that reports it stopped makes every later launch fail with `[KMS]
   #     Error when switching mode` / `Cannot open video driver` -- which from
   #     the outside looks like a completely different bug in a completely
   #     different subsystem.
   #   * The repaint is a write to a framebuffer whose DRM master is still that
   #     program, which is the thing `MayonnaiOS.Panel` exists to prevent and
-  #     which hangs this SoC. Raised as a follow-up on the panel-ownership PR;
-  #     this is that follow-up.
+  #     which hangs this SoC.
   #
   # And if even SIGKILL does not land, the honest thing is to report that
   # rather than tidy up around it. Nothing is closed, nothing is released,
@@ -1125,20 +1566,22 @@ defmodule MayonnaiOS.Launcher do
   # in the ordinary case.
   defp show({:app, app}, state), do: set_root(app_module(app).scene(), %{error: state.app_error})
 
-  # The cursor travels as the scene's start argument. Deliberately only the
-  # index: the scene calls `Programs.list/0` itself, so no list is copied into
-  # a scene start on every keypress, and the two cannot disagree about order
-  # because both derive from the same config.
+  # The browser travels as the scene's start argument, whole: the scene draws
+  # exactly the columns this process navigates, and the two cannot disagree
+  # because there is one copy and it is here.
   defp show(_home, state) do
-    set_root(default_scene(), %{selected: state.selected, confirming: state.confirming})
+    set_root(default_scene(), %{
+      browser: state.browser,
+      obituary: state.obituary
+    })
   end
 
   defp set_root(nil, _param), do: :ok
 
   # Re-rooting the viewport is a repaint of the whole panel, so it is exactly
-  # what must not happen while a program holds the display. Two buttons reach
-  # here during a game: X, which flips to the diagnostics screen, and a D-pad
-  # press, which `move/2` already guards for the same reason.
+  # what must not happen while a program holds the display. The pad is this
+  # process's even during a game, so presses still arrive; `browse/2` already
+  # guards its own writes for the same reason, and this catches the rest.
   #
   # The state still moves -- the scene flips, the cursor moves -- and only the
   # write waits. `repaint/1` on the way out is what puts whichever screen that
@@ -1149,15 +1592,12 @@ defmodule MayonnaiOS.Launcher do
 
   # Repainting must never take the Launcher down when there is no UI running.
   # Scenic.ViewPort.info/1 is a bare GenServer.call, so on a missing viewport
-  # it *exits* rather than returning an error -- the `case` this used to do
-  # could not catch that, and the clause that looked like it handled it was
-  # unreachable. It went unnoticed because the host had no :viewport config,
-  # so default_scene/0 returned nil and this function short-circuited above
-  # before ever asking Scenic anything.
+  # it *exits* rather than returning an error -- no `case` around it can catch
+  # that, which is why `Process.whereis/1` guards the call instead.
   #
   # That matters beyond the tests: Scenic is deliberately not started at boot
   # (see MayonnaiOS), so on a device where start_ui/0 has not been called yet,
-  # one button press would have crashed the process that owns the buttons.
+  # one button press must not crash the process that owns the buttons.
   defp do_set_root(scene, param) do
     with pid when is_pid(pid) <- Process.whereis(viewport_name()),
          {:ok, vp} <- Scenic.ViewPort.info(pid) do

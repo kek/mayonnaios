@@ -9,31 +9,30 @@ defmodule MayonnaiOS.Controller.Report do
   needs Bluetooth, so both are tested on a laptop and only the transport below
   them needs the handheld.
 
-  ## The identity is borrowed, and that is now the point
+  ## The identity is borrowed, and that is the point
 
-  An earlier version of this module declared an honest descriptor -- a hat and
-  ten buttons under pid.codes numbers -- and the README grew a long section
-  explaining why that controller could not practically drive a game: SDL
-  matches gamepads against a database keyed by vendor and product numbers, an
-  unlisted device is a joystick rather than a game controller, and on macOS
-  Steam Input has no virtual controller to bridge the gap with. Every word of
-  that section was a workaround for the device saying who it really was.
+  An honest descriptor -- a hat and ten buttons under pid.codes numbers --
+  cannot practically drive a game: SDL matches gamepads against a database
+  keyed by vendor and product numbers, an unlisted device is a joystick
+  rather than a game controller, and on macOS Steam Input has no virtual
+  controller to bridge the gap with. Everything downstream of an honest
+  identity is a workaround for the device saying who it really is.
 
-  So it stops saying that. The descriptor below is the Xbox Wireless
+  So it does not say that. The descriptor below is the Xbox Wireless
   Controller's -- model 1914, the BLE firmware, product 0x0B13 -- reproduced
   exactly, and `MayonnaiOS.Bluetooth.HOGP` claims the matching vendor and
   product numbers. Hosts with first-class Xbox support (macOS through the
   GameController framework and SDL's HIDAPI driver, the Steam Deck, Windows,
   phones) recognise it with no mapping step, which is the whole ask.
 
-  The old objection to this -- written down in this moduledoc's previous life
-  -- was that a host with a *driver* for the claimed controller stops reading
-  the descriptor and parses reports against the real device's fixed layout, so
-  any deviation is scrambled buttons the host is certain are correct. That
-  objection was to guessing someone else's layout while shipping your own. It
-  dissolves when the layout *is* theirs: the fixed format the drivers assume
-  is exactly what these bytes declare and exactly what `encode/1` packs. The
-  driver mechanism goes from the risk to the payoff.
+  The objection to a borrowed identity is that a host with a *driver* for
+  the claimed controller stops reading the descriptor and parses reports
+  against the real device's fixed layout, so any deviation is scrambled
+  buttons the host is certain are correct. That objection is to guessing
+  someone else's layout while shipping your own, and it dissolves when the
+  layout *is* theirs: the fixed format the drivers assume is exactly what
+  these bytes declare and exactly what `encode/1` packs. The driver
+  mechanism is the payoff rather than the risk.
 
   ## Byte-exact or nothing
 
@@ -63,19 +62,19 @@ defmodule MayonnaiOS.Controller.Report do
   server and dropped -- there is no motor. A host that rumbles hears silence,
   which is what a pad with a dead motor sounds like, and nothing retries.
 
-  ## There is a report ID now, and why that stopped being a problem
+  ## The report ID
 
-  The previous descriptor deliberately declared no report ID, after a version
-  with ID 1 left Steam listing the controller and receiving nothing: software
-  reading *raw* reports has to know whether the first byte is an ID or data,
-  and for an unknown device the two conventions split hosts into camps.
+  Report IDs are a compatibility hazard: software reading *raw* reports has
+  to know whether the first byte is an ID or data, and for an unknown device
+  the two conventions split hosts into camps -- Steam can list a controller
+  and receive nothing from it.
 
   The Xbox descriptor declares ID 1 because the real pad does, and the reports
   this module encodes still carry no ID byte -- over HID-over-GATT the ID
   travels in the Report Reference descriptor next to the characteristic, not
   in the notification. That is the same framing the real controller uses, so
   the code paths parsing it are the ones every Xbox pad on Bluetooth already
-  exercises. The old failure was the cost of being nobody; it does not carry
+  exercises. That failure is the cost of being nobody; it does not carry
   over to being somebody the host knows.
 
   ## Report layout
@@ -105,8 +104,8 @@ defmodule MayonnaiOS.Controller.Report do
   reads the plastic, and label-to-label is the only mapping where those two
   agree without a diagram. The Xbox layout puts A south where this shell
   prints it east; anyone who finds that positional swap unplayable can remap
-  it on the host, which -- with the pad now recognised -- is a supported
-  operation rather than the workaround it used to be.
+  it on the host, which -- with the pad recognised -- is a supported
+  operation rather than a workaround.
 
   Menu (`:btn_mode`) is deliberately absent. It is how you leave controller
   mode -- the same "Menu is the one way back" the launcher already has -- and
@@ -151,14 +150,11 @@ defmodule MayonnaiOS.Controller.Report do
   A host reads the report map exactly once, when it pairs, and caches it
   against the device forever after. Editing anything in `descriptor/0` and
   reflashing therefore changes nothing at all on a host that has already
-  paired: it goes on parsing new reports against the old layout, which is
-  worse than no change, because the bytes have moved underneath it.
-
-  This applies to the change that created this module: a host paired with
-  the old three-byte pad must forget the device **and**
-  `MayonnaiOS.Controller.unpair/0` must run here, or the host will parse
-  sixteen-byte reports against a three-byte layout and report garbage with
-  total confidence.
+  paired: it goes on parsing new reports against the layout it cached, which
+  is worse than no change, because the bytes have moved underneath it. The
+  host must forget the device **and** `MayonnaiOS.Controller.unpair/0` must
+  run here, or the host parses the new reports against the cached layout and
+  reports garbage with total confidence.
   """
 
   @typedoc "Which way the D-pad is held."
@@ -245,9 +241,8 @@ defmodule MayonnaiOS.Controller.Report do
   @axis_in_max 4096
 
   # Hat switch values, clockwise from north. The 1914 numbers directions from
-  # 1 and uses 0 -- below the declared logical minimum -- as the null state,
-  # where the previous descriptor counted from 0 and used 15. Same mechanism,
-  # different constants, and the constants are the host's to dictate.
+  # 1 and uses 0 -- below the declared logical minimum -- as the null state.
+  # The constants are the host's to dictate.
   @hat_null 0
   @hat %{
     [:up] => 1,

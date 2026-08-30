@@ -265,7 +265,7 @@ defmodule MayonnaiOS.StatusBarTest do
     end
 
     test "the reserved height is the bar's own, not a copy of it" do
-      assert MayonnaiOS.Scene.FileManager.status_bar() == StatusBar.height()
+      assert MayonnaiOS.Scene.Top.status_bar() == StatusBar.height()
     end
   end
 
@@ -280,8 +280,8 @@ defmodule MayonnaiOS.StatusBarTest do
       # image".
       # Under the test supervisor, not linked to the test process: `test/
       # panel_test.exs` starts Scenic too, and a `:scenic` left to die on its
-      # own outlives the test that started it -- so whichever of the two ran
-      # second used to race a supervisor that was already shutting down.
+      # own outlives the test that started it -- and whichever of the two
+      # runs second races a supervisor that is already shutting down.
       start_supervised!({Scenic, []})
 
       {:ok, viewport} =
@@ -298,7 +298,7 @@ defmodule MayonnaiOS.StatusBarTest do
 
       for {module, param} <- [
             {MayonnaiOS.Scene.Diagnostics, nil},
-            {MayonnaiOS.Scene.FileManager, %{error: nil}},
+            {MayonnaiOS.Scene.Top, %{error: nil}},
             {MayonnaiOS.Scene.Pairing, %{error: nil}},
             {MayonnaiOS.Scene.Controller, %{error: nil}},
             {MayonnaiOS.Scene.Home, %{selected: 0}}
@@ -382,11 +382,12 @@ defmodule MayonnaiOS.StatusBarTest do
   # into the strip.
   defp scenes do
     [
-      {"Scene.Home", MayonnaiOS.Scene.Home.graph(Programs.list([%{path: "/bin/sh"}]), 0)},
-      {"Scene.Home (empty)", MayonnaiOS.Scene.Home.graph([], 0)},
+      {"Scene.Home", MayonnaiOS.Scene.Home.graph(MayonnaiOS.Browser.new())},
+      {"Scene.Home (columns)",
+       MayonnaiOS.Scene.Home.graph(MayonnaiOS.Browser.descend(MayonnaiOS.Browser.new()))},
       {"Scene.Diagnostics", MayonnaiOS.Scene.Diagnostics.graph(%MayonnaiOS.Diagnostics{})},
       {"Scene.Diagnostics (no collector)", MayonnaiOS.Scene.Diagnostics.graph(nil)},
-      {"Scene.FileManager", MayonnaiOS.Scene.FileManager.graph(:stopped)},
+      {"Scene.Top (stopped)", MayonnaiOS.Scene.Top.graph(:stopped)},
       {"Scene.Pairing", MayonnaiOS.Scene.Pairing.graph(pairing_status())},
       {"Scene.Pairing (stopped)", MayonnaiOS.Scene.Pairing.graph(:stopped, :enodev)},
       {"Scene.Controller", MayonnaiOS.Scene.Controller.graph(controller_status())},

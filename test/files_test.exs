@@ -412,9 +412,8 @@ defmodule MayonnaiOS.FilesTest do
       assert "/root/ROMS" in paths
       assert "/root/mnt/games/ROMS" in paths
       assert "/root" in paths
-      # Nothing outside /root is offered, and there is no key that reaches
-      # the read-only squashfs.
-      assert Enum.all?(paths, &String.starts_with?(&1, "/root"))
+      # The whole filesystem is browsable from its own root.
+      assert "/" in paths
     end
   end
 end

@@ -33,9 +33,9 @@ defmodule MayonnaiOS.Panel do
 
   ## Why it is a synchronous read and not a notification
 
-  The first version of this was a subscription: the launcher would tell the
-  scenes, and each would keep a flag. It cannot work here, and the reason is
-  worth writing down because it is invisible from the outside.
+  A subscription -- the launcher telling the scenes, each keeping a flag --
+  cannot work here, and the reason is worth writing down because it is
+  invisible from the outside.
 
   Scenic restarts a component when its parent scene pushes a graph. On the
   diagnostics screen, which pushes once a second, the status bar is a *new
@@ -50,13 +50,13 @@ defmodule MayonnaiOS.Panel do
 
   Only a program launched as an external OS process -- a `path:` entry in
   `config :mayonnaios, :programs` -- takes the display. An *app* (`app:`,
-  e.g. `MayonnaiOS.FileManager`, `MayonnaiOS.Pairing`,
+  e.g. `MayonnaiOS.Top`, `MayonnaiOS.Pairing`,
   `MayonnaiOS.Controller`) is a Scenic scene in this VM: it draws through the
   same viewport as everything else and takes nothing away from it. Apps must
   therefore keep the bar ticking, and they never hold.
 
   Getting that distinction wrong is a bug in both directions: a hold that
-  covers apps freezes the clock on the file manager, and a hold that misses a
+  covers apps freezes the clock on the pairing screen, and a hold that misses a
   program hangs the device in a game. The launcher's one-at-a-time rule keeps
   the two apart -- it will not launch a program while an app is up, and an
   app's scene is replaced on the way out -- so no app scene is ever alive
@@ -65,7 +65,7 @@ defmodule MayonnaiOS.Panel do
   ## Ownership is not the same question as which scene is showing
 
   The suppression is about who owns the panel, not about what is on it.
-  Someone can press X during a game and sit on the diagnostics screen while
+  Someone can launch a game from the diagnostics screen and sit on it while
   kmscube runs: the scene is alive, its one-second refresh is running, and
   every one of those refreshes would be a write into the framebuffer of a
   program that owns the display. That is why scenes ask this module rather

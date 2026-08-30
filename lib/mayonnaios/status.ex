@@ -13,7 +13,7 @@ defmodule MayonnaiOS.Status do
   schedulers one at a time while pure Elixir kept evaluating over SSH, and
   every filesystem operation after that hung. A status bar that read
   `/sys/class/power_supply` from the scene process would, in that state, take
-  the whole panel down with it: no menu, no file manager, no diagnostics, and
+  the whole panel down with it: no menu, no file columns, no diagnostics, and
   no clue why.
 
   So the read happens here, and the readings arrive at the scenes as

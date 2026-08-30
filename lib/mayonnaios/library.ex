@@ -341,8 +341,8 @@ defmodule MayonnaiOS.Library do
   Read from `df`, because there is no statvfs in OTP and busybox's df is in
   the image. Returns `nil` rather than guessing if the output does not parse.
 
-  The `df` call itself is `MayonnaiOS.Files.space/1`, which the file manager
-  needs per-location -- the roots span more than one filesystem. Two parses of
+  The `df` call itself is `MayonnaiOS.Files.space/1`, which the browser's file
+  columns need per-location -- the roots span more than one filesystem. Two parses of
   the same command's output would be one parse too many, and this is the older
   of the two callers rather than the more general one.
   """

@@ -38,7 +38,7 @@ defmodule MayonnaiOS.Pairing do
       RetroArch's audio.
 
     The first and last of those are Buildroot options, so getting there is a
-    2-3 hour system rebuild before any of the Elixir exists. That is why this
+    full system rebuild before any of the Elixir exists. That is why this
     app scans and lists rather than offering a Connect button: a button that
     can never produce sound is this project's characteristic failure written
     into the UI.
@@ -81,8 +81,10 @@ defmodule MayonnaiOS.Pairing do
 
   The failure reasons are the bind errors in
   `MayonnaiOS.Bluetooth.HCISocket`, plus `{:already_started, pid}` from `Host`
-  when the controller app has hci0. Nothing retries; the reason goes to the
-  panel.
+  when the controller app has hci0. Nothing retries, with the one exception
+  `Host` makes for `:enodev` -- it rebinds the serdev driver once and opens
+  again, so a missing hci0 is recovered here as well as in the controller app.
+  See `MayonnaiOS.Bluetooth.Serdev`. Otherwise the reason goes to the panel.
   """
   @spec start(keyword()) :: {:ok, pid()} | {:error, term()}
   def start(opts \\ []) do
@@ -147,8 +149,7 @@ defmodule MayonnaiOS.Pairing do
         scan: Scanner.status(),
         devices: Scanner.devices(),
         bonds: bonds,
-        # Bounded here rather than trusted, for the same reason
-        # `MayonnaiOS.Programs.at/2` does it: the list is re-read on every
+        # Bounded here rather than trusted: the list is re-read on every
         # refresh and a bond forgotten a moment ago would otherwise leave the
         # cursor pointing past the end.
         selected: bounded(cursor.selected, length(bonds)),

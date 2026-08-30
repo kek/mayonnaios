@@ -25,26 +25,24 @@ defmodule MayonnaiOS.Audio do
   `Startup` puts the volume at the bottom of the ladder and leaves the output
   path **switched on**. Silence at boot is a gain, not a route.
 
-  Booting quiet is still the right intent, and it is the same intent as
-  before: there is no `/var/lib/alsa/asound.state` and nothing runs `alsactl
-  restore`, so the mixer powers on with `DAC` off and `Line Out` at 0%
-  anyway. Setting it explicitly rather than inheriting it is the point -- a
-  default that happens to be right is the exact shape of thing this board has
-  already been wrong about twice, and a handheld that makes a noise nobody
-  asked for, in a pocket, is a worse failure than one that starts quiet.
+  Booting quiet is the right intent: there is no
+  `/var/lib/alsa/asound.state` and nothing runs `alsactl restore`, so the
+  mixer powers on with `DAC` off and `Line Out` at 0% anyway. Setting it
+  explicitly rather than inheriting it is the point -- a default that happens
+  to be right is the exact shape of thing this board has already been wrong
+  about twice, and a handheld that makes a noise nobody asked for, in a
+  pocket, is a worse failure than one that starts quiet.
 
-  What was wrong was the mechanism. `Startup` used to switch every playback
-  control *off*, which is silent and is also a device on which no program can
-  play anything at all. Two `aplay` runs on the hardware, three weeks apart
-  in understanding and two seconds apart on the wire, both writing
-  `/dev/zero` so that every sample is zero and the test is silent by content
-  rather than by volume:
+  The mechanism matters. Switching every playback control *off* is silent,
+  and is also a device on which no program can play anything at all. Two
+  `aplay` runs on the hardware, both writing `/dev/zero` so that every sample
+  is zero and the test is silent by content rather than by volume:
 
-      # DAC, Line Out and Speaker all switched off -- the old boot state
+      # DAC, Line Out and Speaker all switched off -- the power-on state
       aplay -D hw:0,0 -f S32_LE -r 48000 -c 2 -d 2 /dev/zero
       aplay: pcm_write:2191: write error: Input/output error     (exit 1)
 
-      # DAC 0% but on, Line Out on, Speaker on -- the new boot state
+      # DAC 0% but on, Line Out on, Speaker on -- the boot state Startup sets
       aplay -D hw:0,0 -f S32_LE -r 48000 -c 2 -d 2 /dev/zero     (exit 0)
 
   ALSA's DAPM only powers a path that has a complete route to an *enabled
@@ -65,19 +63,17 @@ defmodule MayonnaiOS.Audio do
   and the volume at 0 the same game runs and `hw_ptr` advances 48048 frames a
   second.
 
-  Nothing about that looks like audio from the outside, which is why it took
-  so long: a frozen game on a frozen screen. And it had been hiding in plain
-  sight, because whoever was testing had usually played a test tone first,
-  and the tone opens the path. Pressing volume up once before launching is
-  the same accident, and it was the workaround nobody knew they were using --
-  the ladder opens the switches on the way up from silence.
+  Nothing about that looks like audio from the outside: a frozen game on a
+  frozen screen. The failure also hides easily, because anything that raises
+  the volume opens the path -- the test tone does, and so does one press up
+  from silence -- so a device that plays fine in one session can hang a game
+  in the next.
 
-  Worth knowing because it is the same failure with the launcher innocent:
-  the device was found with a *running* game frozen because the rocker had
-  been walked back down to 0, and level 0 closed the path underneath it. The
-  ring buffer's own log has `[volume] level 0/10 (0%)` and the PCM's `hw_ptr`
-  stopping in the same second. Silence that cannot be undone by the program
-  making it is not a volume setting, it is a fault.
+  This is why level 0 keeps the path open. Measured on this hardware: a
+  *running* game froze the second the path closed under it, the ring buffer's
+  own log holding `[volume] level 0/10 (0%)` and the PCM's `hw_ptr` stopping
+  in the same second. Silence that cannot be undone by the program making it
+  is not a volume setting, it is a fault.
 
   ## One silence, and one thing that is not silence
 
@@ -266,9 +262,9 @@ defmodule MayonnaiOS.Audio do
   state the test tone was heard in, and it is the top of the volume ladder --
   the same thing said two ways, deliberately.
 
-  Named `full/1` rather than `unmute/1`, which is what it used to be called.
-  Nothing here is muted any more, at any level, so a function named for
-  undoing a mute would be describing a state this module no longer produces.
+  Not named `unmute/1`: nothing here is muted, at any level, so a function
+  named for undoing a mute would be describing a state this module does not
+  produce.
 
   Note that `MayonnaiOS.Volume` does not learn about this: it holds the level
   it last set, so the next press moves from there rather than from full. One
@@ -325,11 +321,10 @@ defmodule MayonnaiOS.Audio do
     )
   end
 
-  # One clause, and that is the fix. Level 0 differs from level 10 in the
-  # `DAC` percentage and in nothing else: same three controls, all switched
-  # on, at every level. There used to be a second clause for 0 that switched
-  # them off, which is how a device that had never had its volume raised
-  # could not play anything at all.
+  # One clause on purpose. Level 0 differs from level 10 in the `DAC`
+  # percentage and in nothing else: same three controls, all switched on, at
+  # every level. A clause for 0 that switched them off would be a device that
+  # cannot play anything at all until its volume is raised.
   #
   # The amplifier comes on last. On a rising level the gains are already
   # lower than where they are going, so ordering the writes this way means
@@ -356,9 +351,8 @@ defmodule MayonnaiOS.Audio do
     Logger.info("[audio] playing one second of test signal")
 
     # No -P here. `-P 1` is rejected outright -- "Invalid number of periods 1",
-    # exit 1, nothing played -- because the minimum is 2. It was in the first
-    # version of this function, so the test would have failed silently-ish on
-    # the first press and looked like a hardware problem.
+    # exit 1, nothing played -- because the minimum is 2, and a rejected run
+    # looks like a hardware problem rather than a flag problem.
     case Amixer.run("speaker-test", ["-c", "2", "-t", "sine", "-f", "440", "-l", "1"]) do
       {:ok, _} -> :ok
       {:error, _} -> {:error, {:no_tool, "speaker-test"}}
@@ -374,8 +368,8 @@ defmodule MayonnaiOS.Audio do
     without hardware saying so -- clamping, the level ladder, whether every
     level leaves the output path switched on, which control is named -- are
     then testable on a laptop with a mixer that records what it was asked to
-    do. The one about the switches is not a detail: the device it was wrong
-    on could not play anything, and this seam is where a test says so.
+    do. The one about the switches is not a detail: a device with them wrong
+    cannot play anything, and this seam is where a test says so.
 
     There is deliberately no `get`. Reading the mixer back to decide the next
     level would make the level depend on a parse of `amixer sget` output, and
@@ -430,17 +424,16 @@ defmodule MayonnaiOS.Audio do
 
     Volume at its minimum with the output path switched on, so the device is
     silent until someone asks it not to be *and* anything that opens ALSA can
-    still play. Those are two requirements rather than one, and the first
-    version of this satisfied only the first: see `MayonnaiOS.Audio`.
+    still play. Those are two requirements rather than one: see
+    `MayonnaiOS.Audio`.
 
     A `:transient` one-shot rather than a long-lived process: there is nothing
     to supervise afterwards, and it must not keep the supervisor busy.
 
-    A failure here must not take the boot down -- but note what it now leaves
-    behind, because this is no longer the harmless case it was. The mixer
-    stays as the hardware powers on, which is every switch off, which is a
-    device where every audio program fails or hangs. Hence the warning, and
-    hence it says what to do about it.
+    A failure here must not take the boot down -- but note what it leaves
+    behind. The mixer stays as the hardware powers on, which is every switch
+    off, which is a device where every audio program fails or hangs. Hence
+    the warning, and hence it says what to do about it.
     """
 
     use Task, restart: :transient
@@ -452,8 +445,8 @@ defmodule MayonnaiOS.Audio do
     Set the boot state. `mixer` is the seam the tests use.
 
     Taking a mixer at all is the point: the boot state is the state every
-    audio program on this device has to cope with, and it was wrong for as
-    long as it was only assertable by booting a device and listening.
+    audio program on this device has to cope with, and a seam is what makes
+    it assertable without booting a device and listening.
     """
     def run(mixer \\ MayonnaiOS.Audio.Amixer) do
       case MayonnaiOS.Audio.silence(mixer) do

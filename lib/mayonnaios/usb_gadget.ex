@@ -9,8 +9,8 @@ defmodule MayonnaiOS.USBGadget do
   which has already been the difference between a recoverable device and one
   needing its card reflashed.
 
-  It matters more, not less, now that the panel works: a firmware whose UI
-  takes the framebuffer and then fails leaves nothing on screen to read.
+  A working panel does not replace it: a firmware whose UI takes the
+  framebuffer and then fails leaves nothing on screen to read.
 
   The hardware side is already in place: the inherited device tree sets the
   type-C port to `dr_mode = "peripheral"`, and the kernel has CONFIG_USB_CONFIGFS

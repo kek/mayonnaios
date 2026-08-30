@@ -540,10 +540,9 @@ defmodule MayonnaiOS.Bluetooth.Peripheral do
   # it as buffers come back. A dropped response is not a smaller failure
   # than a dropped connection -- a host waits thirty seconds for the report
   # map it asked for, gives up, and the device is paired, encrypted and
-  # invisible. That was live once: the 283-byte descriptor reads as ten
-  # fragments against eight buffers, and the old all-or-nothing send threw
-  # the answer away. Only notifications may be dropped, and they go through
-  # `notify/6` below.
+  # invisible. The 283-byte descriptor reads as ten fragments against eight
+  # buffers, so an all-or-nothing send throws exactly that answer away. Only
+  # notifications may be dropped, and they go through `notify/6` below.
   defp send_pdu(%{connection: nil} = state, _cid, _payload), do: state
 
   defp send_pdu(state, cid, payload) do

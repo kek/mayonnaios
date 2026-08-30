@@ -2,36 +2,35 @@ defmodule MayonnaiOS.Sleep do
   @moduledoc """
   Turns the panel's backlight off and on again.
 
-  This is the whole of "sleep" on this device, and the name is deliberately
-  the user's word rather than the kernel's: nothing is suspended, no process
-  is stopped, and the CPUs keep running. What changes is the one thing that
-  costs anything -- the panel and its backlight are the budget, with the whole
-  board measured at about 1.83 W idle with the screen on.
+  This is the visible half of "sleep" and the only half that is certain to
+  work; `MayonnaiOS.LowPower` is the rest -- the Scenic renderer, WiFi, the
+  cpufreq governor and three of the four cores. The name is deliberately the
+  user's word rather than the kernel's: nothing is suspended, and the CPUs
+  keep running.
+
+  This module stays the one that decides. `MayonnaiOS.Launcher` calls
+  `LowPower.enter/0` only once the backlight write has landed, because a sleep
+  that could not darken the panel must not take three cores offline behind a
+  lit screen.
 
   ## Why it is not suspend
 
   `/sys/power/mem_sleep` on this board offers only `[s2idle]`. There is no
   `deep`, because ATF's `sun50i_h616` platform does not implement PSCI
-  SYSTEM_SUSPEND, and an s2idle attempt aborts anyway inside rtw88's SDIO
-  suspend handler with `-EINVAL` (there is no `keep-power-in-suspend` in any
-  device tree here). There is also no cpuidle driver, so the deepest state
+  SYSTEM_SUSPEND -- the H616 die dropped the AR100 coprocessor that A64 and H6
+  use for exactly that -- and an s2idle attempt aborts anyway inside rtw88's
+  SDIO suspend handler with `-EINVAL` (there is no `keep-power-in-suspend` in
+  any device tree here). There is also no cpuidle driver, so the deepest state
   these cores reach is a bare WFI whether "suspended" or not: a successful
   s2idle would save almost nothing.
 
-  It also used to be dangerous, and that is the half of the analysis that has
-  changed. There is now a button that could bring the board back: the power
-  key's platform device is wakeup-capable and enabled --
-  `/sys/bus/platform/devices/axp20x-pek/power/wakeup` reads `enabled` on
-  firmware `3cc86f59` -- where before only `alarmtimer.0.auto`,
-  `musb-hdrc.2.auto` and `7000000.rtc` had a `power/wakeup` at all, and a
-  suspend that worked would have looked exactly like a brick in someone's
-  hands.
-
-  The wake source is recorded here because it was load-bearing and is now
-  wrong, not because it changes the answer. The other three reasons are the
-  ones that decide it, and all three stand: no `deep`, an s2idle that aborts
-  in rtw88, and no cpuidle driver to make a successful one worth anything. So
-  sleep is still the backlight and nothing else.
+  A suspend would at least be recoverable -- the power key's platform device
+  is wakeup-capable and enabled, `/sys/bus/platform/devices/axp20x-pek/power/wakeup`
+  reads `enabled` on firmware `3cc86f59` -- but the three reasons above decide
+  it regardless: no `deep`, an s2idle that aborts in rtw88, and no cpuidle
+  driver to make a successful one worth anything. So sleep is this backlight
+  plus what `MayonnaiOS.LowPower` can switch off by hand, which is what every
+  other OS on this SoC does under the name suspend.
 
   ## Why the backlight, and why 0 and 1
 
@@ -43,10 +42,13 @@ defmodule MayonnaiOS.Sleep do
   A PWM backlight would need this module to read `max_brightness` and restore
   a previous level; a binary one has nothing to remember.
 
-  Nothing else has to cooperate. Scenic renders through `cairo-fb` into
-  `/dev/fb0` on the CPU -- a plain mmap writer, not a DRM master -- so the app
-  keeps running with the panel dark, and turning the backlight back on shows
-  the current frame with no re-init and no scene restart.
+  Nothing else has to cooperate with *this* write. Scenic renders through
+  `cairo-fb` into `/dev/fb0` on the CPU -- a plain mmap writer, not a DRM
+  master -- so the app keeps running with the panel dark, and turning the
+  backlight back on shows the current frame with no re-init and no scene
+  restart. `MayonnaiOS.LowPower.Renderer` stops that renderer separately and
+  starts it again before the light comes back, so what the panel shows is
+  still a current frame.
 
   ## What a successful write does and does not prove
 
@@ -75,7 +77,7 @@ defmodule MayonnaiOS.Sleep do
 
   ## The binding
 
-  Karl asked for the power button, and the power button now exists. It is on
+  The binding is the power button. It is on
   the PMIC's PWRON pin, `CONFIG_INPUT_AXP20X_PEK` is set in the system repo's
   `linux/nerves.fragment`, and `drivers/input/misc/axp20x-pek.c` puts
   `KEY_POWER` on an input device named `axp20x-pek`. Read off the device on
@@ -94,57 +96,28 @@ defmodule MayonnaiOS.Sleep do
   `MayonnaiOS.Launcher`'s Select+Menu chord and the menu's Power off row --
   exist and stay off this button.
 
-  ## The chord that used to be here
+  Sleep is this button's only trigger. A trigger has to be written down in
+  this moduledoc, in the launcher's binding list, in the README, in
+  `MayonnaiOS.Keyboard` and in the application's supervision comment. The
+  device profile keeps the input name and key together with the rest of the
+  board's controls.
 
-  Sleep was Select+Start until the power key existed, and that chord is gone
-  rather than kept alongside. The case for keeping both is discoverability
-  insurance, and it does not survive contact with what a second trigger
-  costs: it has to be written down in this moduledoc, in the launcher's
-  binding list, in the README, in `MayonnaiOS.Keyboard` and in the
-  application's supervision comment, and `@binding` below is one tuple
-  precisely so that there is one place where any of that is written down.
-  Undiscoverability was the entire complaint about a chord, and answering it
-  with a chord *and* a button leaves the complaint standing while doubling
-  what a reader has to keep in step. Start goes back to being unbound, like B
-  and Y.
-
-  `MayonnaiOS.Input.find/1` is what makes the move safe: it looks the device
-  up by the name its driver gives it, and firmware without the option gets
-  `nil` and a warning naming every device that is present, rather than a
-  numbered guess that opens the analog stick and waits for `KEY_POWER` for
-  ever.
+  `MayonnaiOS.Input.find/1` looks the device up by the name its driver gives
+  it, and firmware without the option gets `nil` and a warning naming every
+  device that is present, rather than a numbered guess that opens the analog
+  stick and waits for `KEY_POWER` for ever.
   """
 
   require Logger
 
-  alias MayonnaiOS.Input
+  alias MayonnaiOS.{Device, Input}
 
   # The brightness file. Configurable rather than written out at each use, so
   # a test can point it at a temp file and so a panel wired differently is a
   # config line instead of a patch.
-  @default_path "/sys/class/backlight/backlight/brightness"
-
   # max_brightness is 1; see the moduledoc.
   @off "0"
   @on "1"
-
-  # `{device name, {modifier, key}}`.
-  #
-  # The power button, on its own. `nil` for the modifier means the key alone
-  # is the trigger; the chord shape is still supported and still resolved at
-  # compile time below, so sleep moving back onto the pad -- or onto whatever
-  # key the next shell puts it on -- stays a change to this one line.
-  #
-  # There is no path in here any more. A fallback would be a number, and a
-  # number reached because the name was missing is a different device; see
-  # `MayonnaiOS.Input`.
-  @binding {"axp20x-pek", {nil, :key_power}}
-
-  # Taken apart at compile time, so the one line above stays the only place
-  # any of it is written down.
-  @device_name elem(@binding, 0)
-  @modifier @binding |> elem(1) |> elem(0)
-  @key @binding |> elem(1) |> elem(1)
 
   @doc """
   The sysfs file that turns the backlight off and on.
@@ -152,7 +125,8 @@ defmodule MayonnaiOS.Sleep do
   From `config :mayonnaios, :backlight_brightness`, defaulting to the panel's.
   """
   @spec path() :: String.t()
-  def path, do: Application.get_env(:mayonnaios, :backlight_brightness, @default_path)
+  def path,
+    do: Application.get_env(:mayonnaios, :backlight_brightness, Device.current!().backlight)
 
   @doc """
   The input device the sleep key arrives on, or `nil` when there is none.
@@ -164,7 +138,7 @@ defmodule MayonnaiOS.Sleep do
   has already logged which devices there were instead. See `MayonnaiOS.Input`.
   """
   @spec device() :: String.t() | nil
-  def device, do: Input.find(@device_name)
+  def device, do: Input.find(Device.input(:power))
 
   @doc """
   Whether this press is the sleep trigger, given what is currently held.
@@ -173,19 +147,7 @@ defmodule MayonnaiOS.Sleep do
   thing that knows about button state and this stays a pure predicate.
   """
   @spec trigger?(MapSet.t(atom()), atom()) :: boolean()
-  def trigger?(held, key), do: triggered?(held, key)
-
-  # Which of the two shapes this is, is decided when the module is compiled: a
-  # nil modifier -- which is what the power key wants -- makes the key alone
-  # the trigger, and then nothing looks at the held set at all. The chord
-  # clause is compiled only when `@binding` names a modifier, so a `held` set
-  # is still threaded through `trigger?/2` by every caller: that argument is
-  # what keeps moving the binding back onto the pad a one-line change.
-  if @modifier do
-    defp triggered?(held, key), do: key == @key and MapSet.member?(held, @modifier)
-  else
-    defp triggered?(_held, key), do: key == @key
-  end
+  def trigger?(_held, key), do: key == Device.button(:sleep)
 
   @doc """
   The binding, for a log line or a help screen that wants to name it.
@@ -193,7 +155,7 @@ defmodule MayonnaiOS.Sleep do
   `{nil, key}` when the key is the whole trigger, which is what it is now.
   """
   @spec binding() :: {atom() | nil, atom()}
-  def binding, do: {@modifier, @key}
+  def binding, do: {nil, Device.button(:sleep)}
 
   @doc """
   Backlight off. `{:error, reason}` when the write does not land.

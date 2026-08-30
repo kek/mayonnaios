@@ -27,14 +27,14 @@ defmodule MayonnaiOS.Bluetooth.Credits do
 
   ## Why the queue exists at all
 
-  It did not, and the stack worked -- until the report descriptor grew. The
-  descriptor is read at MTU 247, and a 246-byte ATT response is ten fragments
-  of 27 bytes where the controller holds eight. The old all-or-nothing send
-  refused the PDU, nothing was ever written, and BlueZ on a Steam Deck
-  reported `Report Map read failed: unlikely error` -- its words for an ATT
-  request nothing answered -- and declined to create the input device. A
-  controller that pairs, encrypts and notifies perfectly, invisible to every
-  game, because the one answer that did not fit was silently thrown away.
+  The report descriptor is read at MTU 247, and a 246-byte ATT response is
+  ten fragments of 27 bytes where the controller holds eight. An
+  all-or-nothing send refuses the PDU, nothing is ever written, and BlueZ on
+  a Steam Deck reports `Report Map read failed: unlikely error` -- its words
+  for an ATT request nothing answered -- and declines to create the input
+  device. A controller that pairs, encrypts and notifies perfectly,
+  invisible to every game, because the one answer that did not fit was
+  silently thrown away.
 
   ## Fragments must stay contiguous
 

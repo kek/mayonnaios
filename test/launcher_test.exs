@@ -1,7 +1,7 @@
 defmodule MayonnaiOS.LauncherTest do
   use ExUnit.Case, async: false
 
-  alias MayonnaiOS.{Launcher, Programs}
+  alias MayonnaiOS.{Browser, Launcher, Programs, Theme}
   alias MayonnaiOS.Scene.Home
 
   # No viewport, no driver, no framebuffer. Everything here runs on the host,
@@ -41,91 +41,180 @@ defmodule MayonnaiOS.LauncherTest do
     end
   end
 
-  describe "Programs.step/3" do
+  describe "Scene.Home.graph/3" do
     setup do
-      %{programs: Programs.list([%{path: "/a"}, %{path: "/b"}, %{path: "/c"}])}
+      on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
+      :ok
     end
 
-    test "moves down and wraps past the end", %{programs: programs} do
-      assert Programs.step(programs, 0, 1) == 1
-      assert Programs.step(programs, 2, 1) == 0
+    test "the root column names the categories" do
+      says = texts(Home.graph(Browser.new()))
+
+      for category <- ["Games", "Files", "Apps", "System"] do
+        assert category in says
+      end
     end
 
-    test "moves up and wraps past the start", %{programs: programs} do
-      assert Programs.step(programs, 1, -1) == 0
-      assert Programs.step(programs, 0, -1) == 2
+    test "builds the sheets: actions, the confirmation, the rename editor" do
+      entry = %{type: :regular, size: 9, link: nil, broken?: false}
+
+      confirm =
+        put_in(
+          Browser.new().overlay,
+          {:confirm, %{location: %{root: "r", path: []}, entry: entry, name: "x"}}
+        )
+
+      assert Enum.any?(texts(Home.graph(confirm)), &(&1 =~ "Y deletes it."))
+
+      rename =
+        put_in(Browser.new().overlay, {:rename, %{name: "ab", chars: ["a", "b"], caret: 0}})
+
+      assert Enum.any?(texts(Home.graph(rename)), &(&1 =~ "Y removes it."))
+
+      sheet = put_in(Browser.new().overlay, {:actions, [%{id: :delete, label: "Delete x"}], 0})
+      assert "Delete x" in texts(Home.graph(sheet))
     end
 
-    test "is 0 for an empty list" do
-      # An empty menu must not divide by zero on a D-pad press.
-      assert Programs.step([], 0, 1) == 0
-      assert Programs.step([], 3, -1) == 0
-    end
-  end
+    test "the breadcrumb names every open level" do
+      Application.put_env(:mayonnaios, :programs, [%{path: "/a"}])
 
-  describe "Programs.at/2" do
-    test "tolerates an index past the end of a shrunken list" do
-      programs = Programs.list([%{path: "/a"}, %{path: "/b"}])
-      assert Programs.at(programs, 5).path == "/b"
-      assert Programs.at(programs, -1).path == "/b"
-    end
+      browser = Browser.new() |> Browser.descend()
 
-    test "is nil when nothing is configured" do
-      assert Programs.at([], 0) == nil
-    end
-  end
-
-  describe "Scene.Home.graph/2" do
-    test "builds for an empty list" do
-      assert %Scenic.Graph{} = Home.graph([], 0)
-    end
-
-    test "builds for a single entry" do
-      assert %Scenic.Graph{} = Home.graph(Programs.list([%{path: "/usr/bin/kmscube"}]), 0)
-    end
-
-    test "builds with the selection on the last row" do
-      programs = Programs.list([%{path: "/a"}, %{path: "/b"}, %{path: "/c"}])
-      assert %Scenic.Graph{} = Home.graph(programs, 2)
+      assert Enum.any?(
+               texts(Home.graph(browser)),
+               &(&1 =~ "#{MayonnaiOS.Device.current!().name} > Games")
+             )
     end
 
     test "windows the rows so the selection is always drawn" do
       # "It built without raising" is not enough here: Enum.slice returns []
       # for an out-of-range start, so a broken window would still produce a
-      # graph -- an empty menu that looks like a rendering bug on the device.
-      programs = Programs.list(for i <- 1..20, do: %{path: "/bin/prog#{i}"})
+      # graph -- an empty column that looks like a rendering bug on the device.
+      Application.put_env(
+        :mayonnaios,
+        :programs,
+        for(i <- 1..20, do: %{path: "/bin/prog#{i}"})
+      )
 
-      last = texts(Home.graph(programs, 19))
-      assert "prog20" in last
-      refute "prog1" in last
+      browser = Browser.new() |> Browser.descend()
 
-      first = texts(Home.graph(programs, 0))
+      first = texts(Home.graph(browser))
       assert "prog1" in first
       refute "prog20" in first
+
+      last = texts(Home.graph(Browser.move(browser, 19)))
+      assert "prog20" in last
+      refute "prog1" in last
     end
 
     test "says so on the row when a configured path is not in the image" do
-      graph = Home.graph(Programs.list([%{path: "/usr/bin/definitely-not-here"}]), 0)
+      Application.put_env(:mayonnaios, :programs, [%{path: "/usr/bin/definitely-not-here"}])
+
+      graph = Home.graph(Browser.new() |> Browser.descend())
       assert "not installed" in texts(graph)
     end
 
-    test "an action entry is an ordinary, always-installed row" do
-      assert [entry] = Programs.list([%{name: "Power off", action: :poweroff}])
-      assert entry.installed?
-      assert entry.action == :poweroff
+    test "an empty column says why instead of listing nothing" do
+      Application.put_env(:mayonnaios, :programs, [])
 
-      assert "Power off" in texts(Home.graph([entry], 0))
-      refute "not installed" in texts(Home.graph([entry], 0))
+      graph = Home.graph(Browser.new() |> Browser.descend())
+      assert Enum.any?(texts(graph), &(&1 =~ "Nothing to run"))
     end
 
-    test "the power-off question is on the panel only while it is being asked" do
-      programs = Programs.list([%{name: "Power off", action: :poweroff}])
+    test "an obituary quotes the program's dying words" do
+      obituary = %{name: "Moonlight", status: 1, lines: ["Can't open configuration file"]}
 
-      asked = texts(Home.graph(programs, 0, true))
-      assert Enum.any?(asked, &(&1 =~ "Power off? Y switches off"))
+      says = texts(Home.graph(Browser.new(), obituary))
+      assert Enum.any?(says, &(&1 =~ "Moonlight exited (1)"))
+      assert Enum.any?(says, &(&1 =~ "Can't open configuration file"))
 
-      idle = texts(Home.graph(programs, 0))
-      refute Enum.any?(idle, &(&1 =~ "Y switches off"))
+      idle = texts(Home.graph(Browser.new()))
+      refute Enum.any?(idle, &(&1 =~ "exited"))
+    end
+
+    test "a spawn that raised says would not start, not exited" do
+      obituary = %{name: "Doom", status: nil, lines: ["enoent"]}
+      says = texts(Home.graph(Browser.new(), obituary))
+
+      assert Enum.any?(says, &(&1 =~ "Doom would not start"))
+      refute Enum.any?(says, &(&1 =~ "exited"))
+    end
+
+    test "the right pane previews the selection" do
+      Application.put_env(:mayonnaios, :programs, [%{path: "/a"}])
+
+      # The cursor is on Games, so the preview pane lists what Games holds.
+      assert "a" in texts(Home.graph(Browser.new()))
+    end
+
+    test "the full view is one wide column about the selection" do
+      Application.put_env(:mayonnaios, :programs, [%{path: "/a"}])
+
+      browser = Browser.new() |> Browser.descend() |> Browser.open_full()
+      says = texts(Home.graph(browser))
+
+      assert Enum.any?(says, &(&1 =~ "/a"))
+      assert "X closes." in says
+      # The columns give way to the one wide view.
+      refute "Games" in says
+    end
+
+    test "the footer only labels controls that vary with the state" do
+      idle = texts(Home.graph(Browser.new()))
+      assert "X inspects." in idle
+      refute Enum.any?(idle, &(&1 =~ "A opens"))
+      refute Enum.any?(idle, &(&1 =~ "B closes"))
+      refute Enum.any?(idle, &(&1 =~ "L1/R1"))
+
+      sheet = put_in(Browser.new().overlay, {:actions, [%{id: :delete, label: "Delete x"}], 0})
+      assert "Up/Down chooses." in texts(Home.graph(sheet))
+    end
+
+    test "the footer mentions paging only when the current content can page" do
+      entries =
+        for i <- 1..11 do
+          %{
+            kind: :file,
+            name: "file#{i}",
+            entry: %{type: :regular, size: 1, link: nil, broken?: false}
+          }
+        end
+
+      browser =
+        Browser.new()
+        |> put_in(
+          [
+            Access.key!(:levels),
+            Access.at(0)
+          ],
+          %{
+            title: "Files",
+            entries: entries,
+            cursor: 0,
+            note: nil,
+            location: %{root: "r", path: []},
+            readable?: true,
+            space: nil
+          }
+        )
+
+      assert "X inspects.  Y file actions.  L1/R1 page." in texts(Home.graph(browser))
+
+      short_full =
+        put_in(browser.full, %{kind: :text, title: "short", lines: ["one"], offset: 0, note: nil})
+
+      assert "X closes." in texts(Home.graph(short_full))
+
+      long_full =
+        put_in(browser.full, %{
+          kind: :text,
+          title: "long",
+          lines: Enum.map(1..30, &Integer.to_string/1),
+          offset: 0,
+          note: nil
+        })
+
+      assert "Up/Down scroll. L1/R1 page. X closes." in texts(Home.graph(long_full))
     end
 
     # Every text primitive's string, so a test can assert what the panel says
@@ -144,8 +233,8 @@ defmodule MayonnaiOS.LauncherTest do
       # here deliberately steps around. Two lookups happen at boot -- the pad
       # and whatever device the sleep key is on -- and on a laptop both answer
       # `nil`. Neither may be opened, and neither may take the boot down:
-      # `File.exists?/1` on a nil raises, which is what a fallback used to
-      # hide by handing over a path that merely did not exist.
+      # `File.exists?/1` on a nil raises, and a fallback would hide the nil
+      # by handing over a path that merely does not exist.
       log =
         ExUnit.CaptureLog.capture_log(fn ->
           start_supervised!(Launcher)
@@ -154,16 +243,67 @@ defmodule MayonnaiOS.LauncherTest do
 
       assert log =~ "no input devices found"
     end
+
+    test "bindings can be replaced by a device profile without code changes" do
+      buttons = %{MayonnaiOS.Device.current!().buttons | down: :key_volumedown}
+      start_supervised!({Launcher, device: "/nonexistent/event0", buttons: buttons})
+
+      send(
+        Launcher,
+        {:input_event, "/nonexistent/event0", [{:ev_key, :key_volumedown, 1}]}
+      )
+
+      assert Launcher.selected() == 1
+    end
+
+    test "a configured lid switch sleeps on close and wakes on open" do
+      path = Path.join(System.tmp_dir!(), "lid-backlight-#{System.unique_integer([:positive])}")
+      File.write!(path, "1")
+      Application.put_env(:mayonnaios, :backlight_brightness, path)
+
+      on_exit(fn ->
+        Application.delete_env(:mayonnaios, :backlight_brightness)
+        File.rm(path)
+      end)
+
+      lid = %{device: "gpio-lid", key: :sw_lid}
+
+      start_supervised!({Launcher, device: "/nonexistent/event0", lid_switch: lid})
+
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_sw, :sw_lid, 1}]})
+      assert Launcher.asleep?()
+      assert File.read!(path) == "0"
+
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_sw, :sw_lid, 0}]})
+      refute Launcher.asleep?()
+      assert File.read!(path) == "1"
+    end
   end
 
   describe "the D-pad binding" do
     setup do
       # The Launcher is not in the host supervision tree, and there is no
       # /dev/input here, so it starts with no device and the synthetic events
-      # below stand in for the pad.
+      # below stand in for the pad. The root column is fixed -- four
+      # categories -- so nothing on this host can change what these wrap over.
       programs = [%{path: "/a"}, %{path: "/b"}, %{path: "/c"}]
       Application.put_env(:mayonnaios, :programs, programs)
-      on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
+
+      # A real directory behind the Files category, for the sheet and paging
+      # tests: one file would page nowhere and offer nothing.
+      root = Path.join(System.tmp_dir!(), "launcher-test-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(root)
+
+      for i <- 1..12,
+          do: File.write!(Path.join(root, "file-#{String.pad_leading("#{i}", 2, "0")}"), "x")
+
+      Application.put_env(:mayonnaios, :file_roots, [%{key: "r", path: root, note: ""}])
+
+      on_exit(fn ->
+        File.rm_rf(root)
+        Application.delete_env(:mayonnaios, :programs)
+        Application.delete_env(:mayonnaios, :file_roots)
+      end)
 
       start_supervised!({Launcher, device: "/nonexistent/event0"})
       :ok
@@ -184,7 +324,7 @@ defmodule MayonnaiOS.LauncherTest do
 
     test "up from the top wraps to the bottom" do
       press(:btn_dpad_up)
-      assert Launcher.selected() == 2
+      assert Launcher.selected() == 3
     end
 
     test "autorepeat does not move the cursor" do
@@ -194,17 +334,311 @@ defmodule MayonnaiOS.LauncherTest do
       assert Launcher.selected() == 0
     end
 
+    test "A opens a category and B closes it" do
+      # :btn_b is the button silkscreened A; see the Launcher moduledoc.
+      press(:btn_b)
+
+      browser = Launcher.browser()
+      assert Browser.depth(browser) == 2
+      assert Browser.trail(browser) == [MayonnaiOS.Device.current!().name, "Games"]
+      assert Enum.map(List.last(browser.levels).entries, & &1.name) == ["a", "b", "c"]
+
+      press(:btn_a)
+      assert Browser.depth(Launcher.browser()) == 1
+    end
+
+    test "right opens a column and left closes it, and neither launches" do
+      press(:btn_dpad_right)
+      assert Browser.depth(Launcher.browser()) == 2
+
+      # Right on a leaf: /a is a program, not a column, and right must not
+      # start it -- A is the button that commits.
+      press(:btn_dpad_right)
+      assert Browser.depth(Launcher.browser()) == 2
+      refute Launcher.running?()
+
+      press(:btn_dpad_left)
+      assert Browser.depth(Launcher.browser()) == 1
+    end
+
+    test "Y opens the actions sheet in a directory, and the sheet has the buttons" do
+      # Down onto Files, into the first root, onto its one file.
+      press(:btn_dpad_down)
+      press(:btn_b)
+      press(:btn_b)
+      refute Browser.busy?(Launcher.browser())
+
+      press(:btn_x)
+      assert Browser.busy?(Launcher.browser())
+
+      # The D-pad now moves the sheet's cursor, not the column's.
+      before = Launcher.selected()
+      press(:btn_dpad_down)
+      assert Launcher.selected() == before
+
+      # Physical B closes the sheet.
+      press(:btn_a)
+      refute Browser.busy?(Launcher.browser())
+    end
+
+    test "Y outside a directory column does nothing" do
+      before = Launcher.browser()
+      press(:btn_x)
+
+      assert Launcher.browser() == before
+    end
+
+    test "the shoulders page the focused column, clamped" do
+      press(:btn_dpad_down)
+      press(:btn_b)
+      press(:btn_b)
+
+      press(:btn_tr)
+      assert Launcher.selected() == 10
+
+      press(:btn_tr)
+      assert Launcher.selected() == 11
+
+      press(:btn_tl)
+      assert Launcher.selected() == 1
+    end
+
+    test "A on a file opens the full view, never the actions sheet" do
+      # Down onto Files, into the first root, cursor on its first file.
+      press(:btn_dpad_down)
+      press(:btn_b)
+      press(:btn_b)
+
+      press(:btn_b)
+      browser = Launcher.browser()
+      assert Browser.full?(browser)
+      refute Browser.busy?(browser)
+
+      # Physical B closes it, and the columns are back where they were.
+      press(:btn_a)
+      refute Browser.full?(Launcher.browser())
+      assert Browser.depth(Launcher.browser()) == 3
+    end
+
+    test "X toggles the full view, and the view has the D-pad while it is up" do
+      press(:btn_dpad_down)
+      press(:btn_b)
+      press(:btn_b)
+
+      # :btn_y is the button silkscreened X; see the Launcher moduledoc.
+      press(:btn_y)
+      assert Browser.full?(Launcher.browser())
+
+      before = Launcher.selected()
+      press(:btn_dpad_down)
+      assert Launcher.selected() == before
+
+      press(:btn_y)
+      refute Browser.full?(Launcher.browser())
+    end
+
+    test "Menu leaves the full view for the root column" do
+      press(:btn_dpad_down)
+      press(:btn_b)
+      press(:btn_b)
+      press(:btn_y)
+      assert Browser.full?(Launcher.browser())
+
+      press(:btn_mode)
+      refute Browser.full?(Launcher.browser())
+      assert Browser.depth(Launcher.browser()) == 1
+    end
+
+    test "Menu goes back to the root column from deep in the tree" do
+      press(:btn_b)
+      press(:btn_dpad_down)
+      assert Browser.depth(Launcher.browser()) == 2
+
+      press(:btn_mode)
+      assert Browser.depth(Launcher.browser()) == 1
+    end
+
     defp press(key) do
       send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 1}]})
-      # selected/0 is a call, so it is ordered behind the cast above.
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 0}]})
+      # selected/0 is a call, so it is ordered behind the casts above.
+      Launcher.selected()
+    end
+  end
+
+  # B leaving the readout apps and diagnostics, and staying with the apps
+  # that need it. The fake apps at the bottom of this file stand in for the
+  # real ones because the real ones want hci0 or a viewport; the contract
+  # exercised -- start, stop, input, claims_back? -- is the launcher's whole
+  # view of an app either way.
+  describe "B as the way back out" do
+    setup do
+      Process.register(self(), :launcher_test_sink)
+
+      Application.put_env(:mayonnaios, :programs, [
+        %{name: "Readout", app: FakeReadout, category: :apps},
+        %{name: "Game", app: FakeGame, category: :apps},
+        %{name: "BEAM processes", app: {MayonnaiOS.Top, :beam}, category: :apps}
+      ])
+
+      on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
+
+      start_supervised!({Launcher, device: "/nonexistent/event0"})
+
+      # Into the Apps column: third category from the top.
+      tap(:btn_dpad_down)
+      tap(:btn_dpad_down)
+      tap(:btn_b)
+      :ok
+    end
+
+    test "B leaves an app that does not claim it, and the press is swallowed" do
+      tap(:btn_b)
+      assert :sys.get_state(Launcher).app == FakeReadout
+
+      tap(:btn_a)
+      assert_receive {FakeReadout, :stopped}
+      assert :sys.get_state(Launcher).app == nil
+      assert :sys.get_state(Launcher).scene == :home
+
+      # The press that left never reached the app as input.
+      refute_received {FakeReadout, {:input, [{:ev_key, :btn_a, 1}]}}
+    end
+
+    test "B stays with an app that claims it" do
+      tap(:btn_dpad_down)
+      tap(:btn_b)
+      assert :sys.get_state(Launcher).app == FakeGame
+
+      tap(:btn_a)
+      assert_receive {FakeGame, {:input, [{:ev_key, :btn_a, 1}]}}
+      assert :sys.get_state(Launcher).app == FakeGame
+      refute_received {FakeGame, :stopped}
+    end
+
+    test "X on a process monitor opens the readout itself, and B backs out" do
+      tap(:btn_dpad_down)
+      tap(:btn_dpad_down)
+
+      tap(:btn_y)
+      assert :sys.get_state(Launcher).app == {MayonnaiOS.Top, :beam}
+
+      tap(:btn_a)
+      assert :sys.get_state(Launcher).app == nil
+    end
+
+    test "B leaves diagnostics for the home screen" do
+      # System is one wrap up from Apps' row; simplest is Menu home, then up.
+      tap(:btn_mode)
+      tap(:btn_dpad_up)
+      tap(:btn_b)
+      tap(:btn_b)
+      assert :sys.get_state(Launcher).scene == :diagnostics
+
+      tap(:btn_a)
+      assert :sys.get_state(Launcher).scene == :home
+    end
+  end
+
+  describe "idle sleep" do
+    setup do
+      path =
+        Path.join(System.tmp_dir!(), "launcher-idle-sleep-#{System.unique_integer([:positive])}")
+
+      File.write!(path, "1")
+      Application.put_env(:mayonnaios, :backlight_brightness, path)
+
+      on_exit(fn ->
+        Application.delete_env(:mayonnaios, :backlight_brightness)
+        File.rm(path)
+        Application.delete_env(:mayonnaios, :programs)
+      end)
+
+      {:ok, backlight: path}
+    end
+
+    test "sleeps after three minutes of launcher inactivity", %{backlight: path} do
+      start_idle_launcher(:discharging)
+
+      fire_idle_timeout()
+
+      assert Launcher.asleep?()
+      assert File.read!(path) == "0"
+      assert :sys.get_state(Launcher).idle_timer == nil
+    end
+
+    test "stays awake while charging and checks again later" do
+      start_idle_launcher(:charging)
+      {_timer, first_token} = :sys.get_state(Launcher).idle_timer
+
+      fire_idle_timeout()
+
+      refute Launcher.asleep?()
+      assert {_timer, next_token} = :sys.get_state(Launcher).idle_timer
+      assert next_token != first_token
+    end
+
+    test "a real press resets the timer but autorepeat does not" do
+      start_idle_launcher(:discharging)
+      {_timer, first_token} = :sys.get_state(Launcher).idle_timer
+
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, :btn_dpad_down, 2}]})
+      Launcher.selected()
+      assert {_timer, ^first_token} = :sys.get_state(Launcher).idle_timer
+
+      idle_press(:btn_dpad_down)
+      assert {_timer, next_token} = :sys.get_state(Launcher).idle_timer
+      assert next_token != first_token
+
+      # A timeout already delivered before the cancellation is harmless.
+      send(Launcher, {:idle_sleep, first_token})
+      refute Launcher.asleep?()
+    end
+
+    test "the timer is disabled while a BEAM app owns the launcher" do
+      Application.put_env(:mayonnaios, :programs, [
+        %{name: "Readout", app: FakeReadout, category: :apps}
+      ])
+
+      start_idle_launcher(:discharging)
+
+      # Apps is the third root row. A opens the category, then the app.
+      idle_press(:btn_dpad_down)
+      idle_press(:btn_dpad_down)
+      idle_press(:btn_b)
+      idle_press(:btn_b)
+
+      assert :sys.get_state(Launcher).app == FakeReadout
+      assert :sys.get_state(Launcher).idle_timer == nil
+
+      # B leaves the app and starts a fresh launcher-idle interval.
+      idle_press(:btn_a)
+      assert :sys.get_state(Launcher).app == nil
+      assert {_timer, _token} = :sys.get_state(Launcher).idle_timer
+    end
+
+    defp start_idle_launcher(power_state) do
+      start_supervised!(
+        {Launcher,
+         device: "/nonexistent/event0", idle_sleep_ms: 60_000, power_state: fn -> power_state end}
+      )
+    end
+
+    defp fire_idle_timeout do
+      {_timer, token} = :sys.get_state(Launcher).idle_timer
+      send(Launcher, {:idle_sleep, token})
+      Launcher.asleep?()
+    end
+
+    defp idle_press(key) do
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 1}]})
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 0}]})
       Launcher.selected()
     end
   end
 
   describe "the Power off row" do
     setup do
-      # A real program above it, so the tests can also show that cancelling
-      # does not leak the cancelling press into a launch.
       programs = [%{path: "/a"}, %{name: "Power off", action: :poweroff}]
       Application.put_env(:mayonnaios, :programs, programs)
       on_exit(fn -> Application.delete_env(:mayonnaios, :programs) end)
@@ -212,44 +646,35 @@ defmodule MayonnaiOS.LauncherTest do
       test = self()
 
       start_supervised!(
-        {Launcher, device: "/nonexistent/event0", poweroff: fn -> send(test, :powered_off) end}
+        {Launcher,
+         device: "/nonexistent/event0",
+         shutdown_splash: fn -> send(test, :splash_drawn) end,
+         poweroff: fn -> send(test, :powered_off) end}
       )
 
-      # Onto the Power off row.
+      # Into System -- the last category -- and down past Diagnostics, Sleep
+      # and Theme onto the Power off row, which sits last on purpose.
+      tap(:btn_dpad_up)
+      tap(:btn_b)
       tap(:btn_dpad_down)
+      tap(:btn_dpad_down)
+      tap(:btn_dpad_down)
+
+      assert Browser.selected(Launcher.browser()).name == "Power off"
       :ok
     end
 
-    test "A only asks; Y answers" do
+    test "A draws the splash and immediately powers off" do
       tap(:btn_b)
-      refute_received :powered_off
-
-      tap(:btn_x)
+      assert_receive :splash_drawn
       assert_receive :powered_off
     end
 
-    test "any other button keeps the device on, and Y afterwards is nothing" do
-      tap(:btn_b)
-      tap(:btn_a)
-
-      # The question is gone, so the button that would have answered it is
-      # back to being unbound.
+    test "Y remains the browser's second verb" do
+      before = Launcher.browser()
       tap(:btn_x)
-      refute_received :powered_off
-    end
 
-    test "the cancelling press is swallowed, not dispatched" do
-      tap(:btn_b)
-      # A again would launch whatever the cursor is on if it were dispatched;
-      # here it may only cancel. Y proving the question is gone also proves
-      # no second question was opened.
-      tap(:btn_b)
-      tap(:btn_x)
-      refute_received :powered_off
-    end
-
-    test "Y with no question pending is unbound" do
-      tap(:btn_x)
+      assert Launcher.browser() == before
       refute_received :powered_off
     end
 
@@ -258,6 +683,48 @@ defmodule MayonnaiOS.LauncherTest do
       send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 0}]})
       # A call, so both casts above have been handled before the test asserts.
       Launcher.selected()
+    end
+  end
+
+  describe "the Theme row" do
+    setup do
+      # `MayonnaiOS.Theme` keeps its selection in a `:persistent_term`, which
+      # outlives this process and this test -- see the module for why. Reset
+      # it on the way out so a theme picked here cannot leak into a test in
+      # another file that renders a graph and checks its colours.
+      on_exit(fn -> Theme.set(:default) end)
+
+      start_supervised!({Launcher, device: "/nonexistent/event0"})
+
+      # Into System -- the last category -- and down past Diagnostics and
+      # Sleep onto the Theme row.
+      tap(:btn_dpad_up)
+      tap(:btn_b)
+      tap(:btn_dpad_down)
+      tap(:btn_dpad_down)
+
+      assert Browser.selected(Launcher.browser()).name == "Theme"
+      :ok
+    end
+
+    test "A advances the theme without leaving the browser or launching anything" do
+      assert Theme.current().name == :default
+
+      browser_before = Launcher.browser()
+      tap(:btn_b)
+
+      assert Theme.current().name == :c64
+      # Still on the same row in the same column: this is a repaint, not a
+      # descent, and nothing was launched to hold the display.
+      assert Launcher.browser() == browser_before
+      refute Launcher.running?()
+    end
+
+    test "A again wraps back around through every built-in theme" do
+      for name <- [:c64, :synthwave, :default] do
+        tap(:btn_b)
+        assert Theme.current().name == name
+      end
     end
   end
 
@@ -304,6 +771,9 @@ defmodule MayonnaiOS.LauncherTest do
 
       start_supervised!({Launcher, [device: "/nonexistent/event0"] ++ opts})
 
+      # Into the Games column, where the configured shell is the first row.
+      # `launch/0` is A: the first press opens the category, the second runs.
+      Launcher.launch()
       Launcher.launch()
       assert Launcher.running?()
       os_pid = Launcher.os_pid()
@@ -429,8 +899,7 @@ defmodule MayonnaiOS.LauncherTest do
 
       assert Launcher.stop_program() == {:error, {:still_running, os_pid}}
 
-      # Everything the old code did unconditionally, and none of it is right
-      # here: the program still has the display, so the launcher must not claim
+      # The program still has the display, so the launcher must not claim
       # otherwise and must not draw.
       assert Launcher.running?()
       assert Panel.held?()
@@ -456,6 +925,87 @@ defmodule MayonnaiOS.LauncherTest do
       assert Launcher.stop_program() == :ok
       refute Launcher.running?()
       assert gone?(os_pid)
+    end
+  end
+
+  # A program that exits in its first hundred milliseconds is invisible from
+  # the couch -- the panel flashes and the menu is back, with the reason only
+  # in the ring logger. These run real processes for the same reason the stop
+  # tests do: the thing asserted is what an exit status and a pipe actually
+  # deliver, and a fake delivers whatever the test wants to hear.
+  describe "why a program died" do
+    alias MayonnaiOS.Panel
+
+    setup do
+      on_exit(fn ->
+        Panel.release()
+        Application.delete_env(:mayonnaios, :programs)
+      end)
+
+      :ok
+    end
+
+    defp run(script) do
+      Application.put_env(:mayonnaios, :programs, [
+        %{name: "sh", path: "/bin/sh", args: ["-c", script]}
+      ])
+
+      start_supervised!({Launcher, device: "/nonexistent/event0"})
+
+      # A twice: into the Games column, then the shell on its first row.
+      Launcher.launch()
+      Launcher.launch()
+    end
+
+    defp reaped?(attempts \\ 500) do
+      cond do
+        not Launcher.running?() -> true
+        attempts == 0 -> false
+        true -> Process.sleep(10) && reaped?(attempts - 1)
+      end
+    end
+
+    test "a nonzero exit leaves an obituary quoting the last lines" do
+      run("echo one; echo nope; exit 3")
+      assert reaped?()
+
+      assert %{name: "sh", status: 3, lines: lines} = Launcher.obituary()
+      assert "nope" in lines
+    end
+
+    test "a clean exit leaves nothing" do
+      run("echo fine; exit 0")
+      assert reaped?()
+      assert Launcher.obituary() == nil
+    end
+
+    test "a deliberate stop leaves nothing, whatever the exit status" do
+      # SIGTERM ends this shell with a nonzero status; the point is that a
+      # stop the user asked for is not a death worth reporting.
+      run("while :; do sleep 1; done")
+      assert Launcher.stop_program() == :ok
+      assert Launcher.obituary() == nil
+    end
+
+    test "B takes it off, the D-pad leaves it alone" do
+      run("exit 5")
+      assert reaped?()
+      assert %{status: 5} = Launcher.obituary()
+
+      tap_key(:btn_dpad_down)
+      assert %{status: 5} = Launcher.obituary()
+
+      # Physical B is BTN_SOUTH, which InputEvent reports as :btn_a -- the
+      # launcher moduledoc's table is the authority on that swap.
+      tap_key(:btn_a)
+      assert Launcher.obituary() == nil
+    end
+
+    defp tap_key(key) do
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 1}]})
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 0}]})
+      # A call, so both casts above have been handled before the test asserts.
+      Launcher.selected()
     end
   end
 
@@ -522,6 +1072,35 @@ defmodule MayonnaiOS.LauncherTest do
       refute_received :flushed
       assert alive?(os_pid)
     end
+  end
+end
+
+# The launcher's app contract with nothing behind it: starts a process that
+# idles, reports its stops and its inputs to whichever test registered itself
+# as the sink. One does not claim B and one does, which is the difference
+# under test.
+defmodule FakeReadout do
+  def start, do: {:ok, spawn(fn -> Process.sleep(:infinity) end)}
+  def stop, do: notify(:stopped)
+  def input(events), do: notify({:input, events})
+  def scene, do: nil
+
+  defp notify(message) do
+    if pid = Process.whereis(:launcher_test_sink), do: send(pid, {__MODULE__, message})
+    :ok
+  end
+end
+
+defmodule FakeGame do
+  def start, do: {:ok, spawn(fn -> Process.sleep(:infinity) end)}
+  def stop, do: notify(:stopped)
+  def input(events), do: notify({:input, events})
+  def scene, do: nil
+  def claims_back?, do: true
+
+  defp notify(message) do
+    if pid = Process.whereis(:launcher_test_sink), do: send(pid, {__MODULE__, message})
+    :ok
   end
 end
 

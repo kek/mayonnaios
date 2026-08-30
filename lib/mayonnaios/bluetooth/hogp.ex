@@ -29,16 +29,14 @@ defmodule MayonnaiOS.Bluetooth.HOGP do
   ## The PnP ID is Microsoft's, on purpose
 
   Vendor 0x045E, product 0x0B13: the Xbox Wireless Controller with the BLE
-  firmware. This used to be pid.codes numbers and a paragraph here about how
-  borrowing a real vendor's would get the borrowed controller's mapping
-  applied to a layout that was not its -- which was true, and is exactly the
-  mechanism now being used on purpose: `MayonnaiOS.Controller.Report` carries
-  that controller's descriptor and report layout byte for byte, so the fixed
-  belief these numbers trigger in SDL, macOS and the Steam Deck is a correct
-  belief. Its moduledoc has the full account of the reversal. The numbers,
-  the name, the manufacturer string and the report format are one identity
-  and change together or not at all -- a device that is half one thing is
-  recognised as neither.
+  firmware. Borrowing a real vendor's numbers gets the borrowed controller's
+  mapping applied on the host, and that is the mechanism being used:
+  `MayonnaiOS.Controller.Report` carries that controller's descriptor and
+  report layout byte for byte, so the fixed belief these numbers trigger in
+  SDL, macOS and the Steam Deck is a correct belief. The numbers, the name,
+  the manufacturer string and the report format are one identity and change
+  together or not at all -- a device that is half one thing is recognised as
+  neither.
 
   ## Everything in the HID service needs encryption
 
