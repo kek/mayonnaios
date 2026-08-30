@@ -163,6 +163,15 @@ config :mayonnaios, :viewport,
 # with a usage message would look exactly like a working launcher.
 #
 #     %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]}
+# The one place the Moonlight config file is named. It is used twice below --
+# on Moonlight's own command line, and by `MayonnaiOS.Moonlight`, which is
+# what the settings screen writes through -- and a screen that edited a
+# different file from the one the stream reads would be the kind of bug that
+# looks like the setting having no effect.
+moonlight_config = "/root/.config/moonlight/moonlight.conf"
+
+config :mayonnaios, moonlight_config: moonlight_config
+
 config :mayonnaios, :programs, [
   # Not in the firmware. This path only exists once MayonnaiOS.Bundle has
   # installed RetroArch onto the writable partition, and until then Programs
@@ -231,23 +240,30 @@ config :mayonnaios, :programs, [
   #
   # -config names the player's own file rather than the bundle's, because the
   # one thing a stream cannot start without is the host's address, and no
-  # bundle can know it. The file does not exist until the player creates it
-  # over SSH -- the same session in which they pair, since pairing prints a
-  # PIN that must be typed into the host:
+  # bundle can know it. The System menu's "Moonlight settings" row below
+  # writes that file -- it seeds it from the bundle's template, which is the
+  # copy this used to ask for -- so the only step left that needs SSH is
+  # pairing, which prints a PIN that must be typed into the host:
   #
   #     /root/bundles/moonlight/current/bin/moonlight pair <host>
-  #     cp /root/bundles/moonlight/current/share/moonlight/moonlight.conf \
-  #        /root/.config/moonlight/moonlight.conf
-  #     echo 'address = <host>' >> /root/.config/moonlight/moonlight.conf
   #
   # The bundle's template carries the hardware-dictated defaults (720p30,
   # h264, SDL) and comments on what to lower first if decode cannot keep up.
   %{
     name: "Moonlight",
     path: "/root/bundles/moonlight/current/bin/moonlight",
-    args: ["stream", "-config", "/root/.config/moonlight/moonlight.conf"],
+    args: ["stream", "-config", moonlight_config],
     needs_udev: true
   },
+  # The screen that writes the file above: host address, resolution, frame
+  # rate, bitrate, codec and app. An app rather than a program, and with no
+  # `category`, so `MayonnaiOS.Browser` files it under System -- it is a
+  # setting, not a thing to play.
+  #
+  # It is listed whether or not the Moonlight bundle is installed, and says
+  # which: a config file written before the program that reads it arrives is
+  # still a config file, and the row that greys out is the Moonlight one.
+  %{name: "Moonlight settings", app: MayonnaiOS.Moonlight.App},
   %{name: "Spinning cube (kmscube)", path: "/usr/bin/kmscube"},
   %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]},
   # An app rather than a program: a module in this firmware, started in this

@@ -244,20 +244,34 @@ RetroArch uses. It installs the same way RetroArch does, as a bundle:
 
     iex> MayonnaiOS.Bundle.install(MayonnaiOS.Bundle.spec(:moonlight))
 
-First run is a one-time SSH session, because two things exist only on the
-player's side of the fence. Pairing prints a PIN that must be typed into the
-host, and the stream cannot start without the host's address — which no
-bundle can know, so the launcher passes a config file the player creates:
+**Moonlight settings**, in the System column, is where the stream is set up:
+the host's address, the resolution, the frame rate, the bitrate, the codec,
+and which app to launch. Saving writes
+`/root/.config/moonlight/moonlight.conf`, which is the file the launcher
+passes Moonlight on its command line — so what the screen says and what the
+stream does cannot drift apart.
+
+- **The first save seeds from the bundle's own template**, so the
+  hardware-dictated defaults and the comments explaining them are what a new
+  file starts as: 720p30, h264, SDL, a modest bitrate.
+- **It edits, it does not regenerate.** A key the screen does not offer —
+  `surround`, `rotate`, `packetsize`, anything set over SSH — is copied
+  through untouched, comments included.
+- **The row is there before the bundle is**, and says so. A config file
+  written before the program that reads it arrives is still a config file.
+- **Nothing is written until the Save row**, and the header says "unsaved
+  changes" until then. A write that fails — read-only filesystem, no space —
+  says why, on the panel.
+- Moonlight reads the file when it starts, so a change takes effect on the
+  next stream rather than the running one.
+
+One step still needs SSH: pairing prints a PIN that has to be typed into the
+host, and there is no way to show it on a screen the launcher has handed to
+another program.
 
     /root/bundles/moonlight/current/bin/moonlight pair <host>
-    mkdir -p /root/.config/moonlight
-    cp /root/bundles/moonlight/current/share/moonlight/moonlight.conf \
-       /root/.config/moonlight/moonlight.conf
-    echo 'address = <host>' >> /root/.config/moonlight/moonlight.conf
 
-The template carries the hardware-dictated defaults — 720p30, h264, modest
-bitrate — and says what to lower first if decode cannot keep up. None of this
-has been run on the handheld yet; the
+None of this has been run on the handheld yet; the
 [`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) README lists
 what only hardware can answer.
 
