@@ -118,11 +118,11 @@ defmodule MayonnaiOS.Browser.ViewTest do
       assert Enum.any?(preview.lines, &(&1 =~ "Not installed"))
     end
 
-    test "the power-off verb says Y answers" do
+    test "the power-off verb says A acts immediately" do
       [program] = MayonnaiOS.Programs.list([%{name: "Power off", action: :poweroff}])
       preview = View.preview(%{kind: :program, name: "Power off", program: program}, nil)
 
-      assert Enum.any?(preview.lines, &(&1 =~ "only Y"))
+      assert Enum.any?(preview.lines, &(&1 =~ "A shows the splash"))
     end
 
     test "a process monitor previews as a narrow list by memory" do

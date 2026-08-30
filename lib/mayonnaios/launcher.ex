@@ -100,9 +100,8 @@ defmodule MayonnaiOS.Launcher do
                       the readout app, which is that row's detailed view
       Y               the second verb, and the panel says what it is: the
                       actions sheet in a directory -- Y and only Y, A never
-                      opens it -- the delete on its confirmation,
-                      remove-a-character in the rename editor, and the
-                      answer to the Power off row's question
+                      opens it -- the delete on its confirmation, and
+                      remove-a-character in the rename editor
       Menu            go back to the home screen, at its root column
       Power           sleep -- backlight off, and any press wakes it
       Select+Menu     power off
@@ -126,14 +125,11 @@ defmodule MayonnaiOS.Launcher do
   is never split across keys by which kind of thing you are in.
 
   Select+Menu powers off, so the chord is checked before the plain press.
-  Switching off is not undoable and this is a handheld that gets carried in a
-  pocket, which is the argument that shapes how the menu's Power off row
-  answers as well. Pressing A on it does nothing but put a
-  question on the bottom line; Y -- the button that did not ask -- switches
-  off, and any other press takes the question down and is swallowed, so a
-  cancel cannot also launch what the cursor is on. That is the browser's
-  delete rule, applied to the other irreversible thing on the device. Both
-  routes end in the same `Nerves.Runtime.poweroff/0`.
+  Switching off from the menu is immediate: the launcher replaces the UI with
+  the boot splash and then calls `Nerves.Runtime.poweroff/0`. The splash makes
+  the accepted press visible during the short orderly-shutdown interval and
+  avoids leaving a live-looking menu on a device that is already going down.
+  Select+Menu reaches the same power-off function without redrawing first.
 
   ## Sleep, and the press that wakes it
 
@@ -205,7 +201,7 @@ defmodule MayonnaiOS.Launcher do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.{Browser, Input, Led, Panel, Sleep, Theme}
+  alias MayonnaiOS.{Browser, Input, Led, Panel, Sleep, Splash, Theme}
 
   # The name the driver gives the gamepad, which is the only thing this module
   # knows about which device it is. There is no numbered fallback: /dev/input
@@ -234,11 +230,9 @@ defmodule MayonnaiOS.Launcher do
   # So :btn_x below really is the Y button, and :btn_y -- physical X -- is
   # bound to nothing.
   #
-  # Y (:btn_x) is the second verb, and the panel says what it is. While the
-  # Power off row's question is up it is the answer -- the confirming clause
-  # is tested before everything else here, so that can never collide -- and
-  # otherwise it belongs to the browser: the actions sheet in a directory,
-  # the delete on a confirmation, remove-a-character in the rename editor.
+  # Y (:btn_x) is the second verb, and the panel says what it is: the actions
+  # sheet in a directory, the delete on a confirmation, and
+  # remove-a-character in the rename editor.
   @confirm_button :btn_x
   @actions_button :btn_x
 
@@ -465,11 +459,6 @@ defmodule MayonnaiOS.Launcher do
       # each cursor is on, and how many columns the panel draws. Here rather
       # than in the scene so it survives every repaint; see the moduledoc.
       browser: Browser.new(),
-      # Whether the Power off row has asked its question and is waiting for
-      # Y. Armed by `start_program/2`, answered or dismissed by `press/2`,
-      # and never true while anything is running -- the row can only be
-      # activated from an idle menu.
-      confirming: false,
       # The last few lines the running program wrote, kept so that if it dies
       # they can be put on the panel and not only in the ring logger. Reset
       # on every launch; capped, because a chatty program earns no more rows.
@@ -484,6 +473,10 @@ defmodule MayonnaiOS.Launcher do
       # one cannot be called on a laptop and a confirmation flow nobody can
       # test is a confirmation flow that silently rots.
       poweroff: Keyword.get(opts, :poweroff, &Nerves.Runtime.poweroff/0),
+      # Drawn synchronously before the menu's orderly power-off, so the last
+      # visible frame acknowledges the selection. Injectable to make the
+      # ordering testable without a framebuffer.
+      shutdown_splash: Keyword.get(opts, :shutdown_splash, fn -> Splash.run(timeout: 0) end),
       # The seam the stop path is tested against: signalling an OS process and
       # asking whether it is still there. Injectable because the one case that
       # matters most cannot be produced for real -- a process that survives
@@ -800,9 +793,6 @@ defmodule MayonnaiOS.Launcher do
         {_result, state} = enter_sleep(state)
         state
 
-      state.confirming ->
-        answer_poweroff(state, key)
-
       Browser.busy?(state.browser) ->
         overlay(state, key)
 
@@ -859,19 +849,6 @@ defmodule MayonnaiOS.Launcher do
   defp semantic(@confirm_button), do: :y
   defp semantic(@full_button), do: :x
   defp semantic(_key), do: :other
-
-  # The Power off row's question, answered the way `MayonnaiOS.Files` answers
-  # a delete: A asked, so A cannot also be the answer. Y -- and only Y --
-  # switches off; anything else keeps the device on, is swallowed rather than
-  # dispatched, and takes the question off the panel. Swallowed matters: the
-  # cancelling press must not also launch whatever the cursor is on.
-  defp answer_poweroff(state, @confirm_button), do: poweroff(state, "the menu")
-
-  defp answer_poweroff(state, _key) do
-    state = %{state | confirming: false}
-    show(:home, state)
-    state
-  end
 
   # Entering sleep only counts if the backlight write landed. A dark-panel
   # flag over a lit screen would swallow the next press for nothing, which is
@@ -1095,14 +1072,12 @@ defmodule MayonnaiOS.Launcher do
     state
   end
 
-  # The Power off row. Not a program and not an app: pressing A here only
-  # asks, and the repaint puts the question on the panel. `press/2` owns the
-  # answer -- Y switches off, anything else keeps the device on -- because A
-  # opened the question and the answer must not be the button that asked.
+  # The Power off row. Draw the splash before asking the runtime to shut down,
+  # so the panel immediately acknowledges the selection while services and
+  # filesystems stop.
   defp start_program(%{action: :poweroff}, state) do
-    state = %{state | confirming: true}
-    show(:home, state)
-    state
+    state.shutdown_splash.()
+    poweroff(state, "the menu")
   end
 
   # The Diagnostics row: the readout that makes the physical checks --
@@ -1408,7 +1383,6 @@ defmodule MayonnaiOS.Launcher do
   defp show(_home, state) do
     set_root(default_scene(), %{
       browser: state.browser,
-      confirming: state.confirming,
       obituary: state.obituary
     })
   end
