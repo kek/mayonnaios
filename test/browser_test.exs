@@ -101,6 +101,20 @@ defmodule MayonnaiOS.BrowserTest do
              ]
     end
 
+    test "the Moonlight settings row is a setting, not a game" do
+      Application.put_env(:mayonnaios, :programs, [
+        %{
+          name: "Moonlight",
+          path: "/nonexistent/moonlight",
+          args: ["stream", "-config", "/nonexistent/moonlight.conf"]
+        },
+        %{name: "Moonlight settings", app: MayonnaiOS.Moonlight.App}
+      ])
+
+      assert names(open(Browser.new(), "Games")) == ["Moonlight"]
+      assert "Moonlight settings" in names(open(Browser.new(), "System"))
+    end
+
     test "the built-in System rows carry the launcher's own verbs" do
       system = open(Browser.new(), "System")
 
