@@ -124,13 +124,11 @@ defmodule MayonnaiOS.Application do
     defp led_monitor(), do: []
 
     defp target_children() do
-      [
-        # Children that only run on the host during development or test.
-        # In general, prefer using `config/host.exs` for differences.
-        #
-        # Starts a worker by calling: Host.Worker.start_link(arg)
-        # {Host.Worker, arg},
-      ]
+      if Application.get_env(:mayonnaios, :host_runtime, false) do
+        MayonnaiOS.HostRuntime.children()
+      else
+        []
+      end
     end
   else
     # Starts after Status so its first subscription gets a battery reading.
