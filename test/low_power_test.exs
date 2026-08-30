@@ -35,8 +35,9 @@ defmodule MayonnaiOS.LowPowerTest do
     %{root: root}
   end
 
-  # A sysfs-shaped tree: cpu0 has no `online` file, which is what arm64 does
-  # for the boot CPU and the reason nothing here ever tries to offline it.
+  # A common sysfs shape: cpu0 has no `online` file. A separate regression
+  # below adds the file this board's kernel actually exposes and verifies that
+  # the implementation excludes cpu0 by name rather than relying on absence.
   defp fake_cpus(root, count) do
     dir = Path.join(root, "cpu")
     File.mkdir_p!(Path.join(dir, "cpu0"))
@@ -88,6 +89,19 @@ defmodule MayonnaiOS.LowPowerTest do
       Cpus.enter()
 
       refute File.exists?(Path.join(dir, "cpu0/online"))
+    end
+
+    test "leave cpu0 online when the kernel exposes its online file", %{root: root} do
+      dir = fake_cpus(root, 4)
+      File.write!(Path.join(dir, "cpu0/online"), "1\n")
+
+      undo = Cpus.enter()
+
+      assert online(dir, 0) == "1"
+      refute Enum.any?(undo, fn {path, _was} -> path == Path.join(dir, "cpu0/online") end)
+      assert online(dir, 1) == "0"
+      assert online(dir, 2) == "0"
+      assert online(dir, 3) == "0"
     end
 
     test "a core that was already offline stays offline afterwards", %{root: root} do

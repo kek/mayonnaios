@@ -15,9 +15,11 @@ defmodule MayonnaiOS.LowPower.Cpus do
   instead. `CPU_ON` is also how all four came up at boot, so the path is at
   least exercised in one direction on every boot of this device.
 
-  `cpu0` is never touched. It has no `online` file at all on arm64, being the
-  boot CPU, and writing `0` to it would be asking the kernel to remove the CPU
-  running the write.
+  `cpu0` is never touched. Some arm64 kernels omit its `online` file and this
+  board's kernel exposes one, so absence is not the guard: the directory name
+  is filtered explicitly. Writing `0` there can migrate the boot CPU and leave
+  whichever core happens to be last online, which is not the stable baseline
+  this module promises.
 
   ## The BEAM keeps all four schedulers
 
@@ -114,7 +116,7 @@ defmodule MayonnaiOS.LowPower.Cpus do
     case File.ls(dir()) do
       {:ok, entries} ->
         entries
-        |> Enum.filter(&Regex.match?(~r/^cpu\d+$/, &1))
+        |> Enum.filter(&Regex.match?(~r/^cpu[1-9]\d*$/, &1))
         |> Enum.sort()
         |> Enum.map(&Path.join([dir(), &1, "online"]))
         |> Enum.filter(&File.regular?/1)
