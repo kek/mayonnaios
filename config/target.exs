@@ -302,6 +302,16 @@ config :mayonnaios, :programs, [
   # the Bluetooth apps neither takes a device away from anything.
   %{name: "BEAM processes", app: {MayonnaiOS.Top, :beam}},
   %{name: "OS processes", app: {MayonnaiOS.Top, :os}},
+  # The WiFi settings screen: what is on the air, what this device is
+  # configured to join, and a character wheel to type a passphrase on.
+  #
+  # It is what makes the credentials above a *default* rather than the only
+  # network this firmware can ever reach: `MayonnaiOS.WiFi.join/3` appends to
+  # the network list instead of replacing it, so a network picked on the panel
+  # is added alongside the one built in and the built-in one goes on working.
+  # See that module for why appending is the only safe shape for this on a
+  # device whose sole reliable way in is the radio being configured.
+  %{name: "WiFi", app: MayonnaiOS.WiFi.App},
   # Checks kek/mayonnaios's GitHub releases for a newer version than the one
   # running, and downloads and applies it with fwup if there is one -- the
   # online half of what `mix upload` does from a dev machine. See

@@ -22,7 +22,7 @@ defmodule MayonnaiOS.Application do
         [status()] ++
         viewport() ++
         [controller_sessions(), pairing_sessions(), pickle_sessions()] ++
-        [top_sessions(), update_sessions(), moonlight_sessions()] ++
+        [top_sessions(), update_sessions(), moonlight_sessions(), wifi_sessions()] ++
         target_children()
 
     # See https://elixir.hexdocs.pm/Supervisor.html
@@ -108,6 +108,14 @@ defmodule MayonnaiOS.Application do
   # supervisor" rather than an exception if it is ever started before this
   # line runs.
   defp moonlight_sessions, do: MayonnaiOS.Moonlight.App.sessions()
+
+  # The WiFi settings app's DynamicSupervisor, empty until the row is opened.
+  # Everywhere rather than only on the target, like the others: on a laptop
+  # `MayonnaiOS.WiFi.App.start/0` then runs and the screen says there is no
+  # radio, which is a more useful thing to be told than "no such supervisor"
+  # -- and it is the only way to look at the screen without holding the
+  # device.
+  defp wifi_sessions, do: MayonnaiOS.WiFi.App.sessions()
 
   # List all child processes to be supervised
   if Mix.target() == :host do

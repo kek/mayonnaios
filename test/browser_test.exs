@@ -62,6 +62,7 @@ defmodule MayonnaiOS.BrowserTest do
         %{name: "RetroArch", path: "/nonexistent/retroarch"},
         %{name: "Bluetooth controller", app: MayonnaiOS.Controller, category: :apps},
         %{name: "Bluetooth devices", app: MayonnaiOS.Pairing},
+        %{name: "WiFi", app: MayonnaiOS.WiFi.App},
         %{name: "Paint", app: {MayonnaiOS.Pickles.App, "paint"}},
         %{name: "Power off", action: :poweroff}
       ])
@@ -92,6 +93,7 @@ defmodule MayonnaiOS.BrowserTest do
 
       assert names(system) == [
                "Bluetooth devices",
+               "WiFi",
                "Diagnostics",
                "Sleep",
                "Theme",
@@ -119,7 +121,7 @@ defmodule MayonnaiOS.BrowserTest do
       actions =
         for node <- List.last(system.levels).entries, do: node.program.action
 
-      assert actions == [nil, :diagnostics, :sleep, :cycle_theme, :poweroff]
+      assert actions == [nil, nil, :diagnostics, :sleep, :cycle_theme, :poweroff]
     end
   end
 
