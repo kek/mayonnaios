@@ -46,13 +46,13 @@ defmodule MayonnaiOS.Scene.Home do
   on every screen made the footer's longest line mostly noise. The bottom
   line instead names the controls that vary with state: Y's file action,
   delete, or editor meaning; X's inspection toggle; and paging only when the
-  current list can page. The same line carries the power-off question and a
-  program's obituary when there is one: asking or reporting outranks hints.
+  current list can page. The same line carries a program's obituary when
+  there is one: reporting outranks hints.
   """
 
   use Scenic.Scene
 
-  alias MayonnaiOS.{Browser, Files, SystemInfo, Theme}
+  alias MayonnaiOS.{Browser, Files, Panel, SystemInfo, Theme}
   alias MayonnaiOS.Scene.StatusBar
   alias Scenic.Graph
   import Scenic.Primitives
@@ -132,6 +132,12 @@ defmodule MayonnaiOS.Scene.Home do
   @preview_stream "browser_preview"
   @full_stream "browser_full"
 
+  # Uptime and BEAM memory are cheap and useful at menu speed. Filesystem
+  # space is slower, particularly on the removable card, so it is collected
+  # every tenth refresh rather than on every repaint.
+  @refresh_ms 30_000
+  @disk_refresh_ticks 10
+
   @impl Scenic.Scene
   def init(scene, param, _opts) do
     # The boot root comes from `default_scene:` in config, which Scenic starts
@@ -142,15 +148,84 @@ defmodule MayonnaiOS.Scene.Home do
         _ -> Browser.new()
       end
 
-    confirming = match?(%{confirming: true}, param)
-
     obituary =
       case param do
         %{obituary: %{} = obituary} -> obituary
         _ -> nil
       end
 
-    {:ok, push_graph(scene, graph(browser, confirming, obituary))}
+    refresh_ms = max(1, param_value(param, :refresh_ms, @refresh_ms))
+    disk_refresh_ticks = max(1, param_value(param, :disk_refresh_ticks, @disk_refresh_ticks))
+    disk_reader = param_value(param, :disk_reader, &SystemInfo.disk_lines/0)
+
+    panel_builder =
+      param_value(param, :panel_builder, fn disk_lines ->
+        SystemInfo.panel(disk_lines: disk_lines)
+      end)
+
+    disk_lines = disk_reader.()
+    system_panel = panel_builder.(disk_lines)
+    schedule_refresh(refresh_ms)
+
+    scene =
+      assign(scene,
+        browser: browser,
+        obituary: obituary,
+        refresh_ms: refresh_ms,
+        disk_refresh_ticks: disk_refresh_ticks,
+        refresh_tick: 0,
+        disk_reader: disk_reader,
+        panel_builder: panel_builder,
+        disk_lines: disk_lines,
+        system_panel: system_panel
+      )
+
+    {:ok, Panel.draw(scene, graph(browser, obituary, system_panel))}
+  end
+
+  @impl GenServer
+  def handle_info(:refresh_system_panel, scene) do
+    schedule_refresh(scene.assigns.refresh_ms)
+
+    if Panel.held?() do
+      {:noreply, scene}
+    else
+      tick = scene.assigns.refresh_tick + 1
+
+      disk_lines =
+        if rem(tick, scene.assigns.disk_refresh_ticks) == 0 do
+          scene.assigns.disk_reader.()
+        else
+          scene.assigns.disk_lines
+        end
+
+      system_panel = scene.assigns.panel_builder.(disk_lines)
+
+      scene =
+        assign(scene, refresh_tick: tick, disk_lines: disk_lines, system_panel: system_panel)
+
+      {:noreply,
+       Panel.draw(
+         scene,
+         graph(
+           scene.assigns.browser,
+           scene.assigns.obituary,
+           system_panel
+         )
+       )}
+    end
+  end
+
+  def handle_info(_message, scene), do: {:noreply, scene}
+
+  defp param_value(%{} = param, key, default), do: Map.get(param, key, default)
+  defp param_value(_param, _key, default), do: default
+
+  # Rescheduled by hand so a slow filesystem read cannot accumulate timer
+  # messages behind it. The timer belongs to the scene process and disappears
+  # when the launcher re-roots the viewport.
+  defp schedule_refresh(refresh_ms) do
+    Process.send_after(self(), :refresh_system_panel, refresh_ms)
   end
 
   @doc """
@@ -159,17 +234,21 @@ defmodule MayonnaiOS.Scene.Home do
   Public because it is the tested surface: it needs no viewport, no driver
   and no framebuffer, so a host test can assert what the panel says for the
   root column, a deep descent, the actions sheet, the delete confirmation,
-  the rename editor, the power-off question and an obituary -- the shapes
+  the rename editor and an obituary -- the shapes
   that would otherwise only be found by looking at the device.
   """
-  @spec graph(Browser.t(), boolean(), map() | nil) :: Scenic.Graph.t()
-  def graph(browser, confirming \\ false, obituary \\ nil) do
+  @spec graph(Browser.t(), map() | nil, SystemInfo.panel()) :: Scenic.Graph.t()
+  def graph(
+        browser,
+        obituary \\ nil,
+        system_panel \\ SystemInfo.panel()
+      ) do
     base()
     |> breadcrumb(browser)
     |> held(browser)
-    |> body(browser)
+    |> body(browser, system_panel)
     |> status_line(browser)
-    |> notice(browser, confirming, obituary)
+    |> notice(browser, obituary)
   end
 
   defp base do
@@ -211,14 +290,16 @@ defmodule MayonnaiOS.Scene.Home do
 
   # -- the column area ----------------------------------------------------------
 
-  defp body(graph, %{overlay: {:confirm, pending}}), do: confirm_view(graph, pending)
-  defp body(graph, %{overlay: {:rename, rename}}), do: rename_view(graph, rename)
+  defp body(graph, %{overlay: {:confirm, pending}}, _system_panel),
+    do: confirm_view(graph, pending)
 
-  defp body(graph, %{full: full}) when full != nil, do: full_view(graph, full)
+  defp body(graph, %{overlay: {:rename, rename}}, _system_panel), do: rename_view(graph, rename)
+
+  defp body(graph, %{full: full}, _system_panel) when full != nil, do: full_view(graph, full)
 
   # The actions sheet rides in the preview's slot, titled by the entry it is
   # about, so opening it reads as descending into the question.
-  defp body(graph, %{overlay: {:actions, actions, cursor}} = browser) do
+  defp body(graph, %{overlay: {:actions, actions, cursor}} = browser, _system_panel) do
     sheet = %{
       title: truncate(selected_name(browser), 18),
       entries: Enum.map(actions, &%{kind: :action, name: &1.label}),
@@ -237,20 +318,20 @@ defmodule MayonnaiOS.Scene.Home do
 
   # The main shape: parent, focus, preview. At the root there is no parent,
   # and the left slot carries the system panel instead of sitting empty.
-  defp body(graph, browser) do
+  defp body(graph, browser, system_panel) do
     panes = Browser.panes(browser)
 
     graph
     |> separators()
-    |> left_slot(panes.left)
+    |> left_slot(panes.left, system_panel)
     |> slot(panes.center, 1, true)
     |> preview_pane(Browser.preview(browser))
   end
 
   # The system panel is the same `%{kind: :info, ...}` shape the preview's
   # info panes carry, so the one line renderer draws both.
-  defp left_slot(graph, nil), do: info_pane(graph, SystemInfo.panel(), slot_x(0))
-  defp left_slot(graph, level), do: slot(graph, level, 0, false)
+  defp left_slot(graph, nil, system_panel), do: info_pane(graph, system_panel, slot_x(0))
+  defp left_slot(graph, level, _system_panel), do: slot(graph, level, 0, false)
 
   defp slot(graph, nil, _index, _focused?), do: graph
   defp slot(graph, level, index, focused?), do: column(graph, level, slot_x(index), focused?)
@@ -838,33 +919,20 @@ defmodule MayonnaiOS.Scene.Home do
 
   # -- the bottom line -------------------------------------------------------------
 
-  # One notice at a time, on the footer line. The power-off question wins
-  # over an obituary: it is the panel asking for a decision, and the obituary
-  # keeps -- it is still in the Launcher's state, and comes back the moment
-  # the question is answered. With nothing to ask or report, the line labels
-  # the buttons for the state on screen.
-  defp notice(graph, _browser, true, _obituary) do
-    graph
-    |> footer_rule()
-    |> text("Power off? Y switches off. Any other button keeps it on.",
-      font_size: 18,
-      fill: {:color, wait()},
-      translate: {@left, @footer_y}
-    )
-  end
-
-  defp notice(graph, browser, false, nil) do
+  # One notice at a time, on the footer line. With nothing to report, the line
+  # labels the buttons for the state on screen.
+  defp notice(graph, browser, nil) do
     graph
     |> footer_rule()
     |> text(hint(browser), font_size: 15, fill: {:color, dim()}, translate: {@left, @footer_y})
   end
 
   # Why the last program died, quoted from its own last words. The headline
-  # is amber like the power-off question -- the panel reporting, not asking --
-  # and the quoted lines are dim so the reason reads before the evidence.
+  # is amber -- the panel reporting -- and the quoted lines are dim so the
+  # reason reads before the evidence.
   # Status nil is a spawn that raised rather than a program that exited; the
   # words are then the exception's, and "exited" would be a lie.
-  defp notice(graph, _browser, false, %{name: name, status: status, lines: lines}) do
+  defp notice(graph, _browser, %{name: name, status: status, lines: lines}) do
     headline =
       case status do
         nil -> "#{name} would not start. B clears this."
