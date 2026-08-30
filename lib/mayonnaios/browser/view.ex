@@ -381,8 +381,7 @@ defmodule MayonnaiOS.Browser.View do
   defp program_lines(%{action: :poweroff}) do
     [
       "A verb of the launcher's own.",
-      "A puts the question on the panel;",
-      "Y -- and only Y -- switches off."
+      "A shows the splash, then switches off."
     ]
   end
 
