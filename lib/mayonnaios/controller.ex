@@ -91,6 +91,16 @@ defmodule MayonnaiOS.Controller do
   def active?, do: Process.whereis(__MODULE__) != nil
 
   @doc """
+  B belongs to this app, not to the launcher.
+
+  Every button here is the controller's product -- B is a gamepad button the
+  host is waiting for -- so the launcher must not spend it on leaving. Menu
+  is the way out, as the screen says.
+  """
+  @spec claims_back?() :: true
+  def claims_back?, do: true
+
+  @doc """
   Forward an evdev report to the pad.
 
   Called by `MayonnaiOS.Launcher` while controller mode is on. Safe to call

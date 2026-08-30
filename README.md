@@ -34,6 +34,9 @@ Software:
   device already holds
 - RetroArch, with cores installed and upgraded independently of the firmware
 - Checksum-verified bundle install, with versioned directories and rollback
+- A WiFi settings screen: what is on the air, what the device is configured
+  to join, and a character wheel to type a passphrase on — so the network is
+  not fixed at build time
 - A web UI for uploading games from a phone
 - File management built into that browser: copy, move, rename and delete
   across both cards, with a clipboard instead of a destination to type
@@ -42,30 +45,34 @@ Software:
 - Pickles: small sandboxed Lua apps, installed over the network like games,
   for things like controlling lamps on the LAN or polling a web API. See
   [docs/pickles.md](docs/pickles.md)
-- Sleep on the power button: the backlight goes off, the renderer stops, WiFi
-  goes down and three of the four cores go offline; any button brings it all
-  back. Not suspend — this board has no suspend-to-RAM at all, and
-  `MayonnaiOS.Sleep` and `MayonnaiOS.LowPower` have the analysis and the
-  measurements
+- Sleep on the power button, or after three minutes idle in the launcher: the
+  backlight goes off, the renderer stops, WiFi goes down and three of the four
+  cores go offline; any button brings it all back. The idle timer pauses while
+  charging and while a program or app is active. Not suspend — this board has
+  no suspend-to-RAM at all, and `MayonnaiOS.Sleep` and `MayonnaiOS.LowPower`
+  have the analysis and measurements
 - A NeXTSTEP-style column launcher: Games, Files, Apps and System open
   as columns, three on screen, and Files browses the whole filesystem in
   place
 - Orderly power off: the Select+Menu chord, or the **Power off** row under
   System
 - An indicator LED that means something: quick flashing green while starting,
-  solid green running, slow flashing green asleep, blinking red when the
-  application fails to start. The yellow light in the other window is the
-  PMIC's charge indicator and keeps its own counsel; `MayonnaiOS.Led`'s
-  moduledoc has the color map
+  solid green running, slow flashing green asleep, slow blinking red at 20%
+  battery, and quick blinking red when the application fails to start. Low
+  battery clears at 30% or while charging; failure always wins. The yellow
+  light in the other window is the PMIC's charge indicator and keeps its own
+  counsel; `MayonnaiOS.Led`'s moduledoc has the color map
 
 ## Building and flashing
 
 The WiFi credentials come from the environment, so that firmware without them
-fails the build rather than producing an image you cannot reach. Set them, pick
-the target, and build:
+fails the build rather than producing an image you cannot reach. They are the
+network the device joins on a fresh card; more can be added on the device
+afterwards, from the **WiFi** screen below. Set them, pick the target, and
+build:
 
-    export RG40XXV_WIFI_SSID="your-ssid"
-    export RG40XXV_WIFI_PSK="your-psk"
+    export MAYONNAIOS_WIFI_SSID="your-ssid"
+    export MAYONNAIOS_WIFI_PSK="your-psk"
     export MIX_TARGET=rg40xxv
 
     mix deps.get
@@ -81,6 +88,59 @@ If `mix deps.get` starts compiling Buildroot instead of downloading a system,
 your tree does not match any published release and you are in for a full
 system build, which takes a while. That is usually a sign you changed something
 under `nerves_system_rg40xxv` — a comment is enough.
+
+Board facts live in `config/<target>.exs` as one validated
+`MayonnaiOS.Device` profile: the display name and size, input device names,
+physical-button mapping, LEDs, power supplies, games-card node, backlight, lid
+switch and RTC presence. Shared bundles, cores, systems and writable paths stay
+in `config/target.exs`. Adding a target requires a bootable Nerves system and a
+complete profile; the application fails at startup when either the profile or
+its panel/viewport agreement is incomplete.
+
+## Changing which WiFi it joins
+
+Pick **WiFi** under System. It lists what is on the air with signal, security
+and whether this device already knows it, plus any saved network that is out
+of range — so a network can be forgotten from the other end of the house.
+
+    D-pad     move the cursor
+    A         join it. Open networks join straight away; a secured one you
+              have not joined before opens the passphrase wheel
+    X         retype the passphrase of a saved network
+    Y         forget a saved network. Twice — the first press arms the row
+
+Typing happens on a character wheel, because there is no keyboard: up and
+down cycle the character under the caret, left and right move it, and **L1
+and R1 jump between lowercase, uppercase, digits and symbols** — which is
+the difference between reaching `Q` in two presses and in twenty-six. The
+passphrase is shown rather than masked; every character is picked by reading
+the wheel, so hiding the result would only hide a mistake made twenty presses
+ago.
+
+Two things this screen guarantees, both because this device's only reliable
+way in is the radio it is reconfiguring:
+
+- **Joining never replaces the network that already works.** A new network is
+  added alongside the ones already configured, most-recently-chosen first, so
+  a passphrase picked wrong costs one walk back into range rather than a card
+  reflash. The credentials built into the firmware keep working forever.
+- **A refused passphrase says so, and is withdrawn again.** `wpa_supplicant`
+  reports a rejected key as an event rather than as a silence, so the screen
+  can say *the access point refused that passphrase* instead of *something
+  did not work* — and the bad network is removed, because one the supplicant
+  keeps retrying is one that interrupts the network that does work.
+
+Enterprise (802.1X) and WEP networks appear in the list with what they would
+need written on the row, and cannot be joined from here — neither is a
+passphrase, and neither can be picked from a wheel. Configure those over SSH
+with `VintageNet.configure/2`. `MayonnaiOS.WiFi` has the rest, including what
+a join actually writes.
+
+From IEx, if you would rather:
+
+    iex> MayonnaiOS.WiFi.list()
+    iex> MayonnaiOS.WiFi.join(%{ssid: "kitchen", security: :wpa_psk}, "a passphrase")
+    iex> MayonnaiOS.WiFi.forget("kitchen")
 
 ## Putting games on it
 
@@ -196,20 +256,34 @@ RetroArch uses. It installs the same way RetroArch does, as a bundle:
 
     iex> MayonnaiOS.Bundle.install(MayonnaiOS.Bundle.spec(:moonlight))
 
-First run is a one-time SSH session, because two things exist only on the
-player's side of the fence. Pairing prints a PIN that must be typed into the
-host, and the stream cannot start without the host's address — which no
-bundle can know, so the launcher passes a config file the player creates:
+**Moonlight settings**, in the System column, is where the stream is set up:
+the host's address, the resolution, the frame rate, the bitrate, the codec,
+and which app to launch. Saving writes
+`/root/.config/moonlight/moonlight.conf`, which is the file the launcher
+passes Moonlight on its command line — so what the screen says and what the
+stream does cannot drift apart.
+
+- **The first save seeds from the bundle's own template**, so the
+  hardware-dictated defaults and the comments explaining them are what a new
+  file starts as: 720p30, h264, SDL, a modest bitrate.
+- **It edits, it does not regenerate.** A key the screen does not offer —
+  `surround`, `rotate`, `packetsize`, anything set over SSH — is copied
+  through untouched, comments included.
+- **The row is there before the bundle is**, and says so. A config file
+  written before the program that reads it arrives is still a config file.
+- **Nothing is written until the Save row**, and the header says "unsaved
+  changes" until then. A write that fails — read-only filesystem, no space —
+  says why, on the panel.
+- Moonlight reads the file when it starts, so a change takes effect on the
+  next stream rather than the running one.
+
+One step still needs SSH: pairing prints a PIN that has to be typed into the
+host, and there is no way to show it on a screen the launcher has handed to
+another program.
 
     /root/bundles/moonlight/current/bin/moonlight pair <host>
-    mkdir -p /root/.config/moonlight
-    cp /root/bundles/moonlight/current/share/moonlight/moonlight.conf \
-       /root/.config/moonlight/moonlight.conf
-    echo 'address = <host>' >> /root/.config/moonlight/moonlight.conf
 
-The template carries the hardware-dictated defaults — 720p30, h264, modest
-bitrate — and says what to lower first if decode cannot keep up. None of this
-has been run on the handheld yet; the
+None of this has been run on the handheld yet; the
 [`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) README lists
 what only hardware can answer.
 
@@ -299,15 +373,24 @@ tests run:
 
 No hardware required.
 
-The UI runs on the laptop too, in a window at the panel's own 640×480 — a scene
-that looks right at some other size is not evidence about the device:
+The complete development runtime runs on the laptop too, in a window at the
+panel's own 640×480 — a scene that looks right at some other size is not
+evidence about the device:
 
     iex -S mix
-    iex> MayonnaiOS.start_ui()
 
     # ... edit a scene ...
     iex> recompile()
     iex> MayonnaiOS.reload_ui()
+
+In `dev`, that one command starts Scenic, the real launcher, the keyboard
+controller bridge, the web UI on <http://localhost:4000>, and the same Elixir
+and Luerl app supervisors used by the device. A short shell command stands in
+for an external KMS program so the display-handoff path can be exercised
+without installing RetroArch or Moonlight. The Files column is rooted at
+`tmp/host/files`, and the worked `hello` pickle is copied once into the
+gitignored `.pickles` state so its graphical Lua app is present immediately.
+`mix test` stays headless and starts none of these development-only children.
 
 `recompile/0` alone changes nothing on screen. A scene is a process holding an
 already-built graph, and swapping the module's code does not rebuild it;
@@ -347,6 +430,7 @@ a scratch directory and start `MayonnaiOS.Web` under a supervisor.
 |---|---|
 | [Pickles](docs/pickles.md) | Writing and deploying sandboxed Lua apps |
 | [The Bluetooth controller](docs/bluetooth-controller.md) | The borrowed identity and its trade-offs, the no-BlueZ stack, recovery, what is not built yet |
+| [On-device data layout](docs/data-layout.md) | Which writable paths belong to MayonnaiOS, players, and removable media |
 | [RetroArch internals](docs/retroarch-internals.md) | How cores, config and saves are kept honest across upgrades and pulled power |
 
 ## The three repositories

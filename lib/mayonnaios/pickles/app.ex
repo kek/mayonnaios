@@ -63,6 +63,15 @@ defmodule MayonnaiOS.Pickles.App do
   def scene, do: MayonnaiOS.Scene.Pickle
 
   @doc """
+  Launcher contract: B belongs to the pickle, not to the launcher.
+
+  A script reads it as the plastic-name "b" through `on_button`, so the
+  launcher must not spend it on leaving. Menu is the way out, as everywhere.
+  """
+  @spec claims_back?() :: true
+  def claims_back?, do: true
+
+  @doc """
   The pickle currently on the panel, or `nil`.
   """
   def current, do: GenServer.call(__MODULE__, :current)

@@ -123,7 +123,7 @@ defmodule MayonnaiOS.Scene.Pairing do
     |> text("Not running", font_size: 26, fill: {:color, @fail}, translate: {20, 90})
     |> text(reason(error), font_size: 16, fill: {:color, @label}, translate: {20, 120})
     |> column(20, 160, explain(error))
-    |> footer("Menu goes back.")
+    |> footer("B or Menu goes back.")
   end
 
   def graph(status, _error) do
@@ -334,9 +334,12 @@ defmodule MayonnaiOS.Scene.Pairing do
     )
   end
 
-  defp bindings(%{bonds: []}), do: "Menu goes back."
-  defp bindings(%{armed: true}), do: "A forgets this pairing. Any direction cancels. Menu leaves."
-  defp bindings(_status), do: "D-pad picks a pairing, A forgets it. Menu goes back."
+  defp bindings(%{bonds: []}), do: "B or Menu goes back."
+
+  defp bindings(%{armed: true}),
+    do: "A forgets this pairing. Any direction cancels. B or Menu leaves."
+
+  defp bindings(_status), do: "D-pad picks a pairing, A forgets it. B or Menu goes back."
 
   defp footer(graph, message) do
     graph

@@ -7,6 +7,10 @@ defmodule MayonnaiOS.Application do
 
   @impl true
   def start(_type, _args) do
+    # Fail with the missing board fact named, before starting any process that
+    # could otherwise degrade into a silent input, LED or power-supply fault.
+    MayonnaiOS.Device.load!()
+
     # Scenic is started on demand rather than from the supervision tree.
     #
     # If it fails during boot the whole application fails, StartupGuard never
@@ -18,10 +22,12 @@ defmodule MayonnaiOS.Application do
     #
     # Set `config :mayonnaios, autostart_ui: true` once it is known good.
     children =
-      [status()] ++
+      signs_of_life() ++
+        [status()] ++
+        led_monitor() ++
         viewport() ++
         [controller_sessions(), pairing_sessions(), pickle_sessions()] ++
-        [top_sessions()] ++
+        [top_sessions(), update_sessions(), moonlight_sessions(), wifi_sessions()] ++
         target_children()
 
     # See https://elixir.hexdocs.pm/Supervisor.html
@@ -95,22 +101,59 @@ defmodule MayonnaiOS.Application do
   # not with "no such supervisor".
   defp pickle_sessions, do: MayonnaiOS.Pickles.sessions()
 
+  # The "Software update" app's DynamicSupervisor, empty until the row is
+  # opened -- same arrangement as the other apps, so `MayonnaiOS.Update.App`
+  # works on a laptop and fails with "no such supervisor" rather than an
+  # exception if it is ever started before this line runs.
+  defp update_sessions, do: MayonnaiOS.Update.App.sessions()
+
+  # The Moonlight settings screen's DynamicSupervisor, empty until the row is
+  # opened -- same arrangement as the other apps, so
+  # `MayonnaiOS.Moonlight.App` works on a laptop and fails with "no such
+  # supervisor" rather than an exception if it is ever started before this
+  # line runs.
+  defp moonlight_sessions, do: MayonnaiOS.Moonlight.App.sessions()
+
+  # The WiFi settings app's DynamicSupervisor, empty until the row is opened.
+  # Everywhere rather than only on the target, like the others: on a laptop
+  # `MayonnaiOS.WiFi.App.start/0` then runs and the screen says there is no
+  # radio, which is a more useful thing to be told than "no such supervisor"
+  # -- and it is the only way to look at the screen without holding the
+  # device.
+  defp wifi_sessions, do: MayonnaiOS.WiFi.App.sessions()
+
   # List all child processes to be supervised
   if Mix.target() == :host do
+    defp signs_of_life(), do: []
+    defp led_monitor(), do: []
+
     defp target_children() do
-      [
-        # Children that only run on the host during development or test.
-        # In general, prefer using `config/host.exs` for differences.
-        #
-        # Starts a worker by calling: Host.Worker.start_link(arg)
-        # {Host.Worker, arg},
-      ]
+      if Application.get_env(:mayonnaios, :host_runtime, false) do
+        MayonnaiOS.HostRuntime.children()
+      else
+        []
+      end
     end
   else
-    defp target_children() do
-      # Order is deliberate, and it is about diagnosing a boot that fails.
-      # Each of these is a way of finding out what happened when the one after
-      # it never runs, so the cheapest and most reliable goes first.
+    # Starts after Status so its first subscription gets a battery reading.
+    # The direct :starting write remains ahead of both in signs_of_life/0;
+    # this process is the arbiter once normal supervision is available.
+    defp led_monitor(), do: [MayonnaiOS.Led.Monitor]
+
+    # The two children that say the software is alive, at the very front of
+    # the tree -- ahead of Scenic and ahead of every poller.
+    #
+    # Both are free to start: the LED is one sysfs write, and the splash is a
+    # Task that polls for /dev/fb0 in its own process. Neither can hold up
+    # what follows, so there is nothing to weigh against being first.
+    #
+    # Being first is worth something twice over. The amber LED is the only
+    # signal that survives a UI which fails to start, and the earlier it is
+    # set the more of the boot it covers. And the splash and Scenic are both
+    # waiting for the same framebuffer, so whichever starts second is the one
+    # that draws second -- with the splash behind Scenic, a slow first frame
+    # could put the wordmark on top of the home screen rather than before it.
+    defp signs_of_life() do
       [
         # Earliest possible sign of life, and the only one that survives a UI
         # that fails to start. Needs nothing but sysfs.
@@ -119,19 +162,26 @@ defmodule MayonnaiOS.Application do
         # Something on the panel as soon as there is a panel to put it on. It
         # polls for /dev/fb0 in its own process rather than blocking the
         # supervisor, because the framebuffer does not exist until the panel
-        # module binds -- about two and a half seconds after the BEAM starts.
-        # So placing it early costs nothing, and waiting for it would cost
-        # everything after it.
-        MayonnaiOS.Splash,
+        # driver probes.
+        MayonnaiOS.Splash
+      ]
+    end
 
+    defp target_children() do
+      # Order is deliberate, and it is about diagnosing a boot that fails.
+      # Each of these is a way of finding out what happened when the one after
+      # it never runs, so the cheapest and most reliable goes first. The LED
+      # and the splash come before all of it, in `signs_of_life/0`.
+      [
         # The way back in when WiFi does not come up. Nothing populates USB
         # configfs at boot, so without this usb0 never appears.
         MayonnaiOS.USBGadget,
 
         # Takes /root out of discard mode. Ahead of everything that writes to
         # it, because the discards this stops are what the writes trigger --
-        # but behind the three above, which are there to make a failing boot
-        # diagnosable and should not be displaced by a repair.
+        # but behind the LED, the splash and the gadget, which are there to
+        # make a failing boot diagnosable and should not be displaced by a
+        # repair.
         MayonnaiOS.AppPartition.Startup,
 
         # Takes the mixer to 0% with the output path switched on, so the

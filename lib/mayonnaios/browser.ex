@@ -1,8 +1,13 @@
 defmodule MayonnaiOS.Browser do
   @moduledoc """
-  The launcher's menu as a column browser: a stack of levels, NeXTSTEP-style,
-  where the first column is the categories and every descent opens another
-  column to the right. The panel draws the deepest three.
+  The launcher's menu as a column browser: a stack of levels, Miller-columns
+  style, and the focus is always the center of the panel. The left column is
+  the level above -- `nil` at the root, where the scene draws the
+  `MayonnaiOS.SystemInfo` panel instead -- and the right column is not a level
+  at all: it previews whatever the cursor is on. A directory previews as its
+  contents, a file as its metadata and its first bytes (text, an image, or a
+  hexdump, whichever the bytes are), a runnable row as what it is and that A
+  opens it, and a process monitor as a narrow slice of the readout itself.
 
   A pure data structure with no process. `MayonnaiOS.Launcher` holds one of
   these in its own state -- the same place the flat cursor used to live, and
@@ -15,21 +20,21 @@ defmodule MayonnaiOS.Browser do
   ## The tree
 
   The root column is fixed: Games, Files, Apps, System. What each one
-  contains is classified out of the one `config :mayonnaios, :programs` list
-  the launcher already reads, so a row added to config appears in the right
-  column with no code change here:
+  contains comes from the ROM library and the configured programs:
 
-    * a `:path` entry is a game or program to run -- **Games**
-    * a pickle's row (`{MayonnaiOS.Pickles.App, name}`) -- **Apps**
+    * systems and their ROMs -- **Games**
+    * an external `:path` entry, or a pickle -- **Apps**
     * any other app, and every `:action` -- **System**
 
   A row can also name its column outright with `:category`, which overrides
   the rules above -- that is how the Bluetooth controller sits under **Apps**
   while the other built-in apps stay under **System**.
 
-  System also carries two rows of the launcher's own, Diagnostics and
-  Sleep, so the things the device can do to itself are on the menu rather
-  than only on chords someone has to be told about.
+  System also carries three rows of the launcher's own, Diagnostics, Sleep
+  and Theme, so the things the device can do to itself are on the menu
+  rather than only on chords someone has to be told about. Theme cycles
+  `MayonnaiOS.Theme` to the next built-in theme; it does not launch or
+  leave the browser, it just changes what the next repaint looks like.
   `MayonnaiOS.Launcher` owns what every verb does, this module only names
   them.
 
@@ -46,12 +51,26 @@ defmodule MayonnaiOS.Browser do
   reopening the column -- or by the operation that just changed it, which
   re-reads the column it acted on.
 
+  ## The full view
+
+  X toggles the **full view**: the columns give way to one wide column about
+  the selected entry, built by `MayonnaiOS.Browser.View`. A directory becomes
+  a detailed listing with sizes, a text file a viewer, an image the picture,
+  any other file a hexdump, and a runnable row its metadata. While it is up,
+  B and X close it and the directions scroll it -- `full_input/2` is the only
+  input that belongs here, the way `overlay_input/2` is for the sheets. The
+  process monitors are the one exception, and it is the launcher's: their
+  detailed view is the `MayonnaiOS.Top` app itself, so X there starts it.
+
   ## The verbs, and the sheets they live behind
 
-  Inside a directory column, Y (and A on a file) opens the **actions sheet**:
+  Inside a directory column, Y -- and only Y -- opens the **actions sheet**:
   what can be done to the selected entry, plus pasting whatever the clipboard
-  holds. The sheet is drawn as one more column, because in this UI "a list to
-  pick from" and "a column" are the same thing.
+  holds. A never opens it: A is the button that *opens things* -- it enters a
+  directory, launches a program or recognized ROM, and views any other file -- and a button that sometimes
+  opens and sometimes asks is two buttons wearing one cap. The sheet is drawn
+  as one more column, because in this UI "a list to pick from" and "a column"
+  are the same thing.
 
   Copy and move are a clipboard, because there is no keyboard: pick an entry
   up, walk anywhere in the tree, and the sheet there offers to put it down.
@@ -76,11 +95,12 @@ defmodule MayonnaiOS.Browser do
   cursor.
   """
 
-  alias MayonnaiOS.{Files, Pickles, Programs}
+  alias MayonnaiOS.{Files, Game, Library, Pickles, Programs}
+  alias MayonnaiOS.Browser.View
 
   @typedoc "One entry in a column."
   @type node_ :: %{
-          required(:kind) => :category | :place | :dir | :file | :program,
+          required(:kind) => :category | :place | :dir | :file | :program | :system | :rom,
           required(:name) => String.t(),
           optional(atom()) => term()
         }
@@ -103,18 +123,23 @@ defmodule MayonnaiOS.Browser do
           | {:confirm, %{location: Files.location(), entry: map(), name: String.t()}}
           | {:rename, %{name: String.t(), chars: [String.t()], caret: non_neg_integer()}}
 
-  @typedoc "The whole browser: a stack of levels, a clipboard, and one overlay."
+  @typedoc """
+  The whole browser: a stack of levels, a clipboard, one overlay, and --
+  while X has it open -- the full view, a `MayonnaiOS.Browser.View.full/0`
+  plus the scroll offset this module moves.
+  """
   @type t :: %{
           levels: [level()],
           clipboard: %{mode: :copy | :move, location: Files.location(), name: String.t()} | nil,
           message: {:ok | :error, String.t()} | nil,
-          overlay: overlay()
+          overlay: overlay(),
+          full: map() | nil
         }
 
-  # How many of the deepest levels the panel draws. Fixed: three columns is
-  # the NeXT shape, and a view setting someone can lose is a view setting
-  # someone has to find again.
-  @columns 3
+  # How many lines the full view shows at once. The scene draws exactly this
+  # many, read through `full_rows/0`, so paging and the panel cannot disagree
+  # about what a screenful is.
+  @full_rows 16
 
   # One screen. The scene shows ten rows; paging by ten keeps the shoulder
   # buttons and the scene in step without either reading the other.
@@ -137,7 +162,7 @@ defmodule MayonnaiOS.Browser do
   """
   @spec new() :: t()
   def new do
-    %{levels: [root_level()], clipboard: nil, message: nil, overlay: nil}
+    %{levels: [root_level()], clipboard: nil, message: nil, overlay: nil, full: nil}
   end
 
   @doc "How many levels are open."
@@ -204,7 +229,7 @@ defmodule MayonnaiOS.Browser do
   sheet.
   """
   @spec expandable?(node_() | nil) :: boolean()
-  def expandable?(%{kind: kind}), do: kind in [:category, :place, :dir]
+  def expandable?(%{kind: kind}), do: kind in [:category, :place, :dir, :system]
   def expandable?(nil), do: false
 
   @doc """
@@ -236,22 +261,116 @@ defmodule MayonnaiOS.Browser do
 
   @doc """
   Back to the root column. The clipboard survives -- carrying a file across
-  the tree is what it is for -- and any overlay does not.
+  the tree is what it is for -- and any overlay or full view does not.
   """
   @spec reset(t()) :: t()
   def reset(browser) do
-    %{browser | levels: [root_level()], message: nil, overlay: nil}
+    %{browser | levels: [root_level()], message: nil, overlay: nil, full: nil}
   end
 
   @doc """
-  The levels the panel should draw: the deepest ones, at most three.
-
-  The head of the result is the leftmost column and the last is the focused
-  one -- the only one whose cursor the D-pad moves.
+  The two levels the panel's left and center slots draw: the focused column,
+  where the cursor lives, and its parent -- `nil` at the root, where there is
+  nothing above and the scene fills the slot with the system panel instead.
+  The third slot is `preview/1`'s.
   """
-  @spec visible(t()) :: [level()]
-  def visible(%{levels: levels}) do
-    Enum.take(levels, -min(@columns, length(levels)))
+  @spec panes(t()) :: %{left: level() | nil, center: level()}
+  def panes(%{levels: [only]}), do: %{left: nil, center: only}
+  def panes(%{levels: levels}), do: %{left: Enum.at(levels, -2), center: List.last(levels)}
+
+  @doc """
+  What the right pane says about the current selection, or `nil` with nothing
+  selected.
+
+  An expandable node -- a category, a root, a directory -- previews as the
+  column a descend would open, through the same expansion, so the preview and
+  the descent cannot disagree about what is inside. Leaves are
+  `MayonnaiOS.Browser.View`'s: file contents, program metadata, the narrow
+  process list.
+
+  Built fresh on every call rather than stored, because it is derived from
+  the selection and the disk -- the scene asks when it draws, and holding a
+  copy here would only be one more thing to go stale.
+  """
+  @spec preview(t()) :: map() | nil
+  def preview(browser) do
+    node = selected(browser)
+
+    cond do
+      node == nil -> nil
+      expandable?(node) -> %{kind: :level, level: expand(node)}
+      true -> View.preview(node, focused(browser).location)
+    end
+  end
+
+  # -- the full view --------------------------------------------------------------
+
+  @doc """
+  Whether the full view -- one wide column -- has the panel. While this is
+  true, `full_input/2` is the only input that belongs here.
+  """
+  @spec full?(t()) :: boolean()
+  def full?(%{full: full}), do: full != nil
+
+  @doc """
+  Open the full view of the selected entry: X's half of the toggle, and A's
+  way of opening a file that cannot be entered or run.
+
+  An entry with no full view -- a category, an empty column -- leaves the
+  browser unchanged, so the caller can compare and skip the repaint. The
+  process monitors never arrive here from a button: the launcher starts the
+  `MayonnaiOS.Top` app instead, because the app is their detailed view.
+  """
+  @spec open_full(t()) :: t()
+  def open_full(browser) do
+    node = selected(browser)
+
+    case node && View.full(node, focused(browser).location) do
+      nil -> browser
+      full -> %{browser | full: Map.put(full, :offset, 0), message: nil}
+    end
+  end
+
+  @doc "Close the full view. Back to the columns, exactly as they were."
+  @spec close_full(t()) :: t()
+  def close_full(browser), do: %{browser | full: nil}
+
+  @doc "How many lines the full view shows at once; the scene draws this many."
+  @spec full_rows() :: pos_integer()
+  def full_rows, do: @full_rows
+
+  @doc """
+  One button, while the full view is up.
+
+  B closes it -- in the full view, back always goes back -- and so does X,
+  because a toggle that only toggles one way is a door with no handle on the
+  inside. The directions and the shoulders scroll anything with lines, and
+  everything else is swallowed: a press meant for this view must not also
+  move a cursor in a column that is not on the panel.
+  """
+  @spec full_input(t(), atom()) :: t()
+  def full_input(%{full: nil} = browser, _button), do: browser
+
+  def full_input(browser, button) do
+    case button do
+      :b -> close_full(browser)
+      :x -> close_full(browser)
+      :up -> scroll_full(browser, -1)
+      :down -> scroll_full(browser, +1)
+      :left -> scroll_full(browser, -@full_rows)
+      :right -> scroll_full(browser, +@full_rows)
+      :l1 -> scroll_full(browser, -@full_rows)
+      :r1 -> scroll_full(browser, +@full_rows)
+      _other -> browser
+    end
+  end
+
+  # Clamped like `page/2` and for the same reason; a view with no lines -- an
+  # image -- has nowhere to scroll to and stays put.
+  defp scroll_full(%{full: full} = browser, delta) do
+    ceiling = max(length(Map.get(full, :lines, [])) - @full_rows, 0)
+    offset = (full.offset + delta) |> max(0) |> min(ceiling)
+    %{browser | full: %{full | offset: offset}}
   end
 
   @doc """
@@ -559,16 +678,32 @@ defmodule MayonnaiOS.Browser do
       %{kind: :category, id: :system, name: "System"}
     ]
 
-    level("RG40XXV", category_names, nil)
+    level(MayonnaiOS.Device.current!().name, category_names, nil)
   end
 
   defp expand(%{kind: :category, id: id, name: name}), do: category_level(id, name)
   defp expand(%{kind: :place} = node), do: place_level(node)
   defp expand(%{kind: :dir} = node), do: dir_level(node)
+  defp expand(%{kind: :system} = node), do: system_level(node)
 
   defp category_level(:games, name) do
-    rows = for program <- classified(:games), do: program_node(program)
-    level(name, rows, "Nothing to run. Install a bundle, or check the config.")
+    systems = Library.systems()
+
+    rows =
+      if systems == [] do
+        for program <- classified(:games), do: program_node(program)
+      else
+        for system <- systems do
+          %{kind: :system, name: system.name, key: system.key, core: Game.core_for(system.key)}
+        end
+      end
+
+    empty_note =
+      if systems == [],
+        do: "Nothing to run. Install a bundle, or check the config.",
+        else: "No game systems configured."
+
+    level(name, rows, empty_note)
   end
 
   defp category_level(:apps, name) do
@@ -588,7 +723,8 @@ defmodule MayonnaiOS.Browser do
       Enum.map(apps, &program_node/1) ++
         [
           program_node(builtin("Diagnostics", :diagnostics)),
-          program_node(builtin("Sleep", :sleep))
+          program_node(builtin("Sleep", :sleep)),
+          program_node(builtin("Theme", :cycle_theme))
         ] ++
         Enum.map(actions, &program_node/1)
 
@@ -608,7 +744,24 @@ defmodule MayonnaiOS.Browser do
   defp classify(%{action: action}) when action != nil, do: :system
   defp classify(%{app: {Pickles.App, _name}}), do: :apps
   defp classify(%{app: app}) when app != nil, do: :system
-  defp classify(_program), do: :games
+  defp classify(_program), do: if(Library.systems() == [], do: :games, else: :apps)
+
+  defp system_level(%{key: key, name: name, core: core}) do
+    rows =
+      for entry <- Library.entries(key) do
+        {:ok, path} = Library.find(key, entry.name)
+        %{kind: :rom, name: entry.name, entry: entry, system: key, path: path}
+      end
+
+    note =
+      cond do
+        rows == [] -> "No ROMs found."
+        match?({:error, :no_core}, core) -> "No installed core. Install one from the web page."
+        true -> nil
+      end
+
+    level(name, rows, note)
+  end
 
   # A verb of the launcher's own, shaped like a config row so the launcher's
   # `start_program/2` needs no second vocabulary for it.
@@ -700,6 +853,10 @@ defmodule MayonnaiOS.Browser do
       space: nil
     }
   end
+
+  @doc "Put a result or failure on the launcher's status line."
+  def put_message(browser, level, words) when level in [:ok, :error],
+    do: %{browser | message: {level, words}}
 
   # -- words for the panel --------------------------------------------------------
 

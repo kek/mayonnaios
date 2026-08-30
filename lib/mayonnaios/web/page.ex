@@ -19,18 +19,20 @@ defmodule MayonnaiOS.Web.Page do
   def render, do: html()
 
   defp html do
+    device_name = MayonnaiOS.Device.current!().name
+
     """
     <!doctype html>
     <html lang="en">
     <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>RG40XXV</title>
+    <title>#{device_name}</title>
     <style>#{css()}</style>
     </head>
     <body>
     <header>
-      <h1>RG40XXV</h1>
+      <h1>#{device_name}</h1>
       <p id="free"></p>
     </header>
 
