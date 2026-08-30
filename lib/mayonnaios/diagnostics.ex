@@ -57,7 +57,8 @@ defmodule MayonnaiOS.Diagnostics do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.{Device, Bluetooth.HCISocket}
+  alias MayonnaiOS.{Clock, Device}
+  alias MayonnaiOS.Bluetooth.HCISocket
 
   # Looked up by name at startup, and by name only -- no numbered fallbacks.
   # A number reached when the name is missing is a different device: `event1`
@@ -79,6 +80,7 @@ defmodule MayonnaiOS.Diagnostics do
   defstruct battery: %{},
             thermal: [],
             rtc: %{},
+            time_sync: :unavailable,
             bluetooth: %{},
             audio: %{},
             gpu: %{client: nil, engines: %{}},
@@ -220,6 +222,7 @@ defmodule MayonnaiOS.Diagnostics do
       | battery: read_battery(),
         thermal: read_thermal(),
         rtc: read_rtc(),
+        time_sync: Clock.status(),
         bluetooth: read_bluetooth(state.rtl, state.bt_probe),
         audio: audio,
         gpu: gpu,

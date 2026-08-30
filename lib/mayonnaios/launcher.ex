@@ -137,6 +137,12 @@ defmodule MayonnaiOS.Launcher do
   mechanism and the choice of key, including why it is that button and why
   sleep is not suspend.
 
+  The same mechanism runs after three minutes without a real button press on
+  the home launcher. Autorepeat does not buy another interval, charging does
+  not time out, and neither an external program nor a BEAM app has an idle
+  timer: still controls can be active use in all three cases. Returning to the
+  launcher starts a fresh interval rather than inheriting time spent away.
+
   What belongs here is the other half: while the panel is dark, **the next
   press is consumed**. Waking is not a binding of its own -- any button wakes,
   which is the only thing someone holding a dark handheld can be expected to
@@ -201,7 +207,7 @@ defmodule MayonnaiOS.Launcher do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.{Browser, Device, Input, Led, Panel, Sleep, Splash, Theme}
+  alias MayonnaiOS.{Browser, Device, Input, Led, Panel, Power, Sleep, Splash, Theme}
 
   # The name the driver gives the gamepad, which is the only thing this module
   # knows about which device it is. There is no numbered fallback: /dev/input
@@ -282,6 +288,11 @@ defmodule MayonnaiOS.Launcher do
   # between watching for the port's exit message. Small enough that the normal
   # path is not noticeably slower than fire-and-forget.
   @poll_ms 50
+
+  # The launcher is the only screen where inactivity means nobody is using
+  # the device. Programs and BEAM apps can sit untouched while somebody
+  # watches or uses another controller, so they disable this timer entirely.
+  @idle_sleep_ms :timer.minutes(3)
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -366,7 +377,7 @@ defmodule MayonnaiOS.Launcher do
     Panel.release()
 
     Enum.each(devices(opts), &watch/1)
-    {:ok, new_state(opts)}
+    {:ok, opts |> new_state() |> reset_idle_timer()}
   end
 
   # The gamepad, the analog stick, and whatever device the sleep key is on.
@@ -477,6 +488,12 @@ defmodule MayonnaiOS.Launcher do
       term_timeout: Keyword.get(opts, :term_timeout, @term_timeout),
       kill_timeout: Keyword.get(opts, :kill_timeout, @kill_timeout),
       poll_ms: Keyword.get(opts, :poll_ms, @poll_ms),
+      idle_sleep_ms: Keyword.get(opts, :idle_sleep_ms, @idle_sleep_ms),
+      idle_timer: nil,
+      power_state:
+        Keyword.get(opts, :power_state, fn ->
+          Power.values() |> Power.state()
+        end),
       # Pushing the save files onto the card, at the only moments it is safe
       # to: after the program that owns them is confirmed gone. Injectable
       # because what a test can check is that it happens then and not when a
@@ -503,14 +520,17 @@ defmodule MayonnaiOS.Launcher do
     end
   end
 
-  def handle_call(:launch, _from, state), do: {:reply, :ok, do_launch(state)}
+  def handle_call(:launch, _from, state) do
+    state = state |> do_launch() |> reset_idle_timer()
+    {:reply, :ok, state}
+  end
 
   # The reply is the result rather than a cheerful `:ok`, because there is now
   # an outcome worth having: `{:error, {:still_running, pid}}` means the
   # program is still on the display and this process could not shift it.
   def handle_call(:stop, _from, state) do
     {result, state} = do_stop(state)
-    {:reply, result, state}
+    {:reply, result, reset_idle_timer(state)}
   end
 
   def handle_call(:selected, _from, state) do
@@ -580,6 +600,27 @@ defmodule MayonnaiOS.Launcher do
   # Whole reports go across rather than single events, so a diagonal or a
   # button and a direction pressed in the same kernel report reach the app as
   # one thing and become one HID report.
+  # Only the newest timeout is authoritative. Button presses cancel and
+  # replace timers, but a message already delivered to this mailbox cannot be
+  # recalled; the token makes that stale message harmless.
+  def handle_info({:idle_sleep, token}, %{idle_timer: {_timer, token}} = state) do
+    state = %{state | idle_timer: nil}
+
+    cond do
+      not idle_eligible?(state) ->
+        {:noreply, state}
+
+      state.power_state.() in [:charging, :full] ->
+        {:noreply, reset_idle_timer(state)}
+
+      true ->
+        {_result, state} = enter_sleep(state)
+        {:noreply, if(state.asleep, do: state, else: reset_idle_timer(state))}
+    end
+  end
+
+  def handle_info({:idle_sleep, _stale_token}, state), do: {:noreply, state}
+
   # The program exited on its own. Name it from `running` rather than from the
   # cursor: the cursor may well have moved while the program had the screen,
   # and a log line that names the wrong binary is worse than none.
@@ -607,7 +648,8 @@ defmodule MayonnaiOS.Launcher do
     # before this clause returns, so the panel comes back first.
     state.flush_saves.()
 
-    {:noreply, %{state | port: nil, running: nil, output: []}}
+    state = %{state | port: nil, running: nil, output: []}
+    {:noreply, reset_idle_timer(state)}
   end
 
   # Log what the program says, rather than dropping it.
@@ -656,8 +698,9 @@ defmodule MayonnaiOS.Launcher do
     if not slept? and not leaving?, do: app_module(app).input(events)
 
     state = if leaving?, do: state |> stop_app() |> go_home(), else: state
-
-    {:noreply, leave_app(state, events)}
+    state = leave_app(state, events)
+    state = if real_press?(events), do: reset_idle_timer(state), else: state
+    {:noreply, state}
   end
 
   defp handle_input(events, state) do
@@ -675,6 +718,7 @@ defmodule MayonnaiOS.Launcher do
         _, acc -> acc
       end)
 
+    state = if real_press?(events), do: reset_idle_timer(state), else: state
     {:noreply, state}
   end
 
@@ -730,6 +774,31 @@ defmodule MayonnaiOS.Launcher do
 
   defp hold(state, key), do: %{state | held: MapSet.put(state.held, key)}
   defp release(state, key), do: %{state | held: MapSet.delete(state.held, key)}
+
+  defp real_press?(events),
+    do: Enum.any?(events, &match?({:ev_key, _key, 1}, &1))
+
+  defp idle_eligible?(state),
+    do: not state.asleep and state.port == nil and state.app == nil and state.scene == :home
+
+  defp reset_idle_timer(state) do
+    state = cancel_idle_timer(state)
+
+    if idle_eligible?(state) and is_integer(state.idle_sleep_ms) and state.idle_sleep_ms > 0 do
+      token = make_ref()
+      timer = Process.send_after(self(), {:idle_sleep, token}, state.idle_sleep_ms)
+      %{state | idle_timer: {timer, token}}
+    else
+      state
+    end
+  end
+
+  defp cancel_idle_timer(%{idle_timer: nil} = state), do: state
+
+  defp cancel_idle_timer(%{idle_timer: {timer, _token}} = state) do
+    Process.cancel_timer(timer)
+    %{state | idle_timer: nil}
+  end
 
   # The held set is folded one event at a time and the trigger is asked after
   # each press, exactly as the ordinary path does it, so a future binding with
@@ -898,7 +967,7 @@ defmodule MayonnaiOS.Launcher do
         # write landed, for the same reason as the flag -- a sleep signal over
         # a lit screen would be the LED lying about the panel.
         Led.set(:sleeping)
-        {:ok, %{state | asleep: true}}
+        {:ok, state |> Map.put(:asleep, true) |> cancel_idle_timer()}
 
       {:error, reason} ->
         {{:error, reason}, state}
@@ -918,7 +987,8 @@ defmodule MayonnaiOS.Launcher do
     # the flag: this process now treats the device as awake, and the LED
     # reports what this process does with button presses, not the panel.
     Led.set(:running)
-    {Sleep.wake(), %{state | asleep: false, held: MapSet.new()}}
+    state = %{state | asleep: false, held: MapSet.new()}
+    {Sleep.wake(), reset_idle_timer(state)}
   end
 
   defp bound(state, key) do

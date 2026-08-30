@@ -79,10 +79,18 @@ defmodule MayonnaiOS.Update.AppTest do
 
     test "a check failure is shown rather than raised" do
       fetch = fn _url -> {:error, :timeout} end
-      start_supervised!({App, check_opts: [fetch: fetch]})
+      start_supervised!({App, check_opts: [fetch: fetch], time_synchronized?: fn -> true end})
 
       snapshot = await_status([:error])
       assert snapshot.error == {:http, :timeout}
+    end
+
+    test "an HTTPS failure diagnoses a clock that has never synchronized" do
+      fetch = fn _url -> {:error, :timeout} end
+      start_supervised!({App, check_opts: [fetch: fetch], time_synchronized?: fn -> false end})
+
+      snapshot = await_status([:error])
+      assert snapshot.error == {:clock_unsynchronized, {:http, :timeout}}
     end
 
     test "a release with no matching firmware asset is still available" do
@@ -284,6 +292,16 @@ defmodule MayonnaiOS.Update.AppTest do
     test "an error names what went wrong" do
       texts = texts(Scene.graph(%{status: :error, error: :no_releases}))
       assert Enum.any?(texts, &String.contains?(&1, "no published releases"))
+
+      clock =
+        texts(
+          Scene.graph(%{
+            status: :error,
+            error: {:clock_unsynchronized, {:http, :timeout}}
+          })
+        )
+
+      assert Enum.any?(clock, &String.contains?(&1, "clock has never synchronized"))
     end
 
     test "nothing is drawn above the shared status bar" do

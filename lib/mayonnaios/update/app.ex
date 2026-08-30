@@ -49,7 +49,7 @@ defmodule MayonnaiOS.Update.App do
 
   use GenServer
 
-  alias MayonnaiOS.Update
+  alias MayonnaiOS.{Clock, Update}
 
   @sessions MayonnaiOS.Update.App.Sessions
 
@@ -159,6 +159,7 @@ defmodule MayonnaiOS.Update.App do
       check_opts: Keyword.get(opts, :check_opts, []),
       download_opts: Keyword.get(opts, :download_opts, []),
       apply_opts: Keyword.get(opts, :apply_opts, []),
+      time_synchronized?: Keyword.get(opts, :time_synchronized?, &Clock.synchronized?/0),
       # Injectable for the tests, the same way `MayonnaiOS.Launcher`'s
       # `:poweroff` is: the real thing is `no_return()` and cannot run on a
       # laptop, or in a test, without ending the process running it.
@@ -238,7 +239,7 @@ defmodule MayonnaiOS.Update.App do
     do: %{state | status: :up_to_date, result: result, error: nil, worker: nil}
 
   defp apply_check_result({:error, reason}, state),
-    do: %{state | status: :error, result: nil, error: reason, worker: nil}
+    do: %{state | status: :error, result: nil, error: diagnose(reason, state), worker: nil}
 
   defp start_transfer(%{result: %{asset: nil}} = state) do
     %{state | status: :error, error: :no_asset}
@@ -281,7 +282,13 @@ defmodule MayonnaiOS.Update.App do
     do: %{state | status: :done, error: nil, worker: nil}
 
   defp apply_transfer_result({:error, reason}, state),
-    do: %{state | status: :error, error: reason, worker: nil}
+    do: %{state | status: :error, error: diagnose(reason, state), worker: nil}
+
+  defp diagnose({:http, _reason} = reason, state) do
+    if state.time_synchronized?.(), do: reason, else: {:clock_unsynchronized, reason}
+  end
+
+  defp diagnose(reason, _state), do: reason
 
   defp schedule_progress(state), do: Process.send_after(self(), :poll_progress, state.poll_ms)
 
