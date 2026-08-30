@@ -354,9 +354,10 @@ defmodule MayonnaiOS.Scene.Home do
   defp name_colour(%{kind: kind}, false) when kind in [:category, :place, :dir], do: head()
   defp name_colour(_node, false), do: label()
 
-  # How many characters fit a slot at font 16, with the highlight inset on
-  # the left and the chevron on the right.
-  defp name_chars, do: 18
+  # How many characters fit a slot with the highlight inset on the left and
+  # the chevron on the right. The larger Pixel Operator HB face needs a little
+  # more room for wide capitals than the regular face.
+  defp name_chars, do: 15
 
   # Window the rows when a listing outgrows its column, keeping the cursor on
   # screen. Without this the hundredth ROM in a directory would be selected

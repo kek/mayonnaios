@@ -2,6 +2,7 @@ defmodule MayonnaiOS.ThemeTest do
   use ExUnit.Case, async: false
 
   alias MayonnaiOS.Theme
+  alias Scenic.Assets.Static
 
   # Theme selection lives in a :persistent_term (see the module for why), so
   # it outlives every test process. Every test here resets it on the way
@@ -67,6 +68,13 @@ defmodule MayonnaiOS.ThemeTest do
   end
 
   describe "every built-in theme" do
+    test "uses Pixel Operator as the body font" do
+      for name <- Theme.names() do
+        {:ok, theme} = Theme.by_name(name)
+        assert theme.font == :pixel_operator
+      end
+    end
+
     test "carries a font, a title font, and every chrome colour" do
       for name <- Theme.names() do
         {:ok, theme} = Theme.by_name(name)
@@ -94,6 +102,10 @@ defmodule MayonnaiOS.ThemeTest do
   end
 
   describe "width/2 and width/3" do
+    test "Pixel Operator is registered as a real Scenic font asset" do
+      assert {:ok, {Static.Font, _metrics}} = Static.meta(:pixel_operator)
+    end
+
     test "measures known text as wider than nothing" do
       assert Theme.width("System", 16) > 0
       assert Theme.width("", 16) == 0

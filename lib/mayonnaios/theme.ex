@@ -105,11 +105,14 @@ defmodule MayonnaiOS.Theme do
   # attribute -- the struct is not yet registered while attributes compile.
   defp themes do
     %{
-      # The palette this firmware has always drawn in, set in dot_gothic_16/
-      # press_start_2p in place of Scenic's stock roboto/roboto_mono.
+      # The palette this firmware has always drawn in, set in Pixel Operator/
+      # press_start_2p in place of Scenic's stock roboto/roboto_mono. Pixel
+      # Operator HB replaces DotGothic16 as the body face because it reads
+      # bigger on-device while keeping enough compact pixel width for the
+      # launcher.
       default: %MayonnaiOS.Theme{
         name: :default,
-        font: :dot_gothic_16,
+        font: :pixel_operator,
         title_font: :press_start_2p,
         bg: {12, 14, 22},
         bar_bg: {20, 25, 38},
@@ -127,7 +130,7 @@ defmodule MayonnaiOS.Theme do
       # lighter blue-white text, nothing else on the palette.
       c64: %MayonnaiOS.Theme{
         name: :c64,
-        font: :dot_gothic_16,
+        font: :pixel_operator,
         title_font: :press_start_2p,
         bg: {53, 40, 176},
         bar_bg: {40, 30, 145},
@@ -146,7 +149,7 @@ defmodule MayonnaiOS.Theme do
       # reason c64's blues are.
       synthwave: %MayonnaiOS.Theme{
         name: :synthwave,
-        font: :dot_gothic_16,
+        font: :pixel_operator,
         title_font: :press_start_2p,
         bg: {22, 8, 38},
         bar_bg: {32, 12, 52},
