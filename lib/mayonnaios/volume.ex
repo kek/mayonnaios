@@ -103,15 +103,13 @@ defmodule MayonnaiOS.Volume do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.Audio
+  alias MayonnaiOS.{Audio, Device}
 
   # The name the driver gives the rocker, and the only thing this module knows
   # about which device it is. There is no numbered fallback: /dev/input
   # numbering is probe order, and a fallback that opens the analog stick and
   # waits for `KEY_VOLUMEUP` is the rocker doing nothing with nothing in the
   # log. See `MayonnaiOS.Input`.
-  @device_name "gpio-keys-volume"
-
   # Read off the hardware, not the device tree: these are the atoms
   # `InputEvent` decodes KEY_VOLUMEUP (115) and KEY_VOLUMEDOWN (114) to, and
   # they are the atoms the diagnostics counters have been incrementing on real
@@ -143,7 +141,8 @@ defmodule MayonnaiOS.Volume do
   def init(opts) do
     # get_lazy, so an injected device does not also run a lookup whose warning
     # would then be about a device this process was never going to open.
-    device = Keyword.get_lazy(opts, :device, fn -> MayonnaiOS.Input.find(@device_name) end)
+    device =
+      Keyword.get_lazy(opts, :device, fn -> MayonnaiOS.Input.find(Device.input(:volume)) end)
 
     case open_device(device) do
       {:ok, _pid} ->
@@ -155,7 +154,9 @@ defmodule MayonnaiOS.Volume do
         # name is the thing that has to change in a device tree for this to
         # happen. `MayonnaiOS.Input.find/1` has already logged what was there
         # instead.
-        Logger.warning("[volume] no #{@device_name} input device; the rocker does nothing")
+        Logger.warning(
+          "[volume] no #{Device.input(:volume)} input device; the rocker does nothing"
+        )
 
       {:error, reason} ->
         Logger.warning("[volume] #{device} unavailable: #{inspect(reason)}")

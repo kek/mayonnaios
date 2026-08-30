@@ -32,9 +32,6 @@ defmodule MayonnaiOS.Power do
   # on the directory name is what the rest of this project does; see the note
   # about regulator indices in the journal for why matching on a number would
   # be worse.
-  @battery "/sys/class/power_supply/axp20x-battery"
-  @usb "/sys/class/power_supply/axp20x-usb"
-
   @type values :: %{
           capacity: non_neg_integer() | nil,
           status: String.t() | nil,
@@ -62,8 +59,9 @@ defmodule MayonnaiOS.Power do
   """
   @spec values(keyword()) :: values()
   def values(opts \\ []) do
-    battery = Keyword.get(opts, :battery, @battery)
-    usb = Keyword.get(opts, :usb, @usb)
+    supplies = MayonnaiOS.Device.current!().power_supplies
+    battery = Keyword.get(opts, :battery, supplies.battery)
+    usb = Keyword.get(opts, :usb, supplies.usb)
 
     %{
       capacity: read_int("#{battery}/capacity"),

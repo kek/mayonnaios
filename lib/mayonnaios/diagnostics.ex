@@ -57,7 +57,7 @@ defmodule MayonnaiOS.Diagnostics do
   use GenServer
   require Logger
 
-  alias MayonnaiOS.Clock
+  alias MayonnaiOS.{Clock, Device}
   alias MayonnaiOS.Bluetooth.HCISocket
 
   # Looked up by name at startup, and by name only -- no numbered fallbacks.
@@ -65,9 +65,6 @@ defmodule MayonnaiOS.Diagnostics do
   # is the analog stick and `event2` is the gamepad, so a fallback would count
   # volume presses on a device that has no keys and query a jack switch on one
   # that has no switch. See `MayonnaiOS.Input`.
-  @volume_name "gpio-keys-volume"
-  @jack_name "H616 Audio Codec Headphone Jack"
-
   # The blob whose absence stops Bluetooth from initialising. See the long
   # comment against BR2_PACKAGE_LINUX_FIRMWARE_RTL_87XX_BT in nerves_defconfig.
   @bt_config "/lib/firmware/rtl_bt/rtl8821cs_config.bin"
@@ -135,8 +132,8 @@ defmodule MayonnaiOS.Diagnostics do
 
   @impl GenServer
   def init(_opts) do
-    open(@volume_name)
-    open(@jack_name)
+    open(Device.input(:volume))
+    open(Device.input(:headphone))
 
     # Without this the fdinfo engine counters stay at zero, which would look
     # exactly like a GPU doing nothing.
@@ -454,7 +451,7 @@ defmodule MayonnaiOS.Diagnostics do
   # means nil -- "nobody could ask", which is what nil already means for this
   # field and is not the same as "nothing is plugged in".
   defp query_jack do
-    case MayonnaiOS.Input.find(@jack_name) do
+    case MayonnaiOS.Input.find(Device.input(:headphone)) do
       nil ->
         nil
 

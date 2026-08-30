@@ -59,9 +59,6 @@ defmodule MayonnaiOS.Led do
 
   # The emitters by sysfs name. See the moduledoc: the names describe the
   # device tree's opinion, the comments describe the light.
-  @green "green:power"
-  @red "green:status"
-
   # Flash cadences, in milliseconds on/off. Quick reads as activity, slow as
   # a device at rest, and the red blink sits between them -- fast enough to
   # look wrong, slow enough to count.
@@ -120,12 +117,15 @@ defmodule MayonnaiOS.Led do
     end
   end
 
-  defp apply_state(:starting), do: combine(off(@red), flash(@green, @quick))
-  defp apply_state(:running), do: combine(off(@red), solid(@green))
-  defp apply_state(:sleeping), do: combine(off(@red), flash(@green, @slow))
-  defp apply_state(:low_battery), do: combine(off(@green), flash(@red, @low_battery_blink))
-  defp apply_state(:failure), do: combine(off(@green), flash(@red, @blink))
-  defp apply_state(:off), do: combine(off(@red), off(@green))
+  defp apply_state(:starting), do: combine(off(red()), flash(green(), @quick))
+  defp apply_state(:running), do: combine(off(red()), solid(green()))
+  defp apply_state(:sleeping), do: combine(off(red()), flash(green(), @slow))
+  defp apply_state(:low_battery), do: combine(off(green()), flash(red(), @low_battery_blink))
+  defp apply_state(:failure), do: combine(off(green()), flash(red(), @blink))
+  defp apply_state(:off), do: combine(off(red()), off(green()))
+
+  defp green, do: MayonnaiOS.Device.current!().leds.green
+  defp red, do: MayonnaiOS.Device.current!().leds.red
 
   # Both emitters are always written; the first error is the one returned,
   # after every write has been attempted, so one refused file does not leave

@@ -120,7 +120,7 @@ defmodule MayonnaiOS.Scene.Diagnostics do
     Graph.build(font: :roboto, font_size: 14)
     |> rect({@width, @height}, fill: {:color, @bg})
     |> StatusBar.mount()
-    |> text("RG40XXV diagnostics",
+    |> text("#{MayonnaiOS.Device.current!().name} diagnostics",
       font_size: 20,
       fill: {:color, @title},
       translate: {20, @title_y}
