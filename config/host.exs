@@ -71,6 +71,18 @@ config :mayonnaios, :device, %{
   rtc?: true
 }
 
+# The extra low-power measures are off on a laptop, and this is a safety
+# interlock rather than a preference. `MayonnaiOS.LowPower.Cpus` writes "0" to
+# every `/sys/devices/system/cpu/cpuN/online` it finds, and on a Linux
+# development machine -- or CI running as root -- those files are real and
+# writable. A suite that offlines the machine's own cores would be a worse bug
+# than anything it could catch, and on macOS the path is simply absent, so the
+# hazard is invisible exactly where this is most often run.
+#
+# Tests that exercise the measures turn this on explicitly and point
+# `:cpu_dir` and `:cpufreq_dir` at a temp tree; see test/low_power_test.exs.
+config :mayonnaios, low_power_sleep: false
+
 config :nerves_runtime,
   kv_backend:
     {Nerves.Runtime.KVBackend.InMemory,

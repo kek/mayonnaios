@@ -207,6 +207,62 @@ defmodule MayonnaiOS.SleepTest do
       refute Launcher.asleep?()
     end
 
+    test "sleeping takes the cores down, and waking brings them back" do
+      # The wiring test: sleep is the backlight plus MayonnaiOS.LowPower, and
+      # the cores are the step that is checkable on a laptop. Ordering is the
+      # thing worth pinning -- LowPower runs only once the backlight write has
+      # landed, so a device that could not darken its panel does not offline
+      # three cores either. See the test below for that half.
+      cpus = Path.join(System.tmp_dir!(), "cpus-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(cpus, "cpu0"))
+      File.mkdir_p!(Path.join(cpus, "cpu1"))
+      File.write!(Path.join(cpus, "cpu1/online"), "1\n")
+      Application.put_env(:mayonnaios, :cpu_dir, cpus)
+      # config/host.exs turns the measures off so that a suite run on a Linux
+      # machine cannot offline that machine's own cores. :cpu_dir is a temp
+      # tree by the line above, so turning them on here reaches nothing real.
+      Application.put_env(:mayonnaios, :low_power_sleep, true)
+
+      on_exit(fn ->
+        Application.delete_env(:mayonnaios, :cpu_dir)
+        Application.delete_env(:mayonnaios, :low_power_sleep)
+        File.rm_rf(cpus)
+      end)
+
+      press(:key_power)
+      assert Launcher.asleep?()
+      assert File.read!(Path.join(cpus, "cpu1/online")) == "0"
+
+      press(:key_power)
+      refute Launcher.asleep?()
+      assert File.read!(Path.join(cpus, "cpu1/online")) == "1"
+    end
+
+    test "a backlight that cannot be written leaves the cores alone" do
+      # The other half of the ordering. A sleep that did not happen must not
+      # take three cores offline behind a lit screen -- that is a device that
+      # looks awake, feels slow, and has no button that fixes it.
+      cpus = Path.join(System.tmp_dir!(), "cpus-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(cpus, "cpu1"))
+      File.write!(Path.join(cpus, "cpu1/online"), "1\n")
+      Application.put_env(:mayonnaios, :cpu_dir, cpus)
+      Application.put_env(:mayonnaios, :low_power_sleep, true)
+      Application.put_env(:mayonnaios, :backlight_brightness, "/nonexistent/dir/brightness")
+
+      on_exit(fn ->
+        Application.delete_env(:mayonnaios, :cpu_dir)
+        Application.delete_env(:mayonnaios, :low_power_sleep)
+        File.rm_rf(cpus)
+      end)
+
+      press(:key_power)
+
+      refute Launcher.asleep?()
+      # Untouched, so still carrying the newline sysfs writes back; the point
+      # is that nothing wrote "0" over it.
+      assert File.read!(Path.join(cpus, "cpu1/online")) |> String.trim() == "1"
+    end
+
     test "sleep and wake from a console are idempotent", %{path: path} do
       assert Launcher.sleep() == :ok
       assert Launcher.sleep() == :ok

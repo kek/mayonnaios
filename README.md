@@ -46,10 +46,11 @@ Software:
   for things like controlling lamps on the LAN or polling a web API. See
   [docs/pickles.md](docs/pickles.md)
 - Sleep on the power button, or after three minutes idle in the launcher: the
-  backlight goes off and any button brings it back. The idle timer pauses
-  while charging and while a program or app is active. Not suspend — this
-  board's only suspend mode would save almost nothing, and
-  `MayonnaiOS.Sleep`'s moduledoc has the analysis
+  backlight goes off, the renderer stops, WiFi goes down and three of the four
+  cores go offline; any button brings it all back. The idle timer pauses while
+  charging and while a program or app is active. Not suspend — this board has
+  no suspend-to-RAM at all, and `MayonnaiOS.Sleep` and `MayonnaiOS.LowPower`
+  have the analysis and measurements
 - A NeXTSTEP-style column launcher: Games, Files, Apps and System open
   as columns, three on screen, and Files browses the whole filesystem in
   place
