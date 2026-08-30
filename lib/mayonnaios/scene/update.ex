@@ -228,6 +228,10 @@ defmodule MayonnaiOS.Scene.Update do
     do: "Not enough free space on #{path} (need #{bytes(needed)})."
 
   defp reason({:http, _}), do: "Could not reach GitHub. Check the network connection."
+
+  defp reason({:clock_unsynchronized, _reason}),
+    do: "The clock has never synchronized. Connect to the internet and try again."
+
   defp reason({:http_status, status}), do: "GitHub returned an unexpected status (#{status})."
   defp reason({:fwup_failed, status, _output}), do: "fwup exited with status #{status}."
   defp reason(:fwup_not_found), do: "fwup is missing from this image."

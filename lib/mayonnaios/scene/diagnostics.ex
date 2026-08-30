@@ -157,7 +157,7 @@ defmodule MayonnaiOS.Scene.Diagnostics do
       thermal_rows(s.thermal) ++
       [{:head, "GPU"}] ++
       gpu_rows(s.gpu) ++
-      [{:head, "REAL-TIME CLOCK"}] ++ rtc_rows(s.rtc)
+      [{:head, "TIME"}] ++ time_rows(s.rtc, s.time_sync)
   end
 
   defp battery_rows(b) do
@@ -213,12 +213,20 @@ defmodule MayonnaiOS.Scene.Diagnostics do
     [{:row, "client", name, @pass}] ++ rows
   end
 
-  defp rtc_rows(r) do
+  defp time_rows(r, sync) do
+    {sync_text, sync_colour} =
+      case sync do
+        :synchronized -> {"synchronized", @pass}
+        :never_synchronized -> {"never synchronized", @fail}
+        :unavailable -> {"unavailable", @dim}
+      end
+
     [
-      {:row, "clock", "#{r[:date] || "--"} #{r[:time] || ""}",
+      {:row, "RTC", "#{r[:date] || "--"} #{r[:time] || ""}",
        if(r[:date], do: @pass, else: @fail)},
       {:row, "set at boot", if(r[:hctosys], do: "yes", else: "no"),
-       if(r[:hctosys], do: @pass, else: @fail)}
+       if(r[:hctosys], do: @pass, else: @fail)},
+      {:row, "network time", sync_text, sync_colour}
     ]
   end
 
