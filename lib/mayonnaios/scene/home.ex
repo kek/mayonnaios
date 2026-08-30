@@ -40,13 +40,14 @@ defmodule MayonnaiOS.Scene.Home do
   cap, no Scenic running, a file the decoder refuses -- and the box then
   says so instead of drawing nothing.
 
-  ## Why the footer says what the buttons do, on every screen
+  ## Why the footer only says what changes
 
-  Y means a different thing in each state -- the actions sheet while
-  browsing, the delete on a confirmation, remove-a-character in the rename
-  editor -- and a handheld has no tooltips and no manual. So the bottom line
-  spells the buttons out for the state on screen, and the same line carries
-  a program's obituary when there is one: reporting outranks labelling.
+  A opens and B goes back throughout the firmware; repeating those bindings
+  on every screen made the footer's longest line mostly noise. The bottom
+  line instead names the controls that vary with state: Y's file action,
+  delete, or editor meaning; X's inspection toggle; and paging only when the
+  current list can page. The same line carries a program's obituary when
+  there is one: reporting outranks hints.
   """
 
   use Scenic.Scene
@@ -956,19 +957,28 @@ defmodule MayonnaiOS.Scene.Home do
     |> text(headline, font_size: 18, fill: {:color, wait()}, translate: {@left, @footer_y})
   end
 
-  defp hint(%{full: full}) when full != nil,
-    do: "B goes back. Up/Down scroll, L1/R1 page. X also closes."
+  defp hint(%{full: full}) when full != nil do
+    if length(Map.get(full, :lines, [])) > Browser.full_rows() do
+      "Up/Down scroll. L1/R1 page. X closes."
+    else
+      "X closes."
+    end
+  end
 
-  defp hint(%{overlay: {:actions, _actions, _cursor}}), do: "A does it. B goes back."
+  defp hint(%{overlay: {:actions, _actions, _cursor}}), do: "Up/Down chooses."
   defp hint(%{overlay: {:confirm, _pending}}), do: "Y deletes. Anything else cancels."
-  defp hint(%{overlay: {:rename, _rename}}), do: "A saves. B cancels. Y removes a character."
+  defp hint(%{overlay: {:rename, _rename}}), do: "Y removes a character."
 
   defp hint(browser) do
-    if Browser.focused(browser).location == nil do
-      "A opens. B closes a column. X inspects. L1/R1 page. Menu goes to the top."
-    else
-      "A opens. B closes. X inspects. Y for file actions. Menu goes to the top."
-    end
+    level = Browser.focused(browser)
+
+    [
+      "X inspects.",
+      if(level.location != nil, do: "Y file actions."),
+      if(length(level.entries) > @visible, do: "L1/R1 page.")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("  ")
   end
 
   defp footer_rule(graph) do
