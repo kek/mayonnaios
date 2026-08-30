@@ -20,6 +20,7 @@ defmodule MayonnaiOS.Application do
     children =
       signs_of_life() ++
         [status()] ++
+        led_monitor() ++
         viewport() ++
         [controller_sessions(), pairing_sessions(), pickle_sessions()] ++
         [top_sessions(), update_sessions(), moonlight_sessions(), wifi_sessions()] ++
@@ -120,6 +121,7 @@ defmodule MayonnaiOS.Application do
   # List all child processes to be supervised
   if Mix.target() == :host do
     defp signs_of_life(), do: []
+    defp led_monitor(), do: []
 
     defp target_children() do
       [
@@ -131,6 +133,11 @@ defmodule MayonnaiOS.Application do
       ]
     end
   else
+    # Starts after Status so its first subscription gets a battery reading.
+    # The direct :starting write remains ahead of both in signs_of_life/0;
+    # this process is the arbiter once normal supervision is available.
+    defp led_monitor(), do: [MayonnaiOS.Led.Monitor]
+
     # The two children that say the software is alive, at the very front of
     # the tree -- ahead of Scenic and ahead of every poller.
     #

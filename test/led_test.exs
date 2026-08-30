@@ -65,10 +65,81 @@ defmodule MayonnaiOS.LedTest do
       assert read(dir, @green, "brightness") == "0"
     end
 
+    test "low battery blinks red more slowly than failure", %{dir: dir} do
+      assert Led.set(:low_battery) == :ok
+      assert read(dir, @red, "trigger") == "timer"
+      assert read(dir, @red, "delay_on") == "1000"
+      assert read(dir, @red, "delay_off") == "1000"
+      assert read(dir, @green, "brightness") == "0"
+    end
+
     test "off darkens both", %{dir: dir} do
       assert Led.set(:off) == :ok
       assert read(dir, @green, "brightness") == "0"
       assert read(dir, @red, "brightness") == "0"
+    end
+  end
+
+  describe "battery arbitration" do
+    test "enters at 20 percent, holds through hysteresis, and clears at 30", %{dir: dir} do
+      start_supervised!({Led.Monitor, status: nil})
+      assert Led.set(:running) == :ok
+
+      battery(20, "Discharging")
+      assert read(dir, @red, "delay_on") == "1000"
+      assert :sys.get_state(Led.Monitor).low_battery
+
+      battery(25, "Discharging")
+      assert :sys.get_state(Led.Monitor).low_battery
+      assert read(dir, @red, "delay_on") == "1000"
+
+      battery(30, "Discharging")
+      refute :sys.get_state(Led.Monitor).low_battery
+      assert read(dir, @green, "brightness") == "1"
+      assert read(dir, @red, "brightness") == "0"
+    end
+
+    test "charging and unavailable readings clear low battery", %{dir: dir} do
+      start_supervised!({Led.Monitor, status: nil})
+      Led.set(:sleeping)
+
+      battery(10, "Not charging")
+      assert :sys.get_state(Led.Monitor).low_battery
+
+      battery(10, "Charging")
+      refute :sys.get_state(Led.Monitor).low_battery
+      assert read(dir, @green, "delay_on") == "1000"
+
+      battery(10, "Discharging")
+      assert :sys.get_state(Led.Monitor).low_battery
+
+      send(Led.Monitor, {:mayonnaios_status, %{battery: %{value: nil, error: :unavailable}}})
+      refute :sys.get_state(Led.Monitor).low_battery
+      assert read(dir, @green, "delay_on") == "1000"
+    end
+
+    test "failure outranks low battery", %{dir: dir} do
+      start_supervised!({Led.Monitor, status: nil})
+      Led.set(:running)
+      battery(5, "Discharging")
+
+      assert Led.set(:failure) == :ok
+      assert read(dir, @red, "delay_on") == "250"
+      assert read(dir, @red, "delay_off") == "250"
+
+      battery(4, "Discharging")
+      assert read(dir, @red, "delay_on") == "250"
+      assert :sys.get_state(Led.Monitor).drawn == :failure
+    end
+
+    defp battery(capacity, status) do
+      send(
+        Led.Monitor,
+        {:mayonnaios_status,
+         %{battery: %{value: %{capacity: capacity, status: status}, error: nil}}}
+      )
+
+      :sys.get_state(Led.Monitor)
     end
   end
 

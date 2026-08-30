@@ -54,10 +54,11 @@ Software:
 - Orderly power off: the Select+Menu chord, or the **Power off** row under
   System
 - An indicator LED that means something: quick flashing green while starting,
-  solid green running, slow flashing green asleep, blinking red when the
-  application fails to start. The yellow light in the other window is the
-  PMIC's charge indicator and keeps its own counsel; `MayonnaiOS.Led`'s
-  moduledoc has the color map
+  solid green running, slow flashing green asleep, slow blinking red at 20%
+  battery, and quick blinking red when the application fails to start. Low
+  battery clears at 30% or while charging; failure always wins. The yellow
+  light in the other window is the PMIC's charge indicator and keeps its own
+  counsel; `MayonnaiOS.Led`'s moduledoc has the color map
 
 ## Building and flashing
 
