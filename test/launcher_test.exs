@@ -502,6 +502,103 @@ defmodule MayonnaiOS.LauncherTest do
     end
   end
 
+  describe "idle sleep" do
+    setup do
+      path =
+        Path.join(System.tmp_dir!(), "launcher-idle-sleep-#{System.unique_integer([:positive])}")
+
+      File.write!(path, "1")
+      Application.put_env(:mayonnaios, :backlight_brightness, path)
+
+      on_exit(fn ->
+        Application.delete_env(:mayonnaios, :backlight_brightness)
+        File.rm(path)
+        Application.delete_env(:mayonnaios, :programs)
+      end)
+
+      {:ok, backlight: path}
+    end
+
+    test "sleeps after three minutes of launcher inactivity", %{backlight: path} do
+      start_idle_launcher(:discharging)
+
+      fire_idle_timeout()
+
+      assert Launcher.asleep?()
+      assert File.read!(path) == "0"
+      assert :sys.get_state(Launcher).idle_timer == nil
+    end
+
+    test "stays awake while charging and checks again later" do
+      start_idle_launcher(:charging)
+      {_timer, first_token} = :sys.get_state(Launcher).idle_timer
+
+      fire_idle_timeout()
+
+      refute Launcher.asleep?()
+      assert {_timer, next_token} = :sys.get_state(Launcher).idle_timer
+      assert next_token != first_token
+    end
+
+    test "a real press resets the timer but autorepeat does not" do
+      start_idle_launcher(:discharging)
+      {_timer, first_token} = :sys.get_state(Launcher).idle_timer
+
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, :btn_dpad_down, 2}]})
+      Launcher.selected()
+      assert {_timer, ^first_token} = :sys.get_state(Launcher).idle_timer
+
+      idle_press(:btn_dpad_down)
+      assert {_timer, next_token} = :sys.get_state(Launcher).idle_timer
+      assert next_token != first_token
+
+      # A timeout already delivered before the cancellation is harmless.
+      send(Launcher, {:idle_sleep, first_token})
+      refute Launcher.asleep?()
+    end
+
+    test "the timer is disabled while a BEAM app owns the launcher" do
+      Application.put_env(:mayonnaios, :programs, [
+        %{name: "Readout", app: FakeReadout, category: :apps}
+      ])
+
+      start_idle_launcher(:discharging)
+
+      # Apps is the third root row. A opens the category, then the app.
+      idle_press(:btn_dpad_down)
+      idle_press(:btn_dpad_down)
+      idle_press(:btn_b)
+      idle_press(:btn_b)
+
+      assert :sys.get_state(Launcher).app == FakeReadout
+      assert :sys.get_state(Launcher).idle_timer == nil
+
+      # B leaves the app and starts a fresh launcher-idle interval.
+      idle_press(:btn_a)
+      assert :sys.get_state(Launcher).app == nil
+      assert {_timer, _token} = :sys.get_state(Launcher).idle_timer
+    end
+
+    defp start_idle_launcher(power_state) do
+      start_supervised!(
+        {Launcher,
+         device: "/nonexistent/event0", idle_sleep_ms: 60_000, power_state: fn -> power_state end}
+      )
+    end
+
+    defp fire_idle_timeout do
+      {_timer, token} = :sys.get_state(Launcher).idle_timer
+      send(Launcher, {:idle_sleep, token})
+      Launcher.asleep?()
+    end
+
+    defp idle_press(key) do
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 1}]})
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 0}]})
+      Launcher.selected()
+    end
+  end
+
   describe "the Power off row" do
     setup do
       programs = [%{path: "/a"}, %{name: "Power off", action: :poweroff}]
