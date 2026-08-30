@@ -2,10 +2,37 @@ import Config
 
 # Add configuration that is only needed when running on the host here.
 
-# Pickles on the host go under the working directory rather than /root, so
-# `iex -S mix` can exercise the whole install/run loop on a laptop. Tests
-# override this per-test with a tmp directory.
-config :mayonnaios, pickles_root: ".pickles"
+# Host development state is isolated from both the repository sources and the
+# device paths. HostRuntime creates these paths before the launcher starts.
+host_files = Path.expand("tmp/host/files")
+host_backlight = Path.expand("tmp/host/brightness")
+
+config :mayonnaios,
+  pickles_root: Path.expand(".pickles"),
+  file_roots: [%{key: "host", path: host_files, note: "host development scratch files"}],
+  backlight_brightness: host_backlight,
+  web_port: 4000,
+  # `mix test` stays headless. `iex -S mix` and `mix run --no-halt` in dev
+  # start the complete host launcher automatically.
+  autostart_ui: config_env() == :dev,
+  host_runtime: config_env() == :dev
+
+# One external-process stand-in exercises the same panel handoff and obituary
+# path as RetroArch without requiring a host RetroArch build. The remaining
+# rows are device-independent Elixir apps; installed UI pickles are appended
+# dynamically by MayonnaiOS.Programs.
+config :mayonnaios, :programs, [
+  %{
+    name: "Host program (launcher handoff)",
+    path: "/bin/sh",
+    args: ["-c", "printf 'host program running\\n'; sleep 1"]
+  },
+  %{name: "Moonlight settings", app: MayonnaiOS.Moonlight.App},
+  %{name: "BEAM processes", app: {MayonnaiOS.Top, :beam}},
+  %{name: "OS processes", app: {MayonnaiOS.Top, :os}},
+  %{name: "WiFi", app: MayonnaiOS.WiFi.App},
+  %{name: "Software update", app: MayonnaiOS.Update.App}
+]
 
 config :nerves_runtime,
   kv_backend:

@@ -122,13 +122,11 @@ defmodule MayonnaiOS.Application do
     defp signs_of_life(), do: []
 
     defp target_children() do
-      [
-        # Children that only run on the host during development or test.
-        # In general, prefer using `config/host.exs` for differences.
-        #
-        # Starts a worker by calling: Host.Worker.start_link(arg)
-        # {Host.Worker, arg},
-      ]
+      if Application.get_env(:mayonnaios, :host_runtime, false) do
+        MayonnaiOS.HostRuntime.children()
+      else
+        []
+      end
     end
   else
     # The two children that say the software is alive, at the very front of

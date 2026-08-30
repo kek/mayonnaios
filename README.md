@@ -361,15 +361,24 @@ tests run:
 
 No hardware required.
 
-The UI runs on the laptop too, in a window at the panel's own 640×480 — a scene
-that looks right at some other size is not evidence about the device:
+The complete development runtime runs on the laptop too, in a window at the
+panel's own 640×480 — a scene that looks right at some other size is not
+evidence about the device:
 
     iex -S mix
-    iex> MayonnaiOS.start_ui()
 
     # ... edit a scene ...
     iex> recompile()
     iex> MayonnaiOS.reload_ui()
+
+In `dev`, that one command starts Scenic, the real launcher, the keyboard
+controller bridge, the web UI on <http://localhost:4000>, and the same Elixir
+and Luerl app supervisors used by the device. A short shell command stands in
+for an external KMS program so the display-handoff path can be exercised
+without installing RetroArch or Moonlight. The Files column is rooted at
+`tmp/host/files`, and the worked `hello` pickle is copied once into the
+gitignored `.pickles` state so its graphical Lua app is present immediately.
+`mix test` stays headless and starts none of these development-only children.
 
 `recompile/0` alone changes nothing on screen. A scene is a process holding an
 already-built graph, and swapping the module's code does not rebuild it;
