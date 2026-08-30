@@ -1,7 +1,7 @@
 defmodule MayonnaiOS.LauncherTest do
   use ExUnit.Case, async: false
 
-  alias MayonnaiOS.{Browser, Launcher, Programs, Theme}
+  alias MayonnaiOS.{AutoSleep, Browser, Launcher, Programs, Theme}
   alias MayonnaiOS.Scene.Home
 
   # No viewport, no driver, no framebuffer. Everything here runs on the host,
@@ -545,12 +545,17 @@ defmodule MayonnaiOS.LauncherTest do
       path =
         Path.join(System.tmp_dir!(), "launcher-idle-sleep-#{System.unique_integer([:positive])}")
 
+      setting = path <> "-setting"
+
       File.write!(path, "1")
       Application.put_env(:mayonnaios, :backlight_brightness, path)
+      Application.put_env(:mayonnaios, :auto_sleep_path, setting)
 
       on_exit(fn ->
         Application.delete_env(:mayonnaios, :backlight_brightness)
+        Application.delete_env(:mayonnaios, :auto_sleep_path)
         File.rm(path)
+        File.rm(setting)
         Application.delete_env(:mayonnaios, :programs)
       end)
 
@@ -576,6 +581,18 @@ defmodule MayonnaiOS.LauncherTest do
       refute Launcher.asleep?()
       assert {_timer, next_token} = :sys.get_state(Launcher).idle_timer
       assert next_token != first_token
+    end
+
+    test "a disabled policy arms no timer but manual sleep still works", %{backlight: path} do
+      start_idle_launcher(:discharging, auto_sleep: false)
+
+      assert :sys.get_state(Launcher).idle_timer == nil
+      send(Launcher, {:idle_sleep, make_ref()})
+      refute Launcher.asleep?()
+
+      assert Launcher.sleep() == :ok
+      assert Launcher.asleep?()
+      assert File.read!(path) == "0"
     end
 
     test "a real press resets the timer but autorepeat does not" do
@@ -617,10 +634,14 @@ defmodule MayonnaiOS.LauncherTest do
       assert {_timer, _token} = :sys.get_state(Launcher).idle_timer
     end
 
-    defp start_idle_launcher(power_state) do
+    defp start_idle_launcher(power_state, opts \\ []) do
       start_supervised!(
         {Launcher,
-         device: "/nonexistent/event0", idle_sleep_ms: 60_000, power_state: fn -> power_state end}
+         [
+           device: "/nonexistent/event0",
+           idle_sleep_ms: 60_000,
+           power_state: fn -> power_state end
+         ] ++ opts}
       )
     end
 
@@ -634,6 +655,53 @@ defmodule MayonnaiOS.LauncherTest do
       send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 1}]})
       send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_key, key, 0}]})
       Launcher.selected()
+    end
+  end
+
+  describe "the Automatic sleep row" do
+    setup do
+      path = Path.join(System.tmp_dir!(), "auto-sleep-row-#{System.unique_integer([:positive])}")
+      Application.put_env(:mayonnaios, :auto_sleep_path, path)
+
+      on_exit(fn ->
+        Application.delete_env(:mayonnaios, :auto_sleep_path)
+        File.rm(path)
+      end)
+
+      start_supervised!(
+        {Launcher, device: "/nonexistent/event0", idle_sleep_ms: 60_000, auto_sleep: true}
+      )
+
+      # System is one press up from Games. Diagnostics, Sleep, then the toggle.
+      tap(:btn_dpad_up)
+      tap(:btn_b)
+      tap(:btn_dpad_down)
+      tap(:btn_dpad_down)
+
+      assert Browser.selected(Launcher.browser()).name == "Automatic sleep: on"
+      :ok
+    end
+
+    test "A persists off, updates the row, and cancels the active timer" do
+      assert {_timer, _token} = :sys.get_state(Launcher).idle_timer
+
+      tap(:btn_b)
+
+      refute AutoSleep.enabled?()
+      refute :sys.get_state(Launcher).auto_sleep
+      assert :sys.get_state(Launcher).idle_timer == nil
+      assert Browser.selected(Launcher.browser()).name == "Automatic sleep: off"
+      assert Launcher.browser().message == {:ok, "Automatic sleep disabled."}
+    end
+
+    test "A twice persists on again and rearms the timer" do
+      tap(:btn_b)
+      tap(:btn_b)
+
+      assert AutoSleep.enabled?()
+      assert :sys.get_state(Launcher).auto_sleep
+      assert {_timer, _token} = :sys.get_state(Launcher).idle_timer
+      assert Browser.selected(Launcher.browser()).name == "Automatic sleep: on"
     end
   end
 
@@ -652,10 +720,11 @@ defmodule MayonnaiOS.LauncherTest do
          poweroff: fn -> send(test, :powered_off) end}
       )
 
-      # Into System -- the last category -- and down past Diagnostics, Sleep
-      # and Theme onto the Power off row, which sits last on purpose.
+      # Into System -- the last category -- and down past Diagnostics, Sleep,
+      # Automatic sleep and Theme onto the Power off row, which sits last.
       tap(:btn_dpad_up)
       tap(:btn_b)
+      tap(:btn_dpad_down)
       tap(:btn_dpad_down)
       tap(:btn_dpad_down)
       tap(:btn_dpad_down)
@@ -696,10 +765,11 @@ defmodule MayonnaiOS.LauncherTest do
 
       start_supervised!({Launcher, device: "/nonexistent/event0"})
 
-      # Into System -- the last category -- and down past Diagnostics and
-      # Sleep onto the Theme row.
+      # Into System -- the last category -- and down past Diagnostics, Sleep
+      # and Automatic sleep onto the Theme row.
       tap(:btn_dpad_up)
       tap(:btn_b)
+      tap(:btn_dpad_down)
       tap(:btn_dpad_down)
       tap(:btn_dpad_down)
 
