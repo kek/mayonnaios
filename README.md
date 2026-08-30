@@ -67,8 +67,8 @@ network the device joins on a fresh card; more can be added on the device
 afterwards, from the **WiFi** screen below. Set them, pick the target, and
 build:
 
-    export RG40XXV_WIFI_SSID="your-ssid"
-    export RG40XXV_WIFI_PSK="your-psk"
+    export MAYONNAIOS_WIFI_SSID="your-ssid"
+    export MAYONNAIOS_WIFI_PSK="your-psk"
     export MIX_TARGET=rg40xxv
 
     mix deps.get
@@ -84,6 +84,14 @@ If `mix deps.get` starts compiling Buildroot instead of downloading a system,
 your tree does not match any published release and you are in for a full
 system build, which takes a while. That is usually a sign you changed something
 under `nerves_system_rg40xxv` — a comment is enough.
+
+Board facts live in `config/<target>.exs` as one validated
+`MayonnaiOS.Device` profile: the display name and size, input device names,
+physical-button mapping, LEDs, power supplies, games-card node, backlight, lid
+switch and RTC presence. Shared bundles, cores, systems and writable paths stay
+in `config/target.exs`. Adding a target requires a bootable Nerves system and a
+complete profile; the application fails at startup when either the profile or
+its panel/viewport agreement is incomplete.
 
 ## Changing which WiFi it joins
 

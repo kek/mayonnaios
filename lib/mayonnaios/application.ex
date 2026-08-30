@@ -7,6 +7,10 @@ defmodule MayonnaiOS.Application do
 
   @impl true
   def start(_type, _args) do
+    # Fail with the missing board fact named, before starting any process that
+    # could otherwise degrade into a silent input, LED or power-supply fault.
+    MayonnaiOS.Device.load!()
+
     # Scenic is started on demand rather than from the supervision tree.
     #
     # If it fails during boot the whole application fails, StartupGuard never

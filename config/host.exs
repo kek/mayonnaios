@@ -7,6 +7,43 @@ import Config
 # override this per-test with a tmp directory.
 config :mayonnaios, pickles_root: ".pickles"
 
+# A complete profile keeps host development and tests on the same application
+# seams as a target without pretending the laptop has any of this hardware.
+config :mayonnaios, :device, %{
+  id: :host,
+  name: "MayonnaiOS host",
+  panel_size: {640, 480},
+  inputs: %{
+    gamepad: "host-gamepad",
+    stick: "host-stick",
+    volume: "host-volume",
+    headphone: "host-headphone",
+    power: "host-power"
+  },
+  buttons: %{
+    launch: :btn_b,
+    confirm: :btn_x,
+    actions: :btn_x,
+    full: :btn_y,
+    poweroff_modifier: :btn_select,
+    home: :btn_mode,
+    up: :btn_dpad_up,
+    down: :btn_dpad_down,
+    left: :btn_dpad_left,
+    right: :btn_dpad_right,
+    page_up: :btn_tl,
+    page_down: :btn_tr,
+    back: :btn_a,
+    sleep: :key_power
+  },
+  leds: %{green: "green:power", red: "green:status"},
+  power_supplies: %{battery: "/nonexistent/battery", usb: "/nonexistent/usb"},
+  games_card_device: "/nonexistent/games-card",
+  backlight: Path.expand("tmp/host/brightness"),
+  lid_switch: nil,
+  rtc?: true
+}
+
 config :nerves_runtime,
   kv_backend:
     {Nerves.Runtime.KVBackend.InMemory,

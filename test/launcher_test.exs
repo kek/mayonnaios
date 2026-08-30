@@ -80,7 +80,10 @@ defmodule MayonnaiOS.LauncherTest do
 
       browser = Browser.new() |> Browser.descend()
 
-      assert Enum.any?(texts(Home.graph(browser)), &(&1 =~ "RG40XXV > Games"))
+      assert Enum.any?(
+               texts(Home.graph(browser)),
+               &(&1 =~ "#{MayonnaiOS.Device.current!().name} > Games")
+             )
     end
 
     test "windows the rows so the selection is always drawn" do
@@ -240,6 +243,41 @@ defmodule MayonnaiOS.LauncherTest do
 
       assert log =~ "no input devices found"
     end
+
+    test "bindings can be replaced by a device profile without code changes" do
+      buttons = %{MayonnaiOS.Device.current!().buttons | down: :key_volumedown}
+      start_supervised!({Launcher, device: "/nonexistent/event0", buttons: buttons})
+
+      send(
+        Launcher,
+        {:input_event, "/nonexistent/event0", [{:ev_key, :key_volumedown, 1}]}
+      )
+
+      assert Launcher.selected() == 1
+    end
+
+    test "a configured lid switch sleeps on close and wakes on open" do
+      path = Path.join(System.tmp_dir!(), "lid-backlight-#{System.unique_integer([:positive])}")
+      File.write!(path, "1")
+      Application.put_env(:mayonnaios, :backlight_brightness, path)
+
+      on_exit(fn ->
+        Application.delete_env(:mayonnaios, :backlight_brightness)
+        File.rm(path)
+      end)
+
+      lid = %{device: "gpio-lid", key: :sw_lid}
+
+      start_supervised!({Launcher, device: "/nonexistent/event0", lid_switch: lid})
+
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_sw, :sw_lid, 1}]})
+      assert Launcher.asleep?()
+      assert File.read!(path) == "0"
+
+      send(Launcher, {:input_event, "/nonexistent/event0", [{:ev_sw, :sw_lid, 0}]})
+      refute Launcher.asleep?()
+      assert File.read!(path) == "1"
+    end
   end
 
   describe "the D-pad binding" do
@@ -302,7 +340,7 @@ defmodule MayonnaiOS.LauncherTest do
 
       browser = Launcher.browser()
       assert Browser.depth(browser) == 2
-      assert Browser.trail(browser) == ["RG40XXV", "Games"]
+      assert Browser.trail(browser) == [MayonnaiOS.Device.current!().name, "Games"]
       assert Enum.map(List.last(browser.levels).entries, & &1.name) == ["a", "b", "c"]
 
       press(:btn_a)
