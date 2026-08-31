@@ -161,12 +161,6 @@ defmodule MayonnaiOS.Programs do
     }
   end
 
-  defp description(%{description: lines}) when is_list(lines) and lines != [] do
-    if Enum.all?(lines, &is_binary/1), do: lines, else: nil
-  end
-
-  defp description(_entry), do: nil
-
   # An entry with no usable :path becomes a visible, unlaunchable row rather
   # than an exception.
   #
@@ -190,4 +184,10 @@ defmodule MayonnaiOS.Programs do
       installed?: false
     }
   end
+
+  defp description(%{description: lines}) when is_list(lines) and lines != [] do
+    if Enum.all?(lines, &is_binary/1), do: lines, else: nil
+  end
+
+  defp description(_entry), do: nil
 end
