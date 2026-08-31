@@ -3,6 +3,19 @@ defmodule MayonnaiOS.DeviceTest do
 
   alias MayonnaiOS.Device
 
+  setup do
+    previous = Application.get_env(:mayonnaios, :viewport)
+    Application.put_env(:mayonnaios, :viewport, size: {640, 480})
+
+    on_exit(fn ->
+      if previous do
+        Application.put_env(:mayonnaios, :viewport, previous)
+      else
+        Application.delete_env(:mayonnaios, :viewport)
+      end
+    end)
+  end
+
   test "the host profile is complete and agrees with the viewport" do
     profile = Device.current!()
 
