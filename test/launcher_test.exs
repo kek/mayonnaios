@@ -897,6 +897,50 @@ defmodule MayonnaiOS.LauncherTest do
       end
     end
 
+    test "ordinary input cannot mutate the hidden browser while a program owns input" do
+      os_pid = start(@blocks_for_ever, term_timeout: 2_000, kill_timeout: 500, poll_ms: 10)
+      browser = Launcher.browser()
+
+      for key <- [
+            :btn_dpad_up,
+            :btn_dpad_down,
+            :btn_dpad_left,
+            :btn_dpad_right,
+            :btn_a,
+            :btn_b,
+            :btn_x,
+            :btn_y,
+            :btn_tl
+          ] do
+        send(
+          Launcher,
+          {:input_event, "/nonexistent/event0", [{:ev_key, key, 1}, {:ev_key, key, 0}]}
+        )
+
+        assert Launcher.running?()
+        assert Launcher.browser() == browser
+      end
+
+      # The report stays in the external-program reducer after Menu stops the
+      # port, so its later D-pad press cannot fall through to normal browsing.
+      send(Launcher, {
+        :input_event,
+        "/nonexistent/event0",
+        [
+          {:ev_key, :btn_dpad_down, 1},
+          {:ev_key, :btn_mode, 1},
+          {:ev_key, :btn_dpad_up, 1},
+          {:ev_key, :btn_mode, 0},
+          {:ev_key, :btn_dpad_down, 0},
+          {:ev_key, :btn_dpad_up, 0}
+        ]
+      })
+
+      refute Launcher.running?()
+      assert Launcher.browser() == browser
+      assert gone?(os_pid)
+    end
+
     test "a program that honours SIGTERM is stopped by it" do
       os_pid = start(@blocks_for_ever, term_timeout: 2_000, kill_timeout: 500, poll_ms: 10)
 
