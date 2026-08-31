@@ -442,3 +442,13 @@ a scratch directory and start `MayonnaiOS.Web` under a supervisor.
 | [`nerves_system_rg40xxv`](https://github.com/kek/nerves_system_rg40xxv) | The Buildroot BSP: kernel, device tree, U-Boot, fwup layout. |
 | `mayonnaios` | This one: the OTP release and the bundle mechanism. |
 | [`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) | Cross-builds the native apps — RetroArch and its cores, Moonlight — against the system's own sysroot; publishes checksummed tarballs. |
+
+### Recursive file operations
+
+Files can copy directories and move them across filesystems without overwrite.
+The launcher runs one recursive job at a time: it preflights links and free
+space, writes a marked `.part` tree, fsyncs each file, and promotes only a
+complete tree. B cancels cooperatively while navigation remains available.
+After pulled power, a marked incomplete stage can be discarded; ordinary
+`.part` directories and general non-empty directories are never recursively
+deleted. Cross-filesystem move is copy-then-delete and is therefore not atomic.
