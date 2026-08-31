@@ -9,11 +9,27 @@ defmodule MayonnaiOS.HostRuntimeTest do
     pickles = Path.join(root, "pickles")
     backlight = Path.join(root, "brightness")
     previous_pickles = Application.get_env(:mayonnaios, :pickles_root)
+    previous_programs = Application.get_env(:mayonnaios, :programs)
 
     Application.put_env(:mayonnaios, :pickles_root, pickles)
 
+    # Other tests deliberately remove their temporary program catalog. Restore
+    # the host catalog this integration test is specifically validating so its
+    # result does not depend on ExUnit module order.
+    Application.put_env(:mayonnaios, :programs, [
+      %{name: "Host program (launcher handoff)", path: "/bin/sh"},
+      %{name: "BEAM processes", app: {MayonnaiOS.Top, :beam}}
+    ])
+
     on_exit(fn ->
       Application.put_env(:mayonnaios, :pickles_root, previous_pickles)
+
+      if previous_programs do
+        Application.put_env(:mayonnaios, :programs, previous_programs)
+      else
+        Application.delete_env(:mayonnaios, :programs)
+      end
+
       File.rm_rf(root)
     end)
 
