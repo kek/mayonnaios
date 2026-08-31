@@ -42,8 +42,23 @@ defmodule MayonnaiOS.HostRuntime do
          :ok <- File.mkdir_p(Path.dirname(paths.backlight)),
          :ok <- seed_file(paths.backlight, "1"),
          :ok <- File.mkdir_p(paths.pickles),
-         :ok <- seed_pickle(paths.example, Path.join(paths.pickles, "hello")) do
+         :ok <- seed_pickle(paths.example, Path.join(paths.pickles, "hello")),
+         :ok <- prepare_backup_scratch() do
       :ok
+    end
+  end
+
+  defp prepare_backup_scratch do
+    destination = Application.get_env(:mayonnaios, :backup_destination)
+    sources = Application.get_env(:mayonnaios, :backup_sources, [])
+
+    with :ok <- if(destination, do: File.mkdir_p(destination), else: :ok) do
+      Enum.reduce_while(sources, :ok, fn source, :ok ->
+        case File.mkdir_p(Map.fetch!(Map.new(source), :path)) do
+          :ok -> {:cont, :ok}
+          error -> {:halt, error}
+        end
+      end)
     end
   end
 

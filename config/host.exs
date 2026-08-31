@@ -43,7 +43,8 @@ config :mayonnaios, :programs, [
     name: "Software update",
     app: MayonnaiOS.Update.App,
     description: ["Check for and install new", "MayonnaiOS releases."]
-  }
+  },
+  %{name: "Back up user data", app: MayonnaiOS.Backup.App}
 ]
 
 # A complete profile keeps host development and tests on the same application
