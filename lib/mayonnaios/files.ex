@@ -87,15 +87,13 @@ defmodule MayonnaiOS.Files do
   sync; across filesystems it copies -- and that copy is fsynced -- and then
   removes the source.
 
-  ## What is deliberately not implemented
+  ## Recursive directories
 
-  `copy/3` takes a regular file and no directories, and `move/3` will move a
-  directory only when the destination is on the same filesystem and the kernel
-  can do it as a rename. A recursive copy of a directory on a 13 GB card is a
-  long-running job that needs progress, cancellation and a free-space check
-  per file; refusing it with `:eisdir` and `:exdev` is honest, whereas
-  starting one inside the process that also reads the D-pad would freeze the
-  UI for minutes.
+  Directory copy and cross-filesystem move are preflighted, free-space checked,
+  and streamed by a temporary worker. A marked sibling `.part` tree is never
+  promoted until every source identity has been rechecked and every file has
+  been fsynced. Cancellation removes only a stage carrying the exact private
+  marker. General recursive delete remains unsupported.
 
   Nothing here overwrites. A destination that exists is `{:error, :eexist}`,
   because the only interesting file on this device is a save or a ROM and a

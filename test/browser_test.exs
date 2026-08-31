@@ -307,11 +307,11 @@ defmodule MayonnaiOS.BrowserTest do
       assert Browser.busy?(browser)
     end
 
-    test "a directory is not offered a copy it cannot do" do
+    test "a real directory is offered recursive copy" do
       browser = Browser.new() |> into_root() |> select("snes") |> Browser.open_actions()
 
       assert {:actions, actions, 0} = browser.overlay
-      assert Enum.map(actions, & &1.id) == [:move, :rename, :delete]
+      assert Enum.map(actions, & &1.id) == [:copy, :move, :rename, :delete]
     end
 
     test "outside a directory column there is no sheet" do
@@ -356,13 +356,11 @@ defmodule MayonnaiOS.BrowserTest do
         |> Browser.open_actions()
         |> act(:paste)
 
-      assert {:ok, "readme.txt copied here."} = browser.message
-      assert names(browser) == ["readme.txt"]
-      assert File.exists?(Path.join(root, "backup/readme.txt"))
+      {command, browser} = Browser.take_command(browser)
+      assert %{kind: :paste, mode: :copy, name: "readme.txt"} = command
+      assert browser.command == nil
+      refute File.exists?(Path.join(root, "backup/readme.txt"))
       assert File.exists?(Path.join(root, "readme.txt"))
-
-      # A copy keeps the clipboard, which is how the same ROM gets onto both
-      # cards.
       assert browser.clipboard != nil
     end
 
@@ -378,10 +376,11 @@ defmodule MayonnaiOS.BrowserTest do
         |> Browser.open_actions()
         |> act(:paste)
 
-      assert {:ok, "readme.txt moved here."} = browser.message
-      assert File.exists?(Path.join(root, "backup/readme.txt"))
-      refute File.exists?(Path.join(root, "readme.txt"))
-      assert browser.clipboard == nil
+      {command, browser} = Browser.take_command(browser)
+      assert %{kind: :paste, mode: :move, name: "readme.txt"} = command
+      refute File.exists?(Path.join(root, "backup/readme.txt"))
+      assert File.exists?(Path.join(root, "readme.txt"))
+      assert browser.clipboard != nil
     end
 
     test "nothing overwrites: pasting onto an existing name is refused", %{root: root} do
@@ -394,8 +393,8 @@ defmodule MayonnaiOS.BrowserTest do
         |> Browser.open_actions()
         |> act(:paste)
 
-      assert {:error, message} = browser.message
-      assert message =~ "already there"
+      {command, _browser} = Browser.take_command(browser)
+      assert %{kind: :paste, mode: :copy, name: "readme.txt"} = command
       assert File.read!(Path.join(root, "readme.txt")) == "hi"
     end
 

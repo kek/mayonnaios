@@ -132,6 +132,8 @@ defmodule MayonnaiOS.Browser do
           levels: [level()],
           clipboard: %{mode: :copy | :move, location: Files.location(), name: String.t()} | nil,
           message: {:ok | :error, String.t()} | nil,
+          command: map() | nil,
+          operation: map() | nil,
           overlay: overlay(),
           full: map() | nil
         }
@@ -162,7 +164,15 @@ defmodule MayonnaiOS.Browser do
   """
   @spec new() :: t()
   def new do
-    %{levels: [root_level()], clipboard: nil, message: nil, overlay: nil, full: nil}
+    %{
+      levels: [root_level()],
+      clipboard: nil,
+      message: nil,
+      command: nil,
+      operation: nil,
+      overlay: nil,
+      full: nil
+    }
   end
 
   @doc "How many levels are open."
@@ -427,6 +437,8 @@ defmodule MayonnaiOS.Browser do
   is held and the column can take it.
   """
   @spec actions_for(t()) :: [map()]
+  def actions_for(%{operation: operation}) when operation != nil, do: []
+
   def actions_for(browser) do
     paste_actions(browser.clipboard, focused(browser).readable?) ++
       selection_actions(selected(browser))
@@ -450,7 +462,7 @@ defmodule MayonnaiOS.Browser do
 
   defp selection_actions(%{kind: kind, name: name, entry: entry}) when kind in [:file, :dir] do
     copy =
-      if entry.type == :regular and entry.link == nil do
+      if entry.type in [:regular, :directory] and entry.link == nil do
         [%{id: :copy, label: "Copy #{name}"}]
       else
         []
@@ -551,28 +563,47 @@ defmodule MayonnaiOS.Browser do
 
   defp act(%{clipboard: %{mode: mode, location: source, name: name}} = browser, :paste) do
     destination = focused(browser).location
-
-    result =
-      case mode do
-        :copy -> Files.copy(source, destination)
-        :move -> Files.move(source, destination)
-      end
-
-    case result do
-      :ok ->
-        # A move consumes the clipboard: the source is not there any more, so
-        # a second paste could only fail. A copy keeps it, which is how the
-        # same ROM gets onto both cards.
-        clipboard = if mode == :move, do: nil, else: browser.clipboard
-
-        %{reload(browser, {:ok, "#{name} #{done(mode)}."}) | clipboard: clipboard}
-
-      {:error, reason} ->
-        %{browser | overlay: nil, message: {:error, "#{name}: #{why(reason)}"}}
-    end
+    command = %{kind: :paste, mode: mode, source: source, destination: destination, name: name}
+    %{browser | overlay: nil, message: nil, command: command}
   end
 
   defp act(browser, _unknown), do: %{browser | overlay: nil}
+
+  @doc "Remove and return the pending pure command for Launcher to execute."
+  def take_command(%{command: command} = browser), do: {command, %{browser | command: nil}}
+
+  @doc "Present a running recursive operation without storing process handles."
+  def start_operation(browser, command),
+    do: %{browser | operation: %{phase: :scanning, command: command, progress: %{}}, message: nil}
+
+  def update_operation(%{operation: operation} = browser, progress) when operation != nil,
+    do: %{
+      browser
+      | operation: %{
+          operation
+          | phase: Map.get(progress, :phase, operation.phase),
+            progress: progress
+        }
+    }
+
+  def update_operation(browser, _progress), do: browser
+
+  def finish_operation(%{operation: %{command: command}} = browser, result) do
+    case result do
+      :ok ->
+        clipboard = if command.mode == :move, do: nil, else: browser.clipboard
+
+        %{
+          reload(%{browser | operation: nil}, {:ok, "#{command.name} #{done(command.mode)}."})
+          | clipboard: clipboard
+        }
+
+      {:error, reason} ->
+        %{browser | operation: nil, message: {:error, "#{command.name}: #{why(reason)}"}}
+    end
+  end
+
+  def finish_operation(browser, _result), do: browser
 
   defp done(:copy), do: "copied here"
   defp done(:move), do: "moved here"
@@ -904,6 +935,14 @@ defmodule MayonnaiOS.Browser do
   def why(:not_empty), do: "the directory is not empty"
   def why(:is_symlink), do: "that is a link; copy what it points at instead"
   def why(:same_path), do: "it is already there"
+  def why(:space_unknown), do: "free space could not be measured"
+  def why(:unsafe_destination), do: "the destination is inside or linked into the source"
+  def why(:cancelled), do: "cancelled"
+  def why({:source_changed, _}), do: "the source changed during the operation"
+
+  def why({:unsupported_descendant, path, type}),
+    do: "unsupported #{type} at #{Enum.join(path, "/")}"
+
   def why({:unsupported, type}), do: "cannot handle a #{type}"
   def why({stage, reason}) when is_atom(stage), do: "#{stage} failed: #{why(reason)}"
   def why(other), do: inspect(other)
