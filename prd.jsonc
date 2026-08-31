@@ -1,0 +1,66 @@
+{
+  "project": {
+    "name": "meaningful-app-descriptions",
+    "description": "Show concise, purpose-specific descriptions for built-in launcher apps instead of generic firmware-app copy."
+  },
+  "verification": {
+    "commands": [
+      {
+        "name": "format",
+        "command": "mix format --check-formatted",
+        "description": "Verify Elixir and configuration files are formatted"
+      },
+      {
+        "name": "build",
+        "command": "mix compile --warnings-as-errors",
+        "description": "Compile the host project and reject warnings"
+      },
+      {
+        "name": "test",
+        "command": "mix test",
+        "description": "Run the complete host test suite"
+      }
+    ],
+    "runAfterEachFeature": true
+  },
+  "features": [
+    {
+      "id": "normalize-description-lines",
+      "category": "functional",
+      "description": "Extend normalized program metadata with optional, validated description lines while preserving graceful fallback behavior for existing entries.",
+      "steps": [
+        "Add optional description line metadata to the MayonnaiOS.Programs program type and documentation.",
+        "Preserve non-empty lists of strings through every normalize/1 entry shape and normalize missing or malformed descriptions to nil.",
+        "Add focused tests for valid app and non-app descriptions plus missing, empty, mixed-type, and non-list values."
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "render-app-description-lines",
+      "category": "functional",
+      "description": "Render configured purpose lines for ordinary firmware apps in both preview and full views while retaining controls and the unannotated-app fallback.",
+      "steps": [
+        "Add a program_lines/1 path that emits normalized description lines followed by the existing app controls line.",
+        "Keep Top live previews and Pickle-specific descriptions ahead of ordinary app rendering, and retain generic copy for unannotated apps.",
+        "Test exact described-app output in preview and full views, absence of generic copy for described apps, and safe fallback for an unannotated app."
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "describe-shipped-apps",
+      "category": "functional",
+      "description": "Provide concise, narrow-pane-safe descriptions for every shipped target app that currently receives generic firmware-app copy and keep shared host copy identical.",
+      "steps": [
+        "Add approved two-line descriptions to Moonlight settings, Bluetooth controller, Bluetooth devices, WiFi, and Software update in config/target.exs.",
+        "Add identical descriptions for Moonlight settings, WiFi, and Software update in config/host.exs.",
+        "Confirm each line fits the 26-character preview limit and that process monitors, Pickles, external programs, launcher actions, and launch behavior remain unchanged."
+      ],
+      "status": "pending"
+    }
+  ],
+  "completion": {
+    "allFeaturesComplete": false,
+    "allVerificationsPassing": false,
+    "marker": "<promise>COMPLETE</promise>"
+  }
+}
