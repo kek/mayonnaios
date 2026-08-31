@@ -405,6 +405,11 @@ defmodule MayonnaiOS.Browser.View do
     ["A pickle: a sandboxed Lua app.", "A opens it. Menu leaves it."]
   end
 
+  defp program_lines(%{app: app, description: lines})
+       when app != nil and is_list(lines) and lines != [] do
+    lines ++ ["A opens it. Menu leaves it."]
+  end
+
   defp program_lines(%{app: app}) when app != nil do
     ["An app in this firmware.", "A opens it. Menu leaves it."]
   end

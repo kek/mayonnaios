@@ -260,7 +260,11 @@ config :mayonnaios, :programs, [
   # It is listed whether or not the Moonlight bundle is installed, and says
   # which: a config file written before the program that reads it arrives is
   # still a config file, and the row that greys out is the Moonlight one.
-  %{name: "Moonlight settings", app: MayonnaiOS.Moonlight.App},
+  %{
+    name: "Moonlight settings",
+    app: MayonnaiOS.Moonlight.App,
+    description: ["Configure Moonlight game", "streaming."]
+  },
   %{name: "Spinning cube (kmscube)", path: "/usr/bin/kmscube"},
   %{name: "Spinning cube (smooth)", path: "/usr/bin/kmscube", args: ["-M", "smooth"]},
   # An app rather than a program: a module in this firmware, started in this
@@ -274,7 +278,12 @@ config :mayonnaios, :programs, [
   # `category: :apps` puts it in the launcher's Apps column, next to the
   # pickles: it is a thing to use, not a setting. Rows without a category are
   # classified by `MayonnaiOS.Browser`.
-  %{name: "Bluetooth controller", app: MayonnaiOS.Controller, category: :apps},
+  %{
+    name: "Bluetooth controller",
+    app: MayonnaiOS.Controller,
+    category: :apps,
+    description: ["Use this handheld as a", "Bluetooth game controller."]
+  },
   # There is no file manager row: the launcher's own Files column *is* the
   # file manager. It reaches only the roots `MayonnaiOS.Files` derives from
   # the configuration below -- the ROM roots, the bundles, the cores, /root,
@@ -292,7 +301,11 @@ config :mayonnaios, :programs, [
   # connect headphones, because that is A2DP over BR/EDR and there is no
   # BR/EDR host in this firmware. `MayonnaiOS.Pairing` has the full account,
   # and the screen says it in the first line rather than in a footnote.
-  %{name: "Bluetooth devices", app: MayonnaiOS.Pairing},
+  %{
+    name: "Bluetooth devices",
+    app: MayonnaiOS.Pairing,
+    description: ["Scan nearby devices and", "manage Bluetooth pairings."]
+  },
   # Two rows, one app: `MayonnaiOS.Top` with which world to read as the
   # argument, the same {module, arg} shape graphical pickles use. Both are
   # readings of things that are always there -- the VM and /proc -- so unlike
@@ -308,13 +321,21 @@ config :mayonnaios, :programs, [
   # is added alongside the one built in and the built-in one goes on working.
   # See that module for why appending is the only safe shape for this on a
   # device whose sole reliable way in is the radio being configured.
-  %{name: "WiFi", app: MayonnaiOS.WiFi.App},
+  %{
+    name: "WiFi",
+    app: MayonnaiOS.WiFi.App,
+    description: ["Join, forget, and inspect", "WiFi networks."]
+  },
   # Checks kek/mayonnaios's GitHub releases for a newer version than the one
   # running, and downloads and applies it with fwup if there is one -- the
   # online half of what `mix upload` does from a dev machine. See
   # `MayonnaiOS.Update`'s moduledoc for the download/apply/validate flow and
   # why nothing here has to call `Nerves.Runtime.validate_firmware/0` itself.
-  %{name: "Software update", app: MayonnaiOS.Update.App},
+  %{
+    name: "Software update",
+    app: MayonnaiOS.Update.App,
+    description: ["Check for and install new", "MayonnaiOS releases."]
+  },
   # Neither a program nor an app: a verb of the launcher's own. Selecting it
   # asks rather than acts -- Y answers, anything else cancels -- and it ends
   # in the same `Nerves.Runtime.poweroff/0` the Select+Menu chord reaches.
