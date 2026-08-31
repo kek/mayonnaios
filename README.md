@@ -74,6 +74,16 @@ before writing media or uploading later firmware.
 See [repository responsibilities](https://kek.github.io/mayonnaios/repositories.html)
 before making a cross-repository change.
 
+### Recursive file operations
+
+Files can copy directories and move them across filesystems without overwrite.
+The launcher runs one recursive job at a time: it preflights links and free
+space, writes a marked `.part` tree, fsyncs each file, and promotes only a
+complete tree. B cancels cooperatively while navigation remains available.
+After pulled power, a marked incomplete stage can be discarded; ordinary
+`.part` directories and general non-empty directories are never recursively
+deleted. Cross-filesystem move is copy-then-delete and is therefore not atomic.
+
 ## Contributing on the host
 
 Install GTK 3, Cairo, and `pkgconf` (plus XQuartz on macOS). On Debian/Ubuntu,

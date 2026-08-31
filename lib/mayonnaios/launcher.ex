@@ -479,6 +479,7 @@ defmodule MayonnaiOS.Launcher do
       # each cursor is on, and how many columns the panel draws. Here rather
       # than in the scene so it survives every repaint; see the moduledoc.
       browser: Browser.new(),
+      active_files: nil,
       # The last few lines the running program wrote, kept so that if it dies
       # they can be put on the panel and not only in the ring logger. Reset
       # on every launch; capped, because a chatty program earns no more rows.
@@ -698,6 +699,37 @@ defmodule MayonnaiOS.Launcher do
     {:noreply, log_output(state, data)}
   end
 
+  def handle_info(
+        {:files_job, pid, ref, {:result, result}},
+        %{active_files: %{pid: pid, ref: ref, monitor: monitor}} = state
+      ) do
+    Process.demonitor(monitor, [:flush])
+    browser = Browser.finish_operation(state.browser, result)
+    state = %{state | browser: browser, active_files: nil} |> reset_idle_timer()
+    {:noreply, show(:home, state)}
+  end
+
+  def handle_info(
+        {:files_job, pid, ref, progress},
+        %{active_files: %{pid: pid, ref: ref}} = state
+      )
+      when is_map(progress) do
+    browser = Browser.update_operation(state.browser, progress)
+    state = %{state | browser: browser}
+    {:noreply, show(:home, state)}
+  end
+
+  def handle_info({:files_job, _pid, _ref, _message}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:DOWN, monitor, :process, pid, reason},
+        %{active_files: %{pid: pid, monitor: monitor}} = state
+      ) do
+    browser = Browser.finish_operation(state.browser, {:error, {:worker_crashed, reason}})
+    state = %{state | browser: browser, active_files: nil} |> reset_idle_timer()
+    {:noreply, show(:home, state)}
+  end
+
   def handle_info(_msg, state), do: {:noreply, state}
 
   defp handle_input(events, %{asleep: true} = state) do
@@ -915,6 +947,10 @@ defmodule MayonnaiOS.Launcher do
       Sleep.trigger?(state.held, key) ->
         {_result, state} = enter_sleep(state)
         state
+
+      state.active_files != nil and key == button(state, :back) ->
+        Files.Worker.cancel(state.active_files.pid, state.active_files.ref)
+        browse(state, Browser.update_operation(state.browser, %{phase: :cancelling}))
 
       Browser.busy?(state.browser) ->
         overlay(state, key)
@@ -1147,16 +1183,95 @@ defmodule MayonnaiOS.Launcher do
   # the browser they were given, so an idle press does not tear down and
   # rebuild the scene for no visible change.
   defp browse(state, browser) do
-    if browser == state.browser do
-      state
-    else
-      state = %{state | browser: browser}
+    {command, browser} = Browser.take_command(browser)
+    changed? = browser != state.browser
+    state = %{state | browser: browser}
+    state = if command, do: drain_files_command(state, command), else: state
 
-      if state.port == nil and state.scene == :home do
-        show(:home, state)
+    if (changed? or command != nil) and state.port == nil and state.scene == :home do
+      show(:home, state)
+    end
+
+    state
+  end
+
+  defp drain_files_command(%{active_files: active} = state, _command) when active != nil,
+    do: %{
+      state
+      | browser:
+          Browser.put_message(state.browser, :error, "A file operation is already running.")
+    }
+
+  defp drain_files_command(state, command) do
+    case Files.stat(command.source) do
+      {:ok, %{type: :directory}} ->
+        drain_directory_command(state, command)
+
+      {:ok, _entry} ->
+        finish_regular_command(state, command)
+
+      {:error, reason} ->
+        %{
+          state
+          | browser:
+              Browser.finish_operation(
+                Browser.start_operation(state.browser, command),
+                {:error, reason}
+              )
+        }
+    end
+  end
+
+  defp drain_directory_command(state, %{mode: :move} = command) do
+    case Files.move(command.source, command.destination) do
+      :ok ->
+        %{
+          state
+          | browser:
+              state.browser |> Browser.start_operation(command) |> Browser.finish_operation(:ok)
+        }
+
+      {:error, :exdev} ->
+        start_files_worker(state, command, {:move, command.source, command.destination})
+
+      {:error, reason} ->
+        %{
+          state
+          | browser:
+              state.browser
+              |> Browser.start_operation(command)
+              |> Browser.finish_operation({:error, reason})
+        }
+    end
+  end
+
+  defp drain_directory_command(state, command),
+    do: start_files_worker(state, command, {:copy, command.source, command.destination})
+
+  defp finish_regular_command(state, command) do
+    result =
+      case command.mode do
+        :copy -> Files.copy(command.source, command.destination)
+        :move -> Files.move(command.source, command.destination)
       end
 
+    %{
       state
+      | browser:
+          state.browser |> Browser.start_operation(command) |> Browser.finish_operation(result)
+    }
+  end
+
+  defp start_files_worker(state, command, job) do
+    browser = Browser.start_operation(state.browser, command)
+    state = %{state | browser: browser} |> cancel_idle_timer()
+
+    case Files.Worker.start(job, self()) do
+      {:ok, pid, ref} ->
+        %{state | active_files: %{pid: pid, ref: ref, monitor: Process.monitor(pid)}}
+
+      {:error, reason} ->
+        %{state | browser: Browser.finish_operation(browser, {:error, reason})}
     end
   end
 

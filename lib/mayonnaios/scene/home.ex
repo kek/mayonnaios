@@ -860,6 +860,23 @@ defmodule MayonnaiOS.Scene.Home do
 
   # -- the status line -------------------------------------------------------------
 
+  # An active operation outranks ordinary selection status.
+  defp status_line(graph, %{operation: %{phase: phase, progress: progress}}) do
+    path = progress |> Map.get(:path, []) |> List.wrap() |> Enum.join("/")
+    bytes = Map.get(progress, :bytes, 0)
+
+    words =
+      case phase do
+        :scanning -> "Scanning directory…"
+        :copying -> "Copying #{size(bytes)}  #{truncate_left(path, 42)}"
+        :cleanup -> "Removing the verified source…"
+        :cancelling -> "Cancelling and cleaning up…"
+        other -> "#{other}…"
+      end
+
+    text(graph, words, font_size: 16, fill: {:color, wait()}, translate: {@left, @message_y})
+  end
+
   # An operation's message when there is one -- green for done, red for why
   # not -- otherwise what the selected entry is and how much room the column's
   # filesystem has left, which is the number someone about to paste needs.
@@ -956,6 +973,11 @@ defmodule MayonnaiOS.Scene.Home do
     end)
     |> text(headline, font_size: 18, fill: {:color, wait()}, translate: {@left, @footer_y})
   end
+
+  defp hint(%{operation: %{phase: :cancelling}}), do: "Cancelling…"
+
+  defp hint(%{operation: operation}) when operation != nil,
+    do: "B cancels. Navigation remains available."
 
   defp hint(%{full: full}) when full != nil do
     if length(Map.get(full, :lines, [])) > Browser.full_rows() do
