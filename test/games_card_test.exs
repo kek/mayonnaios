@@ -52,6 +52,60 @@ defmodule MayonnaiOS.GamesCardTest do
     end
   end
 
+  describe "backup lease" do
+    setup do
+      dir = Path.join(System.tmp_dir!(), "games-lease-#{System.unique_integer([:positive])}")
+      Application.put_env(:mayonnaios, :games_card, device: "/nonexistent/card", mount_point: dir)
+      {:ok, pid} = GamesCard.start_link([])
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        Application.delete_env(:mayonnaios, :games_card)
+        File.rm_rf(dir)
+      end)
+
+      :ok
+    end
+
+    test "is idempotent for one owner and excludes another" do
+      assert :ok = GamesCard.acquire(self())
+      assert :ok = GamesCard.acquire(self())
+      other = spawn(fn -> Process.sleep(:infinity) end)
+      assert {:error, :busy} = GamesCard.acquire(other)
+      assert {:error, :busy} = GamesCard.unmount()
+      assert :ok = GamesCard.release(self())
+      assert {:ok, :not_mounted} = GamesCard.unmount()
+      Process.exit(other, :kill)
+    end
+
+    test "owner death automatically releases the lease" do
+      parent = self()
+
+      owner =
+        spawn(fn ->
+          receive do
+            :stop -> send(parent, :stopped)
+          end
+        end)
+
+      assert :ok = GamesCard.acquire(owner)
+      Process.exit(owner, :kill)
+
+      Enum.reduce_while(1..50, nil, fn _, _ ->
+        case GamesCard.acquire(self()) do
+          :ok ->
+            {:halt, :ok}
+
+          {:error, :busy} ->
+            Process.sleep(5)
+            {:cont, nil}
+        end
+      end)
+
+      assert :ok = GamesCard.acquire(self())
+    end
+  end
+
   describe "configuration" do
     test "defaults name the second slot, not the first and not the WiFi" do
       Application.delete_env(:mayonnaios, :games_card)
