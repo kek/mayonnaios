@@ -26,7 +26,7 @@ defmodule MayonnaiOS.Application do
         [status()] ++
         led_monitor() ++
         viewport() ++
-        [controller_sessions(), pairing_sessions(), pickle_sessions()] ++
+        [controller_sessions(), pairing_sessions(), pickle_sessions(), files_sessions()] ++
         [top_sessions(), update_sessions(), moonlight_sessions(), wifi_sessions()] ++
         target_children()
 
@@ -100,6 +100,9 @@ defmodule MayonnaiOS.Application do
   # web API and the console should fail with "no such pickle" on a laptop,
   # not with "no such supervisor".
   defp pickle_sessions, do: MayonnaiOS.Pickles.sessions()
+
+  # Temporary recursive file jobs.
+  defp files_sessions, do: MayonnaiOS.Files.Worker.sessions()
 
   # The "Software update" app's DynamicSupervisor, empty until the row is
   # opened -- same arrangement as the other apps, so `MayonnaiOS.Update.App`

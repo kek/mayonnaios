@@ -400,6 +400,87 @@ defmodule MayonnaiOS.FilesTest do
     end
   end
 
+  describe "recursive trees" do
+    defp roomy(_path), do: {:ok, %{free: 1_000_000_000, device: "test", total: 1_000_000_000}}
+
+    test "preflights and copies nested files and empty directories", %{
+      internal: internal,
+      card: card
+    } do
+      File.mkdir_p!(Path.join(internal, "tree/empty"))
+      File.mkdir_p!(Path.join(internal, "tree/nested"))
+      File.write!(Path.join(internal, "tree/zero"), "")
+      File.write!(Path.join(internal, "tree/nested/data"), "payload")
+      {:ok, source} = Files.at("internal", ["tree"])
+      {:ok, destination} = Files.at("card")
+
+      assert {:ok, plan} = Files.preflight_tree(source, destination, space: &roomy/1)
+      assert plan.bytes == 7
+      assert plan.total_entries == 5
+      assert :ok = Files.copy_tree(source, destination, space: &roomy/1)
+      assert File.read!(Path.join(card, "tree/nested/data")) == "payload"
+      assert File.dir?(Path.join(card, "tree/empty"))
+      refute File.exists?(Path.join(card, "tree.part"))
+    end
+
+    test "rejects descendant links and cancellation before writing", %{internal: internal} do
+      File.mkdir_p!(Path.join(internal, "tree"))
+      File.ln_s!("elsewhere", Path.join(internal, "tree/link"))
+      {:ok, source} = Files.at("internal", ["tree"])
+      {:ok, destination} = Files.at("card")
+
+      assert {:error, {:unsupported_descendant, ["link"], :symlink}} =
+               Files.preflight_tree(source, destination, space: &roomy/1)
+
+      File.rm!(Path.join(internal, "tree/link"))
+
+      assert {:error, :cancelled} =
+               Files.copy_tree(source, destination,
+                 space: &roomy/1,
+                 cancelled?: fn -> true end
+               )
+    end
+
+    test "requires measurable headroom and never removes an unmarked part directory", %{
+      internal: internal,
+      card: card
+    } do
+      File.mkdir_p!(Path.join(internal, "tree"))
+      File.write!(Path.join(internal, "tree/data"), "x")
+      File.mkdir_p!(Path.join(card, "mine.part"))
+      File.write!(Path.join(card, "mine.part/important"), "keep")
+      {:ok, source} = Files.at("internal", ["tree"])
+      {:ok, destination} = Files.at("card")
+      {:ok, ordinary_part} = Files.at("card", ["mine.part"])
+
+      assert {:error, :space_unknown} =
+               Files.preflight_tree(source, destination, space: fn _ -> {:error, :unknown} end)
+
+      refute Files.incomplete_stage?(ordinary_part)
+      assert {:error, :unsafe_stage} = Files.discard_incomplete(ordinary_part)
+      assert File.read!(Path.join(card, "mine.part/important")) == "keep"
+    end
+
+    test "cross-filesystem directory move promotes before deleting the source", %{
+      internal: internal,
+      card: card
+    } do
+      File.mkdir_p!(Path.join(internal, "tree/sub"))
+      File.write!(Path.join(internal, "tree/sub/data"), "payload")
+      {:ok, source} = Files.at("internal", ["tree"])
+      {:ok, destination} = Files.at("card")
+
+      assert :ok =
+               Files.move_tree(source, destination,
+                 rename: fn _, _ -> {:error, :exdev} end,
+                 space: &roomy/1
+               )
+
+      refute File.exists?(Path.join(internal, "tree"))
+      assert File.read!(Path.join(card, "tree/sub/data")) == "payload"
+    end
+  end
+
   describe "the configured roots" do
     test "come from the library's roots, so the two cannot disagree" do
       Application.delete_env(:mayonnaios, :file_roots)
