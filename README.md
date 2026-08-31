@@ -442,3 +442,11 @@ a scratch directory and start `MayonnaiOS.Web` under a supervisor.
 | [`nerves_system_rg40xxv`](https://github.com/kek/nerves_system_rg40xxv) | The Buildroot BSP: kernel, device tree, U-Boot, fwup layout. |
 | `mayonnaios` | This one: the OTP release and the bundle mechanism. |
 | [`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles) | Cross-builds the native apps — RetroArch and its cores, Moonlight — against the system's own sysroot; publishes checksummed tarballs. |
+
+### Backing up user data
+
+The System menu can create one checksum-verified user-data backup on the
+second card. It includes settings, saves, Moonlight data, and Pickles—not
+ROMs, software, WiFi credentials, or Bluetooth bonds. See
+[`docs/backup.md`](docs/backup.md) for the format, cancellation and manual
+recovery procedure.

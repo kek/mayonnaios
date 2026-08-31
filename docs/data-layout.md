@@ -48,3 +48,12 @@ games cards less interchangeable, without changing what any directory means.
   idempotent, preserve old data when either side is ambiguous, survive loss of
   power, and ship before readers switch to the new path. Until such a migration
   exists, these paths are stable compatibility interfaces.
+
+## Backup catalog
+
+Mutable data under `/root/.config/mayonnaios`, `/root/.config/retroarch`,
+`/root/.config/moonlight`, and `/root/pickles` belongs in the backup catalog.
+When adding another mutable user-data root, update `MayonnaiOS.Backup.catalog/0`
+and `docs/backup.md`. Generated RetroArch `cores` and `mayonnaios.cfg` are
+excluded. Published backups live only at
+`/root/mnt/games/MayonnaiOS/backup-v1/current`.

@@ -31,7 +31,8 @@ config :mayonnaios, :programs, [
   %{name: "BEAM processes", app: {MayonnaiOS.Top, :beam}},
   %{name: "OS processes", app: {MayonnaiOS.Top, :os}},
   %{name: "WiFi", app: MayonnaiOS.WiFi.App},
-  %{name: "Software update", app: MayonnaiOS.Update.App}
+  %{name: "Software update", app: MayonnaiOS.Update.App},
+  %{name: "Back up user data", app: MayonnaiOS.Backup.App}
 ]
 
 # A complete profile keeps host development and tests on the same application

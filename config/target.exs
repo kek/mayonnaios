@@ -315,6 +315,7 @@ config :mayonnaios, :programs, [
   # `MayonnaiOS.Update`'s moduledoc for the download/apply/validate flow and
   # why nothing here has to call `Nerves.Runtime.validate_firmware/0` itself.
   %{name: "Software update", app: MayonnaiOS.Update.App},
+  %{name: "Back up user data", app: MayonnaiOS.Backup.App},
   # Neither a program nor an app: a verb of the launcher's own. Selecting it
   # asks rather than acts -- Y answers, anything else cancels -- and it ends
   # in the same `Nerves.Runtime.poweroff/0` the Select+Menu chord reaches.
