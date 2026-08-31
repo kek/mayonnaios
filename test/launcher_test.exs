@@ -47,6 +47,60 @@ defmodule MayonnaiOS.LauncherTest do
       :ok
     end
 
+    test "menu rows fit labels by measured pixels and preserve graphemes" do
+      narrow = "iiiiiiiiiiiiiiiiiiii"
+      wide = String.duplicate("W", 30) <> "é"
+      [program] = Programs.list([%{name: narrow, path: "/bin/sh"}])
+
+      base = Browser.new()
+      level = List.last(base.levels)
+      leaf = %{kind: :program, name: narrow, program: program}
+      browser = %{base | levels: [%{level | title: "Rows", entries: [leaf]}]}
+      assert narrow in texts(Home.graph(browser))
+
+      expandable = %{kind: :category, id: :apps, name: wide}
+      browser = %{base | levels: [%{level | title: "Rows", entries: [expandable]}]}
+
+      rendered =
+        Home.graph(browser)
+        |> texts()
+        |> Enum.filter(&String.ends_with?(&1, "…"))
+        |> Enum.min_by(&length(String.graphemes(&1)))
+
+      assert Theme.width(rendered, 18) <= 168
+      assert String.valid?(rendered)
+
+      assert rendered |> String.trim_trailing("…") |> String.graphemes() |> Enum.join() ==
+               String.trim_trailing(rendered, "…")
+
+      # Leaf rows may use the chevron lane, so the same wide name retains at
+      # least as many graphemes with its 180 px budget.
+      wide_leaf = %{kind: :program, name: wide, program: program}
+      leaf_browser = %{base | levels: [%{level | title: "Rows", entries: [wide_leaf]}]}
+
+      leaf_rendered =
+        leaf_browser
+        |> Home.graph()
+        |> texts()
+        |> Enum.filter(&String.ends_with?(&1, "…"))
+        |> Enum.min_by(&length(String.graphemes(&1)))
+
+      assert Theme.width(leaf_rendered, 18) <= 180
+      assert length(String.graphemes(leaf_rendered)) >= length(String.graphemes(rendered))
+    end
+
+    test "right-hand listing previews use their 188 pixel budget" do
+      name = "iiiiiiiiiiiiiiiiiiiiii"
+
+      Application.put_env(:mayonnaios, :programs, [
+        %{name: name, path: "/bin/sh", category: :apps}
+      ])
+
+      browser = Browser.new() |> Browser.move(2)
+      assert name in texts(Home.graph(browser))
+      assert Theme.width(name, 16) <= 188
+    end
+
     test "the root column names the categories" do
       says = texts(Home.graph(Browser.new()))
 
