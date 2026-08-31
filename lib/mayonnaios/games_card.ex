@@ -70,10 +70,16 @@ defmodule MayonnaiOS.GamesCard do
   """
   def unmount, do: GenServer.call(__MODULE__, :unmount, 15_000)
 
+  @doc "Acquire the single monitored backup lease for `owner`."
+  def acquire(owner) when is_pid(owner), do: GenServer.call(__MODULE__, {:acquire, owner})
+
+  @doc "Release `owner`'s backup lease."
+  def release(owner) when is_pid(owner), do: GenServer.call(__MODULE__, {:release, owner})
+
   @impl GenServer
   def init(opts) do
     cfg = Keyword.merge(config(), opts)
-    {:ok, %{config: cfg}, {:continue, :mount}}
+    {:ok, %{config: cfg, lease: nil}, {:continue, :mount}}
   end
 
   @impl GenServer
@@ -84,7 +90,33 @@ defmodule MayonnaiOS.GamesCard do
 
   @impl GenServer
   def handle_call(:mount, _from, state), do: {:reply, do_mount(state.config), state}
+
+  def handle_call(:unmount, _from, %{lease: {_owner, _monitor}} = state),
+    do: {:reply, {:error, :busy}, state}
+
   def handle_call(:unmount, _from, state), do: {:reply, do_unmount(state.config), state}
+
+  def handle_call({:acquire, owner}, _from, %{lease: nil} = state) do
+    {:reply, :ok, %{state | lease: {owner, Process.monitor(owner)}}}
+  end
+
+  def handle_call({:acquire, owner}, _from, %{lease: {owner, _monitor}} = state),
+    do: {:reply, :ok, state}
+
+  def handle_call({:acquire, _owner}, _from, state), do: {:reply, {:error, :busy}, state}
+
+  def handle_call({:release, owner}, _from, %{lease: {owner, monitor}} = state) do
+    Process.demonitor(monitor, [:flush])
+    {:reply, :ok, %{state | lease: nil}}
+  end
+
+  def handle_call({:release, _owner}, _from, state), do: {:reply, :ok, state}
+
+  @impl GenServer
+  def handle_info({:DOWN, monitor, :process, owner, _reason}, %{lease: {owner, monitor}} = state),
+    do: {:noreply, %{state | lease: nil}}
+
+  def handle_info(_message, state), do: {:noreply, state}
 
   defp do_mount(cfg) do
     point = cfg[:mount_point]
