@@ -726,4 +726,438 @@ defmodule MayonnaiOS.Files do
       _other -> :ok
     end
   end
+
+  # -- recursive directory operations -----------------------------------------
+
+  @stage_marker ".mayonnaios-recursive-stage"
+  @tree_headroom 16 * 1024 * 1024
+
+  @type manifest_entry :: %{
+          components: [String.t()],
+          type: :directory | :regular,
+          size: non_neg_integer(),
+          identity: map()
+        }
+  @type tree_summary :: %{
+          source: location(),
+          destination: location(),
+          name: String.t(),
+          entries: [manifest_entry()],
+          bytes: non_neg_integer(),
+          total_entries: non_neg_integer(),
+          filesystem: String.t() | nil
+        }
+
+  @doc "Preflight a recursive directory operation without creating its destination."
+  @spec preflight_tree(location(), location(), keyword()) ::
+          {:ok, tree_summary()} | {:error, term()}
+  def preflight_tree(source, destination, opts \\ []) do
+    cancelled? = Keyword.get(opts, :cancelled?, fn -> false end)
+
+    with :ok <- if(source.path == [], do: {:error, :is_root}, else: :ok),
+         {:ok, from} <- resolve(source),
+         {:ok, name} <- basename(source),
+         {:ok, dir} <- resolve(destination),
+         :ok <- require_real_directory(from),
+         :ok <- require_safe_destination(dir),
+         :ok <- reject_containment(from, Path.join(dir, name)),
+         :ok <- require_absent(Path.join(dir, name)),
+         :ok <- require_absent(Path.join(dir, name <> ".part")),
+         {:ok, entries} <- scan_tree(from, [], cancelled?),
+         bytes = entries |> Enum.filter(&(&1.type == :regular)) |> Enum.sum_by(& &1.size),
+         :ok <- require_tree_room(dir, bytes, opts) do
+      filesystem =
+        case tree_space(dir, opts) do
+          {:ok, %{device: device}} -> device
+          _ -> nil
+        end
+
+      {:ok,
+       %{
+         source: source,
+         destination: destination,
+         name: name,
+         entries: entries,
+         bytes: bytes,
+         total_entries: length(entries),
+         filesystem: filesystem
+       }}
+    else
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc "Copy a directory through a marked sibling staging tree."
+  @spec copy_tree(location(), location(), keyword()) :: :ok | {:error, term()}
+  def copy_tree(source, destination, opts \\ []) do
+    with {:ok, plan} <- preflight_tree(source, destination, opts) do
+      execute_tree_copy(plan, opts)
+    end
+  end
+
+  @doc "Move a directory, falling back to verified copy/delete on EXDEV."
+  @spec move_tree(location(), location(), keyword()) :: :ok | {:error, term()}
+  def move_tree(source, destination, opts \\ []) do
+    with {:ok, from} <- resolve(source),
+         {:ok, name} <- basename(source),
+         {:ok, dir} <- resolve(destination),
+         :ok <- require_real_directory(from),
+         :ok <- require_absent(Path.join(dir, name)) do
+      rename = Keyword.get(opts, :rename, &File.rename/2)
+
+      case rename.(from, Path.join(dir, name)) do
+        :ok ->
+          :ok
+
+        {:error, :exdev} ->
+          with {:ok, plan} <- preflight_tree(source, destination, opts),
+               :ok <- execute_tree_copy(plan, opts),
+               :ok <- delete_manifest(plan, opts) do
+            :ok
+          else
+            {:error, {:source_cleanup, _} = reason} -> {:error, reason}
+            {:error, reason} -> {:error, reason}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc "Whether a visible `.part` location is a valid app-owned tree stage."
+  def incomplete_stage?(location) do
+    with {:ok, path} <- resolve(location),
+         true <- String.ends_with?(Path.basename(path), ".part"),
+         {:ok, marker} <- File.read(Path.join(path, @stage_marker)) do
+      String.trim(marker) == path
+    else
+      _ -> false
+    end
+  end
+
+  @doc "Discard only a staging tree whose private marker exactly validates."
+  def discard_incomplete(location, opts \\ []) do
+    cancelled? = Keyword.get(opts, :cancelled?, fn -> false end)
+
+    with :ok <- if(cancelled?.(), do: {:error, :cancelled}, else: :ok),
+         true <- incomplete_stage?(location) || {:error, :unsafe_stage},
+         {:ok, path} <- resolve(location),
+         {:ok, _} <- File.rm_rf(path) do
+      :ok
+    else
+      {:error, _} = error -> error
+      false -> {:error, :unsafe_stage}
+    end
+  end
+
+  defp execute_tree_copy(plan, opts) do
+    {:ok, source} = resolve(plan.source)
+    {:ok, destination} = resolve(plan.destination)
+    stage = Path.join(destination, plan.name <> ".part")
+    final = Path.join(destination, plan.name)
+    cancelled? = Keyword.get(opts, :cancelled?, fn -> false end)
+    progress = Keyword.get(opts, :progress, fn _ -> :ok end)
+
+    result =
+      with :ok <- if(cancelled?.(), do: {:error, :cancelled}, else: :ok),
+           :ok <- File.mkdir(stage),
+           :ok <- File.write(Path.join(stage, @stage_marker), stage, [:exclusive]),
+           :ok <- copy_manifest(source, stage, plan, opts, progress, cancelled?),
+           :ok <- verify_manifest(source, plan.entries),
+           :ok <- if(cancelled?.(), do: {:error, :cancelled}, else: :ok),
+           :ok <- File.rename(stage, final),
+           :ok <- File.rm(Path.join(final, @stage_marker)) do
+        :ok
+      else
+        {:error, _} = error -> error
+      end
+
+    if result != :ok do
+      _ = cleanup_stage(stage, cancelled?)
+    end
+
+    result
+  end
+
+  defp scan_tree(root, components, cancelled?) do
+    if cancelled?.() do
+      {:error, :cancelled}
+    else
+      path = Path.join([root | components])
+
+      with :ok <- validate_components(components), {:ok, stat} <- File.lstat(path) do
+        case stat.type do
+          :directory ->
+            with {:ok, names} <- File.ls(path),
+                 {:ok, children} <- scan_children(root, components, Enum.sort(names), cancelled?) do
+              {:ok,
+               [
+                 %{components: components, type: :directory, size: 0, identity: identity(stat)}
+                 | children
+               ]}
+            end
+
+          :regular ->
+            {:ok,
+             [
+               %{
+                 components: components,
+                 type: :regular,
+                 size: stat.size,
+                 identity: identity(stat)
+               }
+             ]}
+
+          :symlink ->
+            {:error, {:unsupported_descendant, components, :symlink}}
+
+          type ->
+            {:error, {:unsupported_descendant, components, type}}
+        end
+      end
+    end
+  end
+
+  defp scan_children(root, components, names, cancelled?) do
+    Enum.reduce_while(names, {:ok, []}, fn name, {:ok, acc} ->
+      case safe_name(name) do
+        {:ok, _} ->
+          case scan_tree(root, components ++ [name], cancelled?) do
+            {:ok, found} -> {:cont, {:ok, acc ++ found}}
+            error -> {:halt, error}
+          end
+
+        _ ->
+          {:halt, {:error, {:bad_descendant_name, components ++ [name]}}}
+      end
+    end)
+  end
+
+  defp copy_manifest(source, stage, plan, opts, progress, cancelled?) do
+    directories = Enum.filter(plan.entries, &(&1.type == :directory))
+    files = Enum.filter(plan.entries, &(&1.type == :regular))
+
+    with :ok <-
+           Enum.reduce_while(Enum.drop(directories, 1), :ok, fn entry, :ok ->
+             if cancelled?.() do
+               {:halt, {:error, :cancelled}}
+             else
+               case File.mkdir(Path.join([stage | entry.components])) do
+                 :ok -> {:cont, :ok}
+                 error -> {:halt, error}
+               end
+             end
+           end) do
+      Enum.reduce_while(files, :ok, fn entry, :ok ->
+        if cancelled?.() do
+          {:halt, {:error, :cancelled}}
+        else
+          from = Path.join([source | entry.components])
+          to = Path.join([stage | entry.components])
+
+          with :ok <- require_identity(from, entry),
+               :ok <- require_remaining_room(stage, plan, entry, opts),
+               :ok <-
+                 stream_tree_file(from, to, opts, cancelled?, fn bytes ->
+                   progress.(%{
+                     phase: :copying,
+                     path: entry.components,
+                     bytes: bytes,
+                     entry: entry
+                   })
+                 end) do
+            {:cont, :ok}
+          else
+            error -> {:halt, error}
+          end
+        end
+      end)
+    end
+  end
+
+  defp stream_tree_file(from, to, opts, cancelled?, progress) do
+    part = to <> ".part"
+    sync = Keyword.get(opts, :sync, &:file.sync/1)
+
+    with {:ok, input} <- File.open(from, [:read, :binary, :raw]),
+         {:ok, output} <- File.open(part, [:write, :binary, :raw, :exclusive]) do
+      result = tree_chunks(input, output, cancelled?, progress)
+      File.close(input)
+
+      result =
+        with :ok <- result,
+             :ok <- sync.(output),
+             :ok <- File.close(output),
+             :ok <- File.rename(part, to),
+             do: :ok
+
+      if result != :ok,
+        do:
+          (
+            File.close(output)
+            File.rm(part)
+          )
+
+      result
+    end
+  end
+
+  defp tree_chunks(input, output, cancelled?, progress) do
+    cond do
+      cancelled?.() ->
+        {:error, :cancelled}
+
+      true ->
+        case :file.read(input, @chunk) do
+          {:ok, bytes} ->
+            with :ok <- :file.write(output, bytes) do
+              progress.(byte_size(bytes))
+              tree_chunks(input, output, cancelled?, progress)
+            end
+
+          :eof ->
+            :ok
+
+          {:error, reason} ->
+            {:error, {:read, reason}}
+        end
+    end
+  end
+
+  defp verify_manifest(source, entries),
+    do:
+      Enum.reduce_while(entries, :ok, fn entry, :ok ->
+        case require_identity(Path.join([source | entry.components]), entry) do
+          :ok -> {:cont, :ok}
+          error -> {:halt, error}
+        end
+      end)
+
+  defp delete_manifest(plan, opts) do
+    cancelled? = Keyword.get(opts, :cancelled?, fn -> false end)
+    {:ok, source} = resolve(plan.source)
+
+    with :ok <- verify_manifest(source, plan.entries),
+         :ok <- if(cancelled?.(), do: {:error, {:source_cleanup, :cancelled}}, else: :ok) do
+      ordered = Enum.sort_by(plan.entries, &{-length(&1.components), &1.type != :regular})
+
+      Enum.reduce_while(ordered, :ok, fn entry, :ok ->
+        if cancelled?.() do
+          {:halt, {:error, {:source_cleanup, :cancelled}}}
+        else
+          path = Path.join([source | entry.components])
+          result = if entry.type == :directory, do: File.rmdir(path), else: File.rm(path)
+
+          case result do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, {:source_cleanup, reason}}}
+          end
+        end
+      end)
+    else
+      {:error, {:source_cleanup, _}} = error -> error
+      {:error, reason} -> {:error, {:source_cleanup, reason}}
+    end
+  end
+
+  defp cleanup_stage(stage, cancelled?) do
+    if File.dir?(stage) and File.read(Path.join(stage, @stage_marker)) == {:ok, stage} do
+      # Cancellation is already terminal; cleanup remains bounded and does not
+      # consult it again, otherwise a cancelled job could never clean itself.
+      _ = cancelled?
+
+      case File.rm_rf(stage) do
+        {:ok, _} -> :ok
+        {:error, reason, _} -> {:error, reason}
+      end
+    else
+      {:error, :unsafe_stage}
+    end
+  end
+
+  defp require_real_directory(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :directory}} -> :ok
+      {:ok, %File.Stat{type: :symlink}} -> {:error, :is_symlink}
+      {:ok, _} -> {:error, :enotdir}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp require_safe_destination(path) do
+    path
+    |> Path.split()
+    |> Enum.reduce_while("/", fn component, parent ->
+      next = if component == "/", do: "/", else: Path.join(parent, component)
+
+      case File.lstat(next) do
+        {:ok, %File.Stat{type: :directory}} -> {:cont, next}
+        {:ok, %File.Stat{type: :symlink}} -> {:halt, {:error, :unsafe_destination}}
+        {:ok, _} -> {:halt, {:error, :enotdir}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      path when is_binary(path) -> :ok
+      error -> error
+    end
+  end
+
+  defp reject_containment(source, destination) do
+    source = Path.expand(source)
+    destination = Path.expand(destination)
+
+    if source == destination or String.starts_with?(source <> "/", destination <> "/") or
+         String.starts_with?(destination <> "/", source <> "/"),
+       do: {:error, :unsafe_destination},
+       else: :ok
+  end
+
+  defp validate_components(components) do
+    if Enum.all?(components, &match?({:ok, _}, safe_name(&1))), do: :ok, else: {:error, :bad_name}
+  end
+
+  defp identity(stat),
+    do: Map.take(stat, [:type, :size, :mtime, :inode, :major_device, :minor_device])
+
+  defp require_identity(path, entry) do
+    case File.lstat(path) do
+      {:ok, stat} ->
+        if identity(stat) == entry.identity,
+          do: :ok,
+          else: {:error, {:source_changed, entry.components}}
+
+      {:error, reason} ->
+        {:error, {:source_changed, entry.components, reason}}
+    end
+  end
+
+  defp tree_space(dir, opts) do
+    measure =
+      Keyword.get(opts, :space, fn path ->
+        case space(path) do
+          nil -> {:error, :space_unknown}
+          value -> {:ok, value}
+        end
+      end)
+
+    measure.(dir)
+  end
+
+  defp require_tree_room(dir, bytes, opts) do
+    required = bytes + max(@tree_headroom, div(bytes + 99, 100))
+
+    case tree_space(dir, opts) do
+      {:ok, %{free: free}} when free >= required -> :ok
+      {:ok, _} -> {:error, :enospc}
+      _ -> {:error, :space_unknown}
+    end
+  end
+
+  defp require_remaining_room(dir, plan, entry, opts) do
+    # Conservatively retain full headroom before every file; concurrent writes
+    # therefore stop before the next file rather than exposing a final tree.
+    require_tree_room(dir, entry.size + max(plan.bytes - entry.size, 0), opts)
+  end
 end
