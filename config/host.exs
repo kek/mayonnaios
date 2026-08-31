@@ -156,3 +156,19 @@ config :mayonnaios, :viewport,
       window: [title: "MayonnaiOS", resizeable: false]
     ]
   ]
+
+# Backup development uses repository-local scratch data only.
+host_backup = Path.expand("tmp/host/backup-card")
+
+config :mayonnaios,
+  backup_destination: host_backup,
+  backup_sources: [
+    %{key: "mayonnaios", path: Path.expand("tmp/host/user-data/mayonnaios")},
+    %{
+      key: "retroarch",
+      path: Path.expand("tmp/host/user-data/retroarch"),
+      exclude: [["cores"], ["mayonnaios.cfg"]]
+    },
+    %{key: "moonlight", path: Path.expand("tmp/host/user-data/moonlight")},
+    %{key: "pickles", path: Path.expand("tmp/host/user-data/pickles")}
+  ]

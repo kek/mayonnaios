@@ -644,3 +644,16 @@ config :mayonnaios, audio_test: true
 # Import target specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{Mix.target()}.exs"
+
+config :mayonnaios,
+  backup_destination: "/root/mnt/games",
+  backup_sources: [
+    %{key: "mayonnaios", path: "/root/.config/mayonnaios"},
+    %{
+      key: "retroarch",
+      path: "/root/.config/retroarch",
+      exclude: [["cores"], ["mayonnaios.cfg"]]
+    },
+    %{key: "moonlight", path: "/root/.config/moonlight"},
+    %{key: "pickles", path: "/root/pickles"}
+  ]
