@@ -250,16 +250,14 @@ defmodule MayonnaiOS.PanelTest do
       assert Panel.owner() == {:program, "sleeper"}
       settle()
 
-      # The pad is still the launcher's during a game, so a D-pad press walks
-      # the browser -- left closes the Games column. It must not re-root the
-      # viewport and paint the menu into a framebuffer the game owns.
+      # External programs own ordinary input, so a D-pad press neither walks
+      # the hidden browser nor re-roots the viewport while the panel is held.
       assert MayonnaiOS.Browser.depth(Launcher.browser()) == 2
       press(:btn_dpad_left)
-      assert MayonnaiOS.Browser.depth(Launcher.browser()) == 1
+      assert MayonnaiOS.Browser.depth(Launcher.browser()) == 2
       refute_write("pressing left during a game")
 
-      # And Menu out of the game: the hold is lifted and the menu the cursor
-      # moved on is finally painted.
+      # Stopping the program lifts the hold and repaints the unchanged menu.
       Launcher.stop_program()
       refute Panel.held?()
       assert_write("the repaint after the program was stopped")
