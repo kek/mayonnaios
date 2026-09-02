@@ -44,8 +44,10 @@ defmodule MayonnaiOS.LowPower.Radio do
   An SSH session that arrived over `wlan0` ends when the device sleeps. That
   is the intended behaviour and is also a nuisance while debugging sleep
   itself, which is what `config :mayonnaios, :low_power_sleep` is for -- see
-  `MayonnaiOS.LowPower.enabled?/0`. The USB gadget's `usb0` is untouched and
-  remains a way in either way.
+  `MayonnaiOS.LowPower.enabled?/0`. This step does not alter USB gadget setup,
+  but RG40XXV cable enumeration has not been observed. WiFi is the only
+  verified remote access, so there is no promised recovery connection while
+  `wlan0` is down.
 
   ## On a laptop
 

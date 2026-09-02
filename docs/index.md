@@ -92,13 +92,16 @@ browse the API reference.
 - **Hardware status** — one evidence-aware RG40XXV capability matrix.
 
 Quick links: [WiFi][wifi] · [upload games][games] · [build/flash][build] ·
-[development][develop] · [report a documentation issue][issues] ·
+[development][develop] · [contributing][contribute] ·
+[repository responsibilities][repositories] · [report a documentation issue][issues] ·
 [view source][source]
 
 [wifi]: wifi.md
 [games]: games-and-cores.md
-[build]: https://github.com/kek/mayonnaios/blob/trunk/README.md#building-and-flashing
-[develop]: https://github.com/kek/mayonnaios/blob/trunk/README.md#working-on-it
+[build]: build-and-flash.md
+[develop]: development.md
+[contribute]: contributing.md
+[repositories]: repositories.md
 [repo]: https://github.com/kek/mayonnaios
 [issues]: https://github.com/kek/mayonnaios/issues/new
 [source]: https://github.com/kek/mayonnaios/edit/trunk/docs/index.md

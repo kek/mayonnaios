@@ -1,16 +1,17 @@
 defmodule MayonnaiOS.LowPower do
   @moduledoc """
-  The four things besides the backlight that make a dark panel cost less.
+  Experimental low-power measures applied in addition to the backlight.
 
-  `MayonnaiOS.Sleep` turns the backlight off, which is the one measure that is
-  certain to work and the only one the user can see. This module is everything
-  else, and it exists because a dark panel on its own barely helps: measured on
-  hardware at rest, screen on, discharging, the whole board draws **415 mA at
-  3.78 V (1.57 W)**, stable across ten samples two seconds apart -- and the LED
-  behind the panel is at most a third of that.
+  `MayonnaiOS.Sleep` turns the backlight off, which is verified on RG40XXV
+  hardware and is the only measure the user can see. This module coordinates
+  everything else. The source has a measured awake baseline at rest, screen
+  on, and discharging: **415 mA at 3.78 V (1.57 W)**, stable across ten samples
+  two seconds apart. It does not have a corresponding asleep measurement, so
+  neither this module's total saving nor the backlight's share is measured.
 
-  What the other two thirds were doing while the panel was dark, all of it
-  measured on firmware `3cc86f59`:
+  The following components were observed still active with the panel dark on
+  firmware `3cc86f59`; this identifies work to stop, not its current draw or
+  the saving from stopping it:
 
     * `scenic_driver_l` burned **9.5% of one core** over a 30-second idle
       sample, redrawing a screen nobody was looking at.
@@ -72,10 +73,11 @@ defmodule MayonnaiOS.LowPower do
 
   ## What this cannot promise
 
-  None of it is measured. Everything above is a measurement of the problem;
-  the saving is an estimate, and the estimate is 255-315 mA for the backlight
-  alone against 150-250 mA with all of this. The number that would settle it
-  is one reading of
+  The extra mode is **Experimental** and its saving is unmeasured. Everything
+  above measures the awake baseline and identifies active components; it does
+  not measure the result. Historical estimates are 255-315 mA with the
+  backlight off and 150-250 mA with all extra measures, but they are estimates,
+  not readings. The number that would settle it is one reading of
   `/sys/class/power_supply/axp20x-battery/current_now` taken with the panel
   dark, and it has not been taken.
   """
@@ -133,8 +135,9 @@ defmodule MayonnaiOS.LowPower do
 
   From `config :mayonnaios, :low_power_sleep`, defaulting to on. The switch is
   here because taking `wlan0` down ends any SSH session that arrives over it,
-  and somebody debugging a sleep bug over WiFi wants a way to say no. The USB
-  gadget's `usb0` is unaffected and stays the way in.
+  and somebody debugging a sleep bug over WiFi wants a way to say no. USB
+  gadget setup is unaffected, but cable enumeration is unverified and `usb0`
+  must not be assumed to provide a recovery connection.
   """
   @spec enabled?() :: boolean()
   def enabled?, do: Application.get_env(:mayonnaios, :low_power_sleep, true)

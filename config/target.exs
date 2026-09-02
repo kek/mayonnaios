@@ -49,9 +49,10 @@ wifi = fn var ->
     raise """
     #{var} is not set.
 
-    This device has no other way in: the USB-C gadget is unreliable here and
-    UART0 is on internal test pads, so firmware that boots without working
-    WiFi credentials has to be recovered by reflashing the card.
+    WiFi is the only verified remote access. USB gadget setup is implemented,
+    but RG40XXV cable enumeration has not been observed, and UART0 is on
+    internal test pads. Firmware that boots without working WiFi credentials
+    may therefore have to be recovered by reflashing the card.
 
         export MAYONNAIOS_WIFI_SSID="your-ssid"
         export MAYONNAIOS_WIFI_PSK="your-psk"
@@ -72,10 +73,10 @@ config :vintage_net,
        type: VintageNetEthernet,
        ipv4: %{method: :dhcp}
      }},
-    # WiFi is the only way onto this device: the USB-C gadget has not been
-    # seen enumerating, and UART0 is on internal test pads. Firmware built
-    # without working credentials here is unreachable until the card is
-    # reflashed by hand -- which has already happened once.
+    # WiFi is the only verified remote access. USB gadget setup is implemented,
+    # but the RG40XXV type-C connection has not been observed enumerating, and
+    # UART0 is on internal test pads. Firmware built without working credentials
+    # here may be unreachable until the card is reflashed by hand.
     #
     # Credentials come from the build environment so they are not committed.
     # Missing ones fail the build rather than producing firmware that cannot
@@ -585,13 +586,15 @@ config :mayonnaios, web_port: 80
 # on_close, input_blacklist.
 config :mayonnaios, autostart_ui: true
 
-# Sleep switches off more than the backlight: the Scenic renderer, WiFi, the
-# cpufreq governor and three of the four cores. `MayonnaiOS.LowPower` has what
-# each is worth, measured, and what it costs.
+# Sleep switches off the verified backlight and attempts extra Experimental
+# measures: stop the Scenic renderer, take down WiFi, change the cpufreq
+# governor and offline three cores. Some are currently no-ops, and the total
+# power saving has not been measured; `MayonnaiOS.LowPower` records the awake
+# baseline and the evidence boundary.
 #
 # Set this false while debugging sleep over SSH on WiFi, because taking
-# `wlan0` down ends that session. The USB gadget's `usb0` is untouched either
-# way and stays the way in.
+# `wlan0` down ends that session. USB gadget setup is untouched, but cable
+# enumeration is unverified and must not be treated as a recovery path.
 config :mayonnaios, low_power_sleep: true
 
 # Audio works, so `MayonnaiOS.Audio.run/0` is allowed to make a sound.
