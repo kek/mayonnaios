@@ -3,7 +3,7 @@
 ## Scope and implementation rules
 
 - Generate one static, latest-`trunk` site with ExDoc through Mix. Use no Python, Node asset pipeline, external font/CDN, analytics, search service, or custom JavaScript.
-- Build and validate the complete site in this PR. Pull requests produce a downloadable artifact but never deploy. Only a successful push to `trunk` may deploy; enabling **Settings → Pages → Source: GitHub Actions** and checking `https://kek.github.io/mayonnaios/` are post-merge repository-owner follow-ups, not PR blockers.
+- Build and validate the complete site in this PR: repository content, workflow, and the generated review artifact must be complete and reviewable before merge. Pull requests never deploy. Enabling **Settings → Pages → Source: GitHub Actions**, the first deployment from a successful push to `trunk`, and verification of `https://kek.github.io/mayonnaios/` inherently happen after merge as repository-owner issue-closure checks; they are not implementation-PR acceptance or mid-PR prerequisites, and production acceptance is not complete until they pass.
 - Keep the current `docs/*.md` paths so existing GitHub deep links remain valid. Published page basenames are lower-case kebab-case and are treated as stable; do not hard-code `doc/` URLs in prose.
 - Guides own user procedures, support status, and cross-feature explanations. Moduledocs own callable contracts and implementation mechanics. Retain only the shortest command/warning needed in both and cross-link to the canonical detail.
 - Use the formal feature labels **Verified**, **Experimental**, **Untested**, and **Unsupported**; use **Measured**, **Estimated**, and **Historical** only as evidence/record qualifiers. Text labels, not color alone, carry meaning.
@@ -43,7 +43,7 @@ The content edit must check off this mapping in the implementation PR descriptio
 
 **Behavior and content**
 
-- Add `{:ex_doc, "~> 0.40.3", only: [:dev, :docs], runtime: false}` and regenerate `mix.lock`; do not add a link checker, HTML parser, web framework, or any non-Elixir dependency.
+- Add `{:ex_doc, "~> 0.40.3", only: :dev, runtime: false}` and regenerate `mix.lock`; use the ordinary host/dev dependency and build environment rather than inventing a separate docs Mix environment. Do not add a link checker, HTML parser, web framework, or any non-Elixir dependency.
 - Add `source_url: "https://github.com/kek/mayonnaios"`, `homepage_url: "https://kek.github.io/mayonnaios/"`, `description`, and `docs: &docs/0` to `project/0`. Keep application version `0.1.0`; this is not release-versioned documentation.
 - Define `docs/0` with exactly:
   - `formatters: ["html"]`, `output: "doc"`, `main: "index"`, `extra_section: "Guides"`, `canonical: "https://kek.github.io/mayonnaios/"`, `source_ref: "trunk"`, and the repository SVG `logo`/`favicon` paths.
@@ -55,7 +55,7 @@ The content edit must check off this mapping in the implementation PR descriptio
 
 **Focused verification**
 
-- From a host checkout with no firmware credentials or sibling BSP, run `MIX_TARGET=host MIX_ENV=docs mix deps.get` and `MIX_TARGET=host MIX_ENV=docs mix docs --warnings-as-errors`.
+- From a host checkout with the project's existing Cairo/GTK native prerequisites but no firmware credentials, target toolchain, sibling BSP, device, or Python, run `MIX_TARGET=host mix deps.get` and `MIX_TARGET=host mix docs --warnings-as-errors`. The final author/CI sequence adds `MIX_TARGET=host mix docs.check` after step 5 creates that task.
 - Inspect `doc/index.html`, one guide, and one module page for the canonical URL, source links pinned to `trunk`, all five guide/module group labels, stylesheet, logo/favicon, current-trunk notice, search data, and ExDoc attribution.
 
 **Commit boundary:** `Configure ExDoc for the documentation site`
@@ -119,7 +119,7 @@ The content edit must check off this mapping in the implementation PR descriptio
 
 **Focused verification**
 
-- Run `mix docs --warnings-as-errors`; manually follow every procedure’s local links and compare commands/controls against `config/target.exs`, `MayonnaiOS.WiFi`, `Files`, `GamesCard`, `Bundle`, `Cores`, `Moonlight`, `Controller`, `Pairing`, `Sleep`, `LowPower`, `Led`, `Web`, `Pickles`, and their focused tests.
+- Run `MIX_TARGET=host mix docs --warnings-as-errors`; manually follow every procedure’s local links and compare commands/controls against `config/target.exs`, `MayonnaiOS.WiFi`, `Files`, `GamesCard`, `Bundle`, `Cores`, `Moonlight`, `Controller`, `Pairing`, `Sleep`, `LowPower`, `Led`, `Web`, `Pickles`, and their focused tests.
 - Search for distinctive old README sentences and ensure long-form prose has only one canonical home. Check off every owner/advanced-user row in the migration audit and verify the four retained GitHub links (`docs/pickles.md`, `docs/bluetooth-controller.md`, `docs/data-layout.md`, `docs/retroarch-internals.md`) still exist.
 
 **Commit boundary:** `Migrate device tasks into ExDoc guides`
@@ -145,14 +145,14 @@ The content edit must check off this mapping in the implementation PR descriptio
 
 - `build-and-flash.md`: state “no supported prebuilt firmware,” list supported RG40XXV/source prerequisites (Elixir/Erlang project versions, SSH public key, `MAYONNAIOS_WIFI_SSID`, `MAYONNAIOS_WIFI_PSK`, `MIX_TARGET=rg40xxv`, sibling BSP availability), then exact `mix deps.get`, `mix firmware`, `mix burn`, and later `mix upload nerves.local` procedures with success/recovery checks. Do not require these target credentials for docs generation.
 - `development.md`: host `mix test` and `iex -S mix` outcomes, native GUI prerequisites, 640×480 caveat, reload workflow, keyboard mapping, web UI, scratch paths, and headless-test behavior.
-- `contributing.md`: documentation author workflow (`MIX_TARGET=host MIX_ENV=docs mix deps.get`, `mix docs --warnings-as-errors`, validation task from step 5, optional `mix docs --open`), output at `doc/`, and a Pages-base inspection command using only existing Elixir/Mix dependencies (serve `Plug.Static` with Bandit at `/mayonnaios`, then visit `/mayonnaios/index.html`; no Python server). Add a maintenance checklist for user-visible behavior, commands/config, hardware status/evidence/hash/date, links, and screenshots. Document that external HTTP status is reviewed when introduced but does not gate CI.
+- `contributing.md`: acknowledge the existing host prerequisites (`gtk+3`, Cairo, `pkgconf`, and XQuartz on macOS), then give the exact documentation author sequence used everywhere: `MIX_TARGET=host mix deps.get`, `MIX_TARGET=host mix docs --warnings-as-errors`, and `MIX_TARGET=host mix docs.check` (with optional `MIX_TARGET=host mix docs --open`). Document output at `doc/` and a Pages-base inspection command using only existing Elixir/Mix dependencies (serve `Plug.Static` with Bandit at `/mayonnaios`, then visit `/mayonnaios/index.html`; no Python server). Add a maintenance checklist for user-visible behavior, commands/config, hardware status/evidence/hash/date, links, and screenshots. Document that external HTTP status is reviewed when introduced but does not gate CI.
 - `repositories.md`: explain which changes belong to this application, `nerves_system_rg40xxv`, and `mayonnaios_bundles`; link to owner repositories and leave detailed external build procedures there.
 - Rewrite `retroarch-provisioning.md` opening as a **Historical decision record**: identify the current “bundle, not Buildroot” decision, date/evidence status, and never-built investigation; link to current runtime internals and bundles repository. Keep `docs/retroarch-reference/` repository-only and link to its GitHub tree without presenting comments as verified facts.
 - Resolve published-source contradictions: edit the `USBGadget`, `LowPower`, and `LowPower.Radio` moduledocs and stale `config/target.exs` comments so they say `usb0` setup is implemented but cable enumeration is not observed and cannot be promised as recovery. Preserve WiFi as the only verified remote access and low-power savings as unmeasured. Do not change runtime behavior.
 
 **Focused verification**
 
-- From a clean environment, prove docs generation uses `host`/`docs`, does not evaluate target credential guards, does not access `../nerves_system_rg40xxv`, does not start Scenic/application children, and needs no GTK, target toolchain, hardware, or Python.
+- From a fresh host/dev environment satisfying the project's existing Cairo/GTK native prerequisites, prove docs generation uses `MIX_TARGET=host`, does not evaluate target credential guards, access `../nerves_system_rg40xxv`, start Scenic/application children, or need a target toolchain, device, firmware credentials, or Python.
 - Run formatting, docs warnings-as-errors, and focused existing tests covering WiFi, USB-adjacent configuration assumptions, low power/sleep, Moonlight, Bluetooth, cores/bundles/cards, and host runtime. Complete the README/docs/source claim-audit rows and review newly added external URLs manually.
 
 **Commit boundary:** `Document building, development, and architecture`
@@ -175,7 +175,7 @@ The content edit must check off this mapping in the implementation PR descriptio
 - Walk every generated HTML/CSS file. Extract local `href`, `src`, and `srcset` references plus CSS `url(...)`; ignore external schemes, protocol-relative URLs, `mailto:`, and `tel:` without making network requests. Strip query strings, percent-decode paths, understand the `/mayonnaios/` Pages prefix, resolve relative paths, map directory links to `index.html`, reject paths escaping `doc/`, and require every local file/asset to exist.
 - For local HTML fragments, collect generated `id` (and legacy `name`) attributes in the target document and fail when the decoded fragment is absent. Report all source file/reference/reason failures together via `Mix.raise/1`; print a checked-file/reference summary on success.
 - Test same-page and cross-page anchors, relative and Pages-prefixed paths, query/fragment combinations, percent encoding, directory indexes, images/stylesheets/srcset/CSS assets, ignored external links, missing files/assets/anchors, and traversal. Tests use temporary generated-HTML fixtures and never access the network.
-- Document the required sequence as `mix docs --warnings-as-errors` followed by `mix docs.check`; the first catches ExDoc guide/module reference warnings and the second catches generated internal links, anchors, and local assets. External HTTP availability remains non-blocking.
+- Document the required sequence consistently as `MIX_TARGET=host mix deps.get`, `MIX_TARGET=host mix docs --warnings-as-errors`, and `MIX_TARGET=host mix docs.check`; the docs command catches ExDoc guide/module reference warnings and the checker catches generated internal links, anchors, and local assets. External HTTP availability remains non-blocking.
 
 **Focused verification**
 
@@ -212,7 +212,7 @@ The content edit must check off this mapping in the implementation PR descriptio
 **Behavior and content**
 
 - Trigger on `pull_request` and pushes to `trunk`. Default permissions are `contents: read`; no tag or `workflow_dispatch` deploy path is added.
-- Add a `docs` job on `ubuntu-latest` with `MIX_TARGET=host`, pinned Elixir `1.20.3` and compatible OTP (the version verified in the implementation), full-SHA actions with version comments, and no firmware credentials. Run dependency retrieval, `mix format --check-formatted`, `mix test`, then `MIX_ENV=docs mix deps.get`, the literal `MIX_ENV=docs mix docs --warnings-as-errors`, and `MIX_ENV=docs mix docs.check`.
+- Add a `docs` job on `ubuntu-latest` with pinned Elixir `1.20.3` and compatible OTP (the version verified in the implementation), full-SHA actions with version comments, and no firmware credentials. Install the same Cairo/GTK native build prerequisites already required for ordinary Linux host development. Run the exact documentation sequence `MIX_TARGET=host mix deps.get`, `MIX_TARGET=host mix docs --warnings-as-errors`, and `MIX_TARGET=host mix docs.check`; also run `MIX_TARGET=host mix format --check-formatted` and `MIX_TARGET=host mix test`. Do not create or use a separate docs Mix environment.
 - Pin the researched current action revisions (refresh against each official action repository immediately before implementation): `actions/checkout@11d5960a326750d5838078e36cf38b85af677262` (`v4`), `erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236` (`v1`), `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02` (`v4`), `actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b` (`v5`), `actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b` (`v4`), and `actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e` (`v4`). Do not use floating tags in workflow `uses:` values.
 - Upload `doc/` on every successful PR/trunk build as a clearly named generic review artifact with `retention-days: 7`. On `push` to `refs/heads/trunk` only, run `configure-pages` and `upload-pages-artifact` on that already-validated `doc/` directory.
 - Add a separate `deploy` job with `needs: docs`, the exact guard `github.event_name == 'push' && github.ref == 'refs/heads/trunk'`, `pages: write` and `id-token: write` job permissions, `environment.name: github-pages`, and environment URL from `deploy-pages`. It downloads no unreviewed output and cannot run after build/check failure.
@@ -221,8 +221,8 @@ The content edit must check off this mapping in the implementation PR descriptio
 **Focused verification**
 
 - Validate workflow syntax by review against official GitHub Pages custom-workflow documentation and action manifests; inspect each pinned SHA in its official repository.
-- Push the implementation branch and confirm the PR check uploads the review artifact, runs no configure/upload-pages/deploy step, and logs the exact warnings-as-errors and docs-check commands. Inspect the downloaded artifact locally at the project base path.
-- Do not alter Pages settings or deploy during the PR. After merge, the owner selects GitHub Actions as the Pages source if needed, confirms the guarded `trunk` run and canonical URL, and records any production-only issue as follow-up rather than retroactively blocking this PR.
+- Push the implementation branch and confirm the PR check uploads the complete validated review artifact, runs no configure/upload-pages/deploy step, and logs the exact host/dev docs sequence. Inspect the downloaded artifact locally at the project base path; this repository/workflow/content/artifact review is the implementation-PR acceptance boundary.
+- Do not alter Pages settings or deploy during the PR. After merge, the owner selects GitHub Actions as the Pages source if needed, observes the first guarded `trunk` deployment, verifies the canonical live URL, and records the result for issue closure. These operator checks are not retroactive PR blockers, but production acceptance remains incomplete until they pass.
 
 **Commit boundary:** `Build and publish docs with GitHub Actions`
 
@@ -234,17 +234,16 @@ The content edit must check off this mapping in the implementation PR descriptio
 
 **Verification**
 
-1. Clone/fetch the branch into a clean directory with no `_build/`, `deps/`, `doc/`, target environment variables, SSH key dependency, sibling BSP, GUI packages, or device. Run:
+1. Clone/fetch the branch into a clean directory with no `_build/`, `deps/`, `doc/`, target environment variables, firmware credentials/SSH keys, target toolchain, sibling BSP, or device. Satisfy the project's existing Cairo/GTK host build prerequisites, then run:
    - `MIX_TARGET=host mix deps.get`
+   - `MIX_TARGET=host mix docs --warnings-as-errors`
+   - `MIX_TARGET=host mix docs.check`
    - `MIX_TARGET=host mix format --check-formatted`
    - `MIX_TARGET=host mix test`
-   - `MIX_TARGET=host MIX_ENV=docs mix deps.get`
-   - `MIX_TARGET=host MIX_ENV=docs mix docs --warnings-as-errors`
-   - `MIX_TARGET=host MIX_ENV=docs mix docs.check`
 2. Confirm every current/new published guide appears once in navigation; `docs/retroarch-reference/*` remains tracked but unpublished; all documented modules are searchable in the intended API group; and searches for the six launch terms reach their task pages.
 3. Walk landing → WiFi, upload games, build/flash, and development in one click. Walk each audience path through prerequisites, ordered outcome, success signal, and troubleshooting. Confirm edit/report/source links, canonical URLs under `/mayonnaios/`, local assets, and retained GitHub deep links.
 4. Repeat manual accessibility/design checks on representative landing, task, matrix, and API pages at 320px/desktop, keyboard-only, light/dark, and reduced motion. Confirm no screenshot placeholder, remote font/script, analytics request, hidden focus, color-only status, or removed ExDoc attribution.
 5. Reconcile every migration-audit row, all status labels, and all USB/low-power/Moonlight/Bluetooth claims across README, guides, config comments, and published moduledocs. Attach implementation-PR screenshots of landing and one guide at desktop and phone widths (four captures total) for review; these are PR evidence, not site assets.
 6. Verify `git status` contains no generated `doc/`, dependency, cache, or temporary files. Confirm the PR workflow artifact is the validated `doc/` tree and that deployment remains skipped before merge.
 
-**Final acceptance boundary:** all implementation, tests, artifacts, and manual review are complete on this PR. Only Pages source enablement and live-URL confirmation remain explicit post-merge owner operations.
+**Final acceptance boundary:** repository code/workflow/content, tests, the generated artifact, and manual review are complete and are the acceptance boundary for this implementation PR. Pages source enablement, the first live deployment, and live-URL verification are explicit post-merge owner operations required for issue closure; production acceptance is not complete before that follow-up succeeds.

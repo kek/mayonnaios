@@ -34,7 +34,7 @@ These decisions apply the settled constraints in `QUESTIONS.md`: this is a fresh
 
 **Rationale and constraints.** Analytics would not measure whether the migration is complete and would add privacy/operations scope. Repository-verifiable criteria are appropriate for a one-PR implementation.
 
-**Acceptance criteria.** (1) Landing-page links reach flash, WiFi, upload-games, and development instructions in one click; (2) every substantive current README section and every `docs/*.md` file has an intentional destination recorded in the PR; (3) detailed prose has one canonical home; (4) `mix docs --warnings-as-errors` succeeds on the ordinary host setup; (5) CI checks internal guide/module references; and (6) a merge to `trunk` can publish the same artifact CI reviewed.
+**Acceptance criteria.** (1) Landing-page links reach flash, WiFi, upload-games, and development instructions in one click; (2) every substantive current README section and every `docs/*.md` file has an intentional destination recorded in the PR; (3) detailed prose has one canonical home; (4) `MIX_TARGET=host mix docs --warnings-as-errors` succeeds on the ordinary host/dev setup with the project's existing native prerequisites; (5) CI checks internal guide/module references; and (6) a merge to `trunk` can publish the same artifact CI reviewed.
 
 ## Scope and content ownership
 
@@ -220,7 +220,7 @@ These decisions apply the settled constraints in `QUESTIONS.md`: this is a fresh
 
 **Rationale and constraints.** The repository owner already controls GitHub Pages; there is no DNS/domain input. ExDoc’s `:canonical` should be set to that HTTPS base so generated pages identify their preferred URLs. GitHub Pages custom workflows accept arbitrary static generators ([GitHub Pages custom workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)).
 
-**Acceptance criteria.** README and ExDoc metadata use exactly that base URL, repository Pages source is set to GitHub Actions, and there is no `CNAME` or DNS acceptance dependency.
+**Acceptance criteria.** Before merge, README and ExDoc metadata use exactly that base URL, and the repository content, workflow, and generated artifact are complete and reviewable without a `CNAME` or DNS dependency. After merge, the repository owner enables **Settings → Pages → Source: GitHub Actions** if needed and verifies the first deployment at that URL; those are issue-closure/operator checks, not implementation-PR acceptance or mid-PR prerequisites.
 
 ### 27. Existing GitHub deep links
 
@@ -262,11 +262,11 @@ These decisions apply the settled constraints in `QUESTIONS.md`: this is a fresh
 
 **Why Pages, not HexDocs.** HexDocs publication is coupled to a Hex package/version: official Hex guidance says documentation is automatically published with a package, or `mix hex.publish docs` republishes docs for an **existing package version** ([Hex publishing guide](https://hex.pm/docs/publish), [mix hex.publish](https://hexdocs.pm/hex/Mix.Tasks.Hex.Publish.html)). MayonnaiOS is a firmware application with Git/path dependencies and is not a reusable Hex package; publishing a registry package merely to host its website would create false package/version semantics and Hex ownership credentials. Pages accepts any static generator, supports the canonical project URL, permits fresh ExDoc assets, and deploys directly from the authoritative `trunk` artifact.
 
-**Acceptance criteria.** One GitHub Actions workflow builds on pull requests and `trunk`; its deploy job is guarded to `push` on `refs/heads/trunk`, depends on the successful build, and uses the `github-pages` environment. Nothing in a PR run calls a Pages deployment action.
+**Acceptance criteria.** One GitHub Actions workflow builds on pull requests and `trunk`; its deploy job is guarded to `push` on `refs/heads/trunk`, depends on the successful build, and uses the `github-pages` environment. Nothing in a PR run calls a Pages deployment action. Implementation-PR acceptance ends with the complete workflow/content and validated review artifact; production acceptance remains incomplete until the owner enables the Pages source if needed and verifies the first post-merge deployment as issue-closure follow-up.
 
 ### 32. Design review without deployment
 
-**Decision.** CI uploads the generated `doc/` directory as a downloadable PR artifact, and the PR includes screenshots of the landing page plus one guide at desktop and phone widths. Reviewers can also run `mix docs` locally. There is no public preview environment.
+**Decision.** CI uploads the generated `doc/` directory as a downloadable PR artifact, and the PR includes screenshots of the landing page plus one guide at desktop and phone widths. Reviewers can also run `MIX_TARGET=host mix docs --warnings-as-errors` locally. There is no public preview environment.
 
 **Rationale and constraints.** The artifact is the exact static output that will be passed to Pages after merge. Screenshots make visual review immediate, while the artifact allows navigation/search review.
 
@@ -282,27 +282,27 @@ These decisions apply the settled constraints in `QUESTIONS.md`: this is a fresh
 
 ### 34. Mandatory CI checks
 
-**Decision.** Mandatory launch checks are: formatting for changed Elixir/config files, `mix docs --warnings-as-errors`, ExDoc-resolved internal guide/module/anchor links, and existence of referenced local assets. Keep tests in the repository's existing CI; do not add docs-specific spelling, prose-style, external-status, or automated alt-text linters in #81. Alt text/accessibility are review acceptance criteria.
+**Decision.** Mandatory launch checks are: formatting for changed Elixir/config files, `MIX_TARGET=host mix docs --warnings-as-errors`, ExDoc-resolved internal guide/module/anchor links, and existence of referenced local assets. Keep tests in the repository's existing CI; do not add docs-specific spelling, prose-style, external-status, or automated alt-text linters in #81. Alt text/accessibility are review acceptance criteria.
 
 **Rationale and constraints.** ExDoc’s official warnings-as-errors mode turns its reference warnings into a non-zero build while staying in Mix ([mix docs options](https://hexdocs.pm/ex_doc/Mix.Tasks.Docs.html)). More content tools would add disproportionate dependencies and false positives to a one-PR migration.
 
-**Acceptance criteria.** Deliberately breaking an internal page/module link or local image makes the docs job fail. A typo or transient external 500 does not. The workflow logs the exact `mix docs --warnings-as-errors` command.
+**Acceptance criteria.** Deliberately breaking an internal page/module link or local image makes the docs job fail. A typo or transient external 500 does not. The workflow logs the exact `MIX_TARGET=host mix docs --warnings-as-errors` command.
 
 ### 35. Host-only docs generation
 
-**Decision.** Documentation generation must work with `MIX_TARGET=host` (or no `MIX_TARGET`) in a non-`dev` Mix environment, without firmware credentials, SSH keys, target toolchains, GTK/XQuartz, device access, or the sibling system repository. Add ExDoc only for the docs/development host environment with `runtime: false`.
+**Decision.** Generate documentation in the ordinary host/dev Mix dependency and build environment with `MIX_TARGET=host`. Add ExDoc as `only: :dev, runtime: false`. Because `scenic_driver_local` is unconditional, fetching and compiling this application for the host retains the project's existing Cairo/GTK native prerequisites (including XQuartz on macOS); do not promise a native-prerequisite-free docs build. Documentation generation still requires no firmware credentials or SSH keys, target toolchain, sibling system repository, device access, or Python.
 
-**Rationale and constraints.** `config/target.exs` intentionally demands SSH keys and WiFi credentials, and host `dev` may start Scenic/GTK. Docs need source BEAM metadata, not a firmware or running application.
+**Rationale and constraints.** `config/target.exs` intentionally demands SSH keys and WiFi credentials, while host dependency compilation includes `scenic_driver_local` even though `mix docs` does not start the application. Reusing the established dev dependency set is simpler and evidenced; inventing a separate docs Mix environment does not remove the unconditional native compilation.
 
-**Acceptance criteria.** A clean Linux CI runner can fetch host dependencies and run the docs command headlessly. The workflow does not set `MIX_TARGET=rg40xxv`, invoke `mix firmware`, start the application, or install Python.
+**Acceptance criteria.** A fresh Linux CI runner installs/satisfies the project's existing Cairo/GTK host prerequisites, fetches host/dev dependencies, and runs `MIX_TARGET=host mix docs --warnings-as-errors`. The workflow does not set `MIX_TARGET=rg40xxv`, invoke `mix firmware`, start the application, install Python, use firmware credentials, fetch a target toolchain or sibling BSP, or access a device.
 
 ### 36. Local author workflow
 
-**Decision.** Support `mix deps.get`, `mix docs --warnings-as-errors`, then a documented static-file server/open step. `mix docs --open` is optional for a desktop. Watch/live reload is not required.
+**Decision.** Use the same documented sequence locally, in CI, and for clean verification: `MIX_TARGET=host mix deps.get`, `MIX_TARGET=host mix docs --warnings-as-errors`, then `MIX_TARGET=host mix docs.check`. A static-file server/open step is optional for a desktop; watch/live reload is not required.
 
 **Rationale and constraints.** ExDoc documents `mix docs` as the generator and its own contribution flow uses a simple local static server as an optional step ([ExDoc usage](https://hexdocs.pm/ex_doc/readme.html#usage)). A watcher would add tooling unrelated to authoring Markdown.
 
-**Acceptance criteria.** A contributor guide states the exact commands, output directory (`doc/`), and how to inspect the Pages-base behavior locally. No tool beyond project-pinned Elixir/Erlang, Mix dependencies, Git, and an ordinary browser is required.
+**Acceptance criteria.** A contributor guide states those exact commands, output directory (`doc/`), existing Cairo/GTK host prerequisites, and how to inspect the Pages-base behavior locally without Python. Beyond those project prerequisites, generation needs only project-pinned Elixir/Erlang, Mix dependencies, Git, and an ordinary browser.
 
 ### 37. Ongoing ownership
 
