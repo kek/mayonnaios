@@ -95,8 +95,8 @@ Quick links: [WiFi][wifi] · [upload games][games] · [build/flash][build] ·
 [development][develop] · [report a documentation issue][issues] ·
 [view source][source]
 
-[wifi]: https://github.com/kek/mayonnaios/blob/trunk/README.md#changing-which-wifi-it-joins
-[games]: https://github.com/kek/mayonnaios/blob/trunk/README.md#putting-games-on-it
+[wifi]: wifi.md
+[games]: games-and-cores.md
 [build]: https://github.com/kek/mayonnaios/blob/trunk/README.md#building-and-flashing
 [develop]: https://github.com/kek/mayonnaios/blob/trunk/README.md#working-on-it
 [repo]: https://github.com/kek/mayonnaios
