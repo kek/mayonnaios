@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title description">
+  <title id="title">MayonnaiOS</title>
+  <desc id="description">Pixel-style MayonnaiOS handheld mark.</desc>
+  <rect width="64" height="64" rx="4" fill="#fffaf0"/>
+  <rect x="2" y="2" width="60" height="60" fill="#f4eedf" stroke="#242722" stroke-width="4"/>
+  <rect x="12" y="12" width="40" height="24" fill="#242722"/>
+  <rect x="16" y="16" width="32" height="16" fill="#77d09a"/>
+  <path d="M13 49h18M22 40v18" stroke="#242722" stroke-width="4"/>
+  <rect x="41" y="43" width="8" height="8" fill="#a12d2d"/>
+  <rect x="50" y="52" width="8" height="8" fill="#17683a"/>
+</svg>

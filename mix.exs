@@ -27,7 +27,11 @@ defmodule MayonnaiOS.MixProject do
       listeners: listeners(Mix.target(), Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      releases: [{@app, release()}]
+      releases: [{@app, release()}],
+      source_url: "https://github.com/kek/mayonnaios",
+      homepage_url: "https://kek.github.io/mayonnaios/",
+      description: "Firmware and device software for the Anbernic RG40XXV handheld",
+      docs: &docs/0
     ]
   end
 
@@ -47,6 +51,7 @@ defmodule MayonnaiOS.MixProject do
   defp deps do
     [
       # Dependencies for all targets
+      {:ex_doc, "~> 0.40.3", only: :dev, runtime: false},
       {:nerves, "~> 1.13", runtime: false},
       {:shoehorn, "~> 0.9.1"},
       {:ring_logger, "~> 0.11.0"},
@@ -120,6 +125,195 @@ defmodule MayonnaiOS.MixProject do
        path: "../nerves_system_rg40xxv", runtime: false, targets: :rg40xxv}
     ]
   end
+
+  defp docs do
+    extras =
+      [
+        {"docs/index.md", title: "MayonnaiOS", filename: "home"},
+        {"docs/wifi.md", title: "Connect to WiFi"},
+        {"docs/games-and-cores.md", title: "Upload games and install cores"},
+        {"docs/files-and-storage.md", title: "Manage files and storage"},
+        {"docs/bluetooth-controller.md", title: "Use as a Bluetooth controller"},
+        {"docs/bluetooth-devices.md", title: "Inspect nearby Bluetooth devices"},
+        {"docs/sleep-and-power.md", title: "Sleep and power"},
+        {"docs/moonlight.md", title: "Stream games with Moonlight"},
+        {"docs/ssh-and-iex.md", title: "Use SSH and IEx"},
+        {"docs/build-and-flash.md", title: "Build and flash firmware"},
+        {"docs/development.md", title: "Develop on the host"},
+        {"docs/contributing.md", title: "Contribute"},
+        {"docs/pickles.md", title: "Build Pickles"},
+        {"docs/repositories.md", title: "Repository responsibilities"},
+        {"docs/data-layout.md", title: "On-device data layout"},
+        {"docs/retroarch-internals.md", title: "RetroArch internals"},
+        {"docs/retroarch-provisioning.md", title: "RetroArch provisioning decision record"},
+        {"docs/bluetooth-internals.md", title: "Bluetooth internals"},
+        {"docs/hardware-status.md", title: "RG40XXV hardware status"}
+      ]
+      # Later migration steps add the remaining named guides. Keeping the
+      # complete manifest here makes each page join its intended group as soon
+      # as its source exists, while this foundation remains buildable alone.
+      |> Enum.filter(fn {path, _options} -> File.regular?(path) end)
+
+    [
+      formatters: ["html"],
+      output: "doc",
+      # ExDoc 0.40.3 reserves index.html for its main-page redirect, so the
+      # docs/index.md source is emitted as home.html and selected as the main.
+      main: "home",
+      extra_section: "Guides",
+      canonical: "https://kek.github.io/mayonnaios/",
+      source_ref: "trunk",
+      logo: "docs/assets/mayonnaios-mark.svg",
+      favicon: "docs/assets/favicon.svg",
+      extras: extras,
+      groups_for_extras: [
+        "Start here": ["docs/index.md"],
+        "Use the device": [
+          "docs/wifi.md",
+          "docs/games-and-cores.md",
+          "docs/files-and-storage.md",
+          "docs/bluetooth-controller.md",
+          "docs/bluetooth-devices.md",
+          "docs/sleep-and-power.md",
+          "docs/moonlight.md",
+          "docs/ssh-and-iex.md"
+        ],
+        "Build and develop": [
+          "docs/build-and-flash.md",
+          "docs/development.md",
+          "docs/contributing.md",
+          "docs/pickles.md"
+        ],
+        "Architecture and internals": [
+          "docs/repositories.md",
+          "docs/data-layout.md",
+          "docs/retroarch-internals.md",
+          "docs/retroarch-provisioning.md",
+          "docs/bluetooth-internals.md"
+        ],
+        "Hardware status": ["docs/hardware-status.md"]
+      ],
+      groups_for_modules: [
+        "Public and operational APIs": [
+          MayonnaiOS,
+          MayonnaiOS.AppPartition,
+          MayonnaiOS.Assets,
+          MayonnaiOS.Audio,
+          MayonnaiOS.AutoSleep,
+          MayonnaiOS.BootDiagnostics,
+          MayonnaiOS.Bundle,
+          MayonnaiOS.Console,
+          MayonnaiOS.Controller,
+          MayonnaiOS.Cores,
+          MayonnaiOS.Device,
+          MayonnaiOS.Diagnostics,
+          MayonnaiOS.Files,
+          MayonnaiOS.GamesCard,
+          MayonnaiOS.Led,
+          MayonnaiOS.Library,
+          MayonnaiOS.LowPower,
+          MayonnaiOS.Moonlight,
+          MayonnaiOS.Pairing,
+          MayonnaiOS.Pickles,
+          MayonnaiOS.Power,
+          MayonnaiOS.Programs,
+          MayonnaiOS.Saves,
+          MayonnaiOS.Sleep,
+          MayonnaiOS.SystemInfo,
+          MayonnaiOS.Top,
+          MayonnaiOS.Update,
+          MayonnaiOS.USBGadget,
+          MayonnaiOS.Volume,
+          MayonnaiOS.Web,
+          MayonnaiOS.WiFi
+        ],
+        "Device and runtime": [
+          MayonnaiOS.Application,
+          MayonnaiOS.AppPartition.Startup,
+          MayonnaiOS.Audio.Amixer,
+          MayonnaiOS.Audio.Mixer,
+          MayonnaiOS.Audio.Startup,
+          MayonnaiOS.Clock,
+          MayonnaiOS.Cores.Startup,
+          MayonnaiOS.Dev,
+          MayonnaiOS.Game,
+          MayonnaiOS.HostRuntime,
+          MayonnaiOS.Input,
+          MayonnaiOS.Keyboard,
+          MayonnaiOS.Launcher.Kill,
+          MayonnaiOS.Launcher.Signals,
+          MayonnaiOS.Led.Monitor,
+          MayonnaiOS.LowPower.Cpus,
+          MayonnaiOS.LowPower.Governor,
+          MayonnaiOS.LowPower.Radio,
+          MayonnaiOS.LowPower.Renderer,
+          MayonnaiOS.Status,
+          MayonnaiOS.Top.Beam,
+          MayonnaiOS.Top.Os,
+          MayonnaiOS.Udev
+        ],
+        UI: [
+          MayonnaiOS.Browser,
+          MayonnaiOS.Browser.View,
+          MayonnaiOS.Launcher,
+          MayonnaiOS.Moonlight.App,
+          MayonnaiOS.Panel,
+          MayonnaiOS.Scene.Controller,
+          MayonnaiOS.Scene.Diagnostics,
+          MayonnaiOS.Scene.Home,
+          MayonnaiOS.Scene.Moonlight,
+          MayonnaiOS.Scene.Pairing,
+          MayonnaiOS.Scene.Pickle,
+          MayonnaiOS.Scene.StatusBar,
+          MayonnaiOS.Scene.Top,
+          MayonnaiOS.Scene.Update,
+          MayonnaiOS.Scene.WiFi,
+          MayonnaiOS.Splash,
+          MayonnaiOS.Theme,
+          MayonnaiOS.Update.App,
+          MayonnaiOS.Web.Page,
+          MayonnaiOS.WiFi.App,
+          MayonnaiOS.WiFi.Editor
+        ],
+        "Bluetooth internals": [
+          ~r/^MayonnaiOS\.Bluetooth\./,
+          MayonnaiOS.Controller.Battery,
+          MayonnaiOS.Controller.Pad,
+          MayonnaiOS.Controller.Report,
+          MayonnaiOS.Pairing.Cursor
+        ],
+        "Pickles internals": [~r/^MayonnaiOS\.Pickles\./]
+      ],
+      assets: %{"docs/assets" => "assets/mayonnaios"},
+      before_closing_head_tag: &before_closing_head_tag/1,
+      before_closing_footer_tag: &before_closing_footer_tag/1,
+      skip_code_autolink_to: [
+        ":proc_lib.init_p/5",
+        "MayonnaiOS.Application",
+        "MayonnaiOS.Browser.View.full/0",
+        "MayonnaiOS.Diagnostics.rtl_status/0",
+        "MayonnaiOS.Launcher.await_exit/3",
+        "MayonnaiOS.Scene.StatusBar.init/3"
+      ]
+    ]
+  end
+
+  defp before_closing_head_tag(:html) do
+    ~s(<link rel="stylesheet" href="assets/mayonnaios/docs.css">)
+  end
+
+  defp before_closing_head_tag(_formatter), do: ""
+
+  defp before_closing_footer_tag(:html) do
+    """
+    <div class="mayonnaios-docs-notice">
+      Documentation for current <code>trunk</code>; installed firmware may differ.
+      <a href="https://github.com/kek/mayonnaios/issues/new">Report a documentation issue</a>.
+    </div>
+    """
+  end
+
+  defp before_closing_footer_tag(_formatter), do: ""
 
   def release do
     [

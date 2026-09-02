@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 80" role="img" aria-labelledby="title description">
+  <title id="title">MayonnaiOS</title>
+  <desc id="description">MayonnaiOS wordmark beside a pixel-style handheld.</desc>
+  <rect width="360" height="80" rx="4" fill="#fffaf0"/>
+  <g transform="translate(8 8)" stroke="#242722" stroke-width="4" stroke-linejoin="miter">
+    <rect x="0" y="0" width="64" height="64" fill="#f4eedf"/>
+    <rect x="10" y="10" width="44" height="27" fill="#242722"/>
+    <rect x="14" y="14" width="36" height="19" fill="#77d09a" stroke="none"/>
+    <path d="M14 49h18M23 40v18"/>
+    <rect x="43" y="45" width="7" height="7" fill="#a12d2d" stroke="none"/>
+    <rect x="51" y="53" width="7" height="7" fill="#17683a" stroke="none"/>
+  </g>
+  <text x="88" y="51" fill="#242722" font-family="system-ui, sans-serif" font-size="38" font-weight="750" letter-spacing="-1">MayonnaiOS</text>
+  <rect x="89" y="61" width="235" height="3" fill="#17683a"/>
+  <rect x="328" y="61" width="21" height="3" fill="#a12d2d"/>
+</svg>
