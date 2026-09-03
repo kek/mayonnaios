@@ -45,9 +45,11 @@ defmodule MayonnaiOS.Launcher do
   lives in `MayonnaiOS.Panel`. This module is its only writer: it holds
   before `Port.open/2` and releases when the program is reaped, which is the
   same pair of moments that already bracket the handover. Everything that
-  draws consults it. And `set_root/2` below refuses while it is held, because
-  re-rooting the viewport is itself a write -- a button pressed during a game
-  must not paint a menu into a framebuffer the game owns.
+  draws consults it. The input boundary also ignores ordinary navigation and
+  actions while the external port exists. Only Menu stop, Select+Menu
+  poweroff, Power/lid sleep, and wake-on-any-press remain global; a wake press
+  is consumed. The repaint gates remain independent framebuffer safety, not
+  permission to mutate hidden browser state.
 
   ## Giving the screen back requires the program to actually be dead
 
@@ -652,8 +654,9 @@ defmodule MayonnaiOS.Launcher do
   def handle_info({:idle_sleep, _stale_token}, state), do: {:noreply, state}
 
   # The program exited on its own. Name it from `running` rather than from the
-  # cursor: the cursor may well have moved while the program had the screen,
-  # and a log line that names the wrong binary is worse than none.
+  # running metadata rather than the hidden browser cursor. Ordinary launcher
+  # navigation is ignored while the program owns input, and this also keeps
+  # the exit name independent of presentation state.
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     Logger.info("[launcher] #{name_of(state.running)} exited (#{status})")
 
@@ -733,6 +736,15 @@ defmodule MayonnaiOS.Launcher do
     {:noreply, state}
   end
 
+  # An external program owns ordinary gamepad input. The evdev reader still
+  # reports every key so global controls remain available, but browser state
+  # must stay frozen behind the program. Select is tracked for Select+Menu;
+  # Menu stops the program, and Power/lid sleep remains global.
+  defp handle_input(events, %{port: port} = state) when port != nil do
+    state = Enum.reduce(events, state, &external_program_event/2)
+    {:noreply, state}
+  end
+
   defp handle_input(events, state) do
     state =
       Enum.reduce(events, state, fn
@@ -751,6 +763,25 @@ defmodule MayonnaiOS.Launcher do
     state = if real_press?(events), do: reset_idle_timer(state), else: state
     {:noreply, state}
   end
+
+  defp external_program_event({:ev_key, key, 1}, state) do
+    state = hold(state, key)
+
+    cond do
+      Sleep.trigger?(state.held, key) ->
+        {_result, state} = enter_sleep(state)
+        state
+
+      key == button(state, :home) ->
+        home(state)
+
+      true ->
+        state
+    end
+  end
+
+  defp external_program_event({:ev_key, key, 0}, state), do: release(state, key)
+  defp external_program_event(_event, state), do: state
 
   defp lid_transition(%{lid_switch: nil}, _events), do: nil
 
