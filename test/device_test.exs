@@ -3,6 +3,22 @@ defmodule MayonnaiOS.DeviceTest do
 
   alias MayonnaiOS.Device
 
+  @host_device Application.compile_env!(:mayonnaios, :device)
+  @host_viewport Application.compile_env!(:mayonnaios, :viewport)
+
+  setup do
+    previous_device = Application.get_env(:mayonnaios, :device)
+    previous_viewport = Application.get_env(:mayonnaios, :viewport)
+
+    Application.put_env(:mayonnaios, :device, @host_device)
+    Application.put_env(:mayonnaios, :viewport, @host_viewport)
+
+    on_exit(fn ->
+      restore(:device, previous_device)
+      restore(:viewport, previous_viewport)
+    end)
+  end
+
   test "the host profile is complete and agrees with the viewport" do
     profile = Device.current!()
 
@@ -30,4 +46,7 @@ defmodule MayonnaiOS.DeviceTest do
 
     assert_raise ArgumentError, ~r/does not match viewport/, &Device.current!/0
   end
+
+  defp restore(key, nil), do: Application.delete_env(:mayonnaios, key)
+  defp restore(key, value), do: Application.put_env(:mayonnaios, key, value)
 end
