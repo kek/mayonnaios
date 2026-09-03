@@ -52,6 +52,9 @@ defmodule MayonnaiOS.MixProject do
     [
       # Dependencies for all targets
       {:ex_doc, "~> 0.40.3", only: :dev, runtime: false},
+      # Used at runtime for portable backup manifests. Do not rely on the
+      # transitive copy from :nerves, which is excluded from releases.
+      {:jason, "~> 1.4"},
       {:nerves, "~> 1.13", runtime: false},
       {:shoehorn, "~> 0.9.1"},
       {:ring_logger, "~> 0.11.0"},
