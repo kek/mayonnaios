@@ -27,11 +27,23 @@ config :mayonnaios, :programs, [
     path: "/bin/sh",
     args: ["-c", "printf 'host program running\\n'; sleep 1"]
   },
-  %{name: "Moonlight settings", app: MayonnaiOS.Moonlight.App},
+  %{
+    name: "Moonlight settings",
+    app: MayonnaiOS.Moonlight.App,
+    description: ["Configure Moonlight game", "streaming."]
+  },
   %{name: "BEAM processes", app: {MayonnaiOS.Top, :beam}},
   %{name: "OS processes", app: {MayonnaiOS.Top, :os}},
-  %{name: "WiFi", app: MayonnaiOS.WiFi.App},
-  %{name: "Software update", app: MayonnaiOS.Update.App}
+  %{
+    name: "WiFi",
+    app: MayonnaiOS.WiFi.App,
+    description: ["Join, forget, and inspect", "WiFi networks."]
+  },
+  %{
+    name: "Software update",
+    app: MayonnaiOS.Update.App,
+    description: ["Check for and install new", "MayonnaiOS releases."]
+  }
 ]
 
 # A complete profile keeps host development and tests on the same application

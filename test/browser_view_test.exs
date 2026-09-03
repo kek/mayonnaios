@@ -102,6 +102,32 @@ defmodule MayonnaiOS.Browser.ViewTest do
   end
 
   describe "previewing a runnable row" do
+    test "a described firmware app uses the same purpose lines in preview and full view" do
+      [program] =
+        MayonnaiOS.Programs.list([
+          %{
+            name: "WiFi",
+            app: MayonnaiOS.WiFi.App,
+            description: ["Join networks.", "Forget networks."]
+          }
+        ])
+
+      node = %{kind: :program, name: "WiFi", program: program}
+      expected = ["Join networks.", "Forget networks.", "A opens it. Menu leaves it."]
+
+      assert %{kind: :info, lines: ^expected} = View.preview(node, nil)
+      assert %{kind: :info, lines: ^expected} = View.full(node, nil)
+      refute "An app in this firmware." in expected
+    end
+
+    test "an unannotated firmware app retains the generic fallback" do
+      [program] = MayonnaiOS.Programs.list([%{name: "App", app: MayonnaiOS.WiFi.App}])
+      node = %{kind: :program, name: "App", program: program}
+
+      assert %{lines: ["An app in this firmware.", "A opens it. Menu leaves it."]} =
+               View.preview(node, nil)
+    end
+
     test "a program shows its path and that A runs it" do
       [program] = MayonnaiOS.Programs.list([%{path: System.find_executable("sh")}])
       preview = View.preview(%{kind: :program, name: "sh", program: program}, nil)

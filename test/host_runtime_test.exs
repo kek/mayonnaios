@@ -16,6 +16,14 @@ defmodule MayonnaiOS.HostRuntimeTest do
     Application.put_env(:mayonnaios, :pickles_root, pickles)
     Application.put_env(:mayonnaios, :programs, @host_programs)
 
+    # Other tests deliberately remove their temporary program catalog. Restore
+    # the host catalog this integration test is specifically validating so its
+    # result does not depend on ExUnit module order.
+    Application.put_env(:mayonnaios, :programs, [
+      %{name: "Host program (launcher handoff)", path: "/bin/sh"},
+      %{name: "BEAM processes", app: {MayonnaiOS.Top, :beam}}
+    ])
+
     on_exit(fn ->
       restore(:pickles_root, previous_pickles)
       restore(:programs, previous_programs)
