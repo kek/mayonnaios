@@ -25,6 +25,24 @@ defmodule MayonnaiOS.LauncherTest do
       assert program.args == ["-M", "smooth"]
     end
 
+    test "normalizes optional description lines" do
+      assert [app, program] =
+               Programs.list([
+                 %{name: "App", app: MayonnaiOS.WiFi.App, description: ["One", "Two"]},
+                 %{path: "/bin/sh", description: ["Shell"]}
+               ])
+
+      assert app.description == ["One", "Two"]
+      assert program.description == ["Shell"]
+    end
+
+    test "rejects malformed descriptions" do
+      for description <- [nil, [], "line", ["line", :bad]] do
+        assert [program] = Programs.list([%{path: "/bin/sh", description: description}])
+        assert program.description == nil
+      end
+    end
+
     test "reports a path that is not in the image rather than dropping it" do
       # The whole point of the installed? flag: a missing binary must reach
       # the panel as a visible entry, not vanish from a menu that then looks

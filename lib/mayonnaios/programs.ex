@@ -20,6 +20,11 @@ defmodule MayonnaiOS.Programs do
   directory appends its entries here, and nothing else in the launcher or the
   scene has to know it happened, because both already go through this module.
 
+  ## Descriptions
+
+  Optional description lines are presentation metadata. Config supplies explicit
+  line breaks because the launcher preview pane is narrow.
+
   ## Missing binaries are shown, not filtered
 
   An entry whose `path` is not in the image is returned with
@@ -37,6 +42,7 @@ defmodule MayonnaiOS.Programs do
           action: atom() | nil,
           args: [String.t()],
           category: atom() | nil,
+          description: [String.t()] | nil,
           installed?: boolean()
         }
 
@@ -84,6 +90,7 @@ defmodule MayonnaiOS.Programs do
       # `MayonnaiOS.Browser` classify it. Carried through explicitly because
       # this function rebuilds the map rather than merging into it.
       category: Map.get(entry, :category),
+      description: description(entry),
       needs_udev: false,
       installed?: true
     }
@@ -113,6 +120,7 @@ defmodule MayonnaiOS.Programs do
       action: action,
       args: [],
       category: Map.get(entry, :category),
+      description: description(entry),
       needs_udev: false,
       installed?: true
     }
@@ -126,6 +134,7 @@ defmodule MayonnaiOS.Programs do
       action: nil,
       args: [],
       category: Map.get(entry, :category),
+      description: description(entry),
       needs_udev: false,
       installed?: true
     }
@@ -139,6 +148,7 @@ defmodule MayonnaiOS.Programs do
       action: nil,
       args: Map.get(entry, :args, []),
       category: Map.get(entry, :category),
+      description: description(entry),
       # Programs that read input through udev; see MayonnaiOS.Udev. Carried
       # through explicitly because this function rebuilds the map rather than
       # merging into it, so anything not named here is dropped -- and a flag
@@ -169,8 +179,15 @@ defmodule MayonnaiOS.Programs do
       action: nil,
       args: [],
       category: nil,
+      description: nil,
       needs_udev: false,
       installed?: false
     }
   end
+
+  defp description(%{description: lines}) when is_list(lines) and lines != [] do
+    if Enum.all?(lines, &is_binary/1), do: lines, else: nil
+  end
+
+  defp description(_entry), do: nil
 end
