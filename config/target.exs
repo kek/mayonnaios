@@ -337,6 +337,7 @@ config :mayonnaios, :programs, [
     app: MayonnaiOS.Update.App,
     description: ["Check for and install new", "MayonnaiOS releases."]
   },
+  %{name: "Back up user data", app: MayonnaiOS.Backup.App},
   # Neither a program nor an app: a verb of the launcher's own. Selecting it
   # asks rather than acts -- Y answers, anything else cancels -- and it ends
   # in the same `Nerves.Runtime.poweroff/0` the Select+Menu chord reaches.
@@ -644,3 +645,16 @@ config :mayonnaios, audio_test: true
 # Import target specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{Mix.target()}.exs"
+
+config :mayonnaios,
+  backup_destination: "/root/mnt/games",
+  backup_sources: [
+    %{key: "mayonnaios", path: "/root/.config/mayonnaios"},
+    %{
+      key: "retroarch",
+      path: "/root/.config/retroarch",
+      exclude: [["cores"], ["mayonnaios.cfg"]]
+    },
+    %{key: "moonlight", path: "/root/.config/moonlight"},
+    %{key: "pickles", path: "/root/pickles"}
+  ]

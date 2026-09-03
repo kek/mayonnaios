@@ -74,6 +74,14 @@ before writing media or uploading later firmware.
 See [repository responsibilities](https://kek.github.io/mayonnaios/repositories.html)
 before making a cross-repository change.
 
+### Backing up user data
+
+The System menu can create one checksum-verified user-data backup on the
+second card. It includes settings, saves, Moonlight data, and Pickles—not
+ROMs, software, WiFi credentials, or Bluetooth bonds. See
+[`docs/backup.md`](docs/backup.md) for the format, cancellation and manual
+recovery procedure.
+
 ## Contributing on the host
 
 Install GTK 3, Cairo, and `pkgconf` (plus XQuartz on macOS). On Debian/Ubuntu,

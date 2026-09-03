@@ -43,7 +43,8 @@ config :mayonnaios, :programs, [
     name: "Software update",
     app: MayonnaiOS.Update.App,
     description: ["Check for and install new", "MayonnaiOS releases."]
-  }
+  },
+  %{name: "Back up user data", app: MayonnaiOS.Backup.App}
 ]
 
 # A complete profile keeps host development and tests on the same application
@@ -155,4 +156,20 @@ config :mayonnaios, :viewport,
       name: :local,
       window: [title: "MayonnaiOS", resizeable: false]
     ]
+  ]
+
+# Backup development uses repository-local scratch data only.
+host_backup = Path.expand("tmp/host/backup-card")
+
+config :mayonnaios,
+  backup_destination: host_backup,
+  backup_sources: [
+    %{key: "mayonnaios", path: Path.expand("tmp/host/user-data/mayonnaios")},
+    %{
+      key: "retroarch",
+      path: Path.expand("tmp/host/user-data/retroarch"),
+      exclude: [["cores"], ["mayonnaios.cfg"]]
+    },
+    %{key: "moonlight", path: Path.expand("tmp/host/user-data/moonlight")},
+    %{key: "pickles", path: Path.expand("tmp/host/user-data/pickles")}
   ]
