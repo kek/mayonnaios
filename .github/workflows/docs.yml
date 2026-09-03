@@ -1,0 +1,87 @@
+name: Documentation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - trunk
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: Build and check
+    runs-on: ubuntu-latest
+    concurrency:
+      group: docs-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      MIX_TARGET: host
+      SUDO: sudo
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libcairo2-dev libfreetype6-dev libgtk-3-dev libmnl-dev pkg-config
+
+      - name: Set up Erlang and Elixir
+        uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # v1
+        with:
+          otp-version: "28.2"
+          elixir-version: "1.20.3"
+
+      - name: Fetch dependencies
+        run: mix deps.get
+
+      - name: Check formatting
+        run: mix format --check-formatted
+
+      - name: Run tests
+        run: mix test
+
+      - name: Build documentation
+        run: mix docs --warnings-as-errors
+
+      - name: Check generated documentation
+        run: mix docs.check
+
+      - name: Upload review artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: documentation-${{ github.sha }}
+          path: doc/
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/trunk'
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: doc/
+
+  deploy:
+    name: Deploy GitHub Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/trunk'
+    needs: docs
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
