@@ -34,6 +34,9 @@ jobs:
           otp-version: "28.2"
           elixir-version: "1.20.3"
 
+      - name: Install Nerves bootstrap
+        run: mix archive.install hex nerves_bootstrap 1.16.0 --force
+
       - name: Fetch dependencies
         run: mix deps.get
 
