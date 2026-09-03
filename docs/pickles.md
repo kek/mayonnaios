@@ -1,12 +1,23 @@
+> **Documentation for current `trunk`; installed firmware may differ.**
+
 # Pickles: writing and deploying sandboxed Lua apps
 
-A pickle is a small Lua program that runs inside MayonnaiOS -- in the BEAM,
-sandboxed, with no screen of its own. It is the kind of app that turns the
-handheld into a remote control or a background agent: poke a lamp on the
-local network, poll a web API, remember things, do something every minute.
+**Status: Verified.** Pickles are sandboxed Lua apps that run inside
+MayonnaiOS on the BEAM. They can be headless background agents or, with the
+`ui` capability, appear in the launcher's Apps column and draw on the panel.
+Typical uses include controlling a LAN lamp, polling a web API, remembering
+state, or running a timed action.
 
 Pickles are *content*, like games and cores: installed over the network,
 never part of a firmware build.
+
+## Prerequisites
+
+- MayonnaiOS and an authoring computer are on the same trusted LAN.
+- `tar` and `curl` are available on the authoring computer.
+- The unauthenticated-device trust boundary described under Deploying is
+  acceptable for that network.
+- Start from the complete `pickles/hello/` example when testing the pipeline.
 
 ## The shape of a pickle
 
@@ -29,15 +40,19 @@ A pickle is a directory with a manifest and a script, shipped as a `.tar.gz`:
 }
 ```
 
-- `name` -- required; lowercase letters, digits, `-`, `_`; must match the
-  name it is installed under.
-- `capabilities` -- what the sandbox will grant. Anything not listed simply
+- `name` -- required; 1–32 characters, beginning with a lowercase letter or
+  digit, then lowercase letters, digits, `-`, or `_`; must match the name it is
+  installed under.
+- `version` -- optional; exposed as `mayo.version`, default `"0"`.
+- `description` -- optional; shown as pickle metadata, default empty.
+- `capabilities` -- optional, default `[]`; what the sandbox will grant. Anything not listed simply
   does not exist inside the script. Unknown names fail the install.
   Known: `http`, `lan`, `storage`, `timers`, `ui`.
 - `hosts` -- optional list of hostnames; when present, `http` is limited to
   exactly these.
-- `autostart` -- start at boot, and right after install.
-- `main` -- defaults to `"main.lua"`.
+- `autostart` -- optional boolean, default `false`; start at boot and right
+  after install.
+- `main` -- optional plain filename, default `"main.lua"`.
 
 ## The script's life
 
@@ -179,9 +194,17 @@ Then, against the device (no auth, same trust model as the upload page):
 
     curl -T tuya-lamps.tar.gz http://nerves.local/api/pickles/tuya-lamps
 
+The upload body is capped at 5 MB. Action-call JSON bodies are capped at 64,000
+bytes, and each running pickle keeps its 200 most recent log entries.
+
 Installing stops a running copy, swaps the code, and starts it again (or
 starts it fresh if `autostart` is set). Deploying an iteration is that one
 `curl` line.
+
+**Success:** the PUT returns the installed manifest, the pickle appears in
+`GET /api/pickles`, and its `running` value is true when it was already running
+or requests `autostart`. A `ui` pickle also appears under **Apps**; a headless
+pickle does not need a launcher row.
 
 The rest of the API:
 
@@ -214,6 +237,24 @@ also the smoke test for the whole pipeline:
     curl -T hello.tar.gz http://nerves.local/api/pickles/hello
     curl -X POST http://nerves.local/api/pickles/hello/call/greet -d '["world"]'
 
+## Troubleshooting and status limitations
+
+- **Upload is refused:** confirm the URL name matches `pickle.json`, `main` is
+  a plain filename, the archive has one supported layout, and every capability
+  is one of `http`, `lan`, `storage`, `timers`, or `ui`.
+- **A `mayo` table is nil:** add its capability to the manifest and redeploy;
+  omitted capabilities are intentionally absent.
+- **A call times out or runs out of memory:** inspect the recent log. The
+  30-second call budget and heap cap kill that call while preserving the
+  runner's previous Lua state.
+- **A UI row is absent:** include `"ui"`, install successfully, and refresh the
+  launcher. Headless Pickles intentionally have no row.
+- **LAN/HTTP fails:** `lan` permits only local addresses; `http` may be narrowed
+  by `hosts`. Payload, response, and timeout limits in this reference still
+  apply.
+- **Device is not reachable:** follow [Connect to WiFi](wifi.md). The Pickles
+  HTTP API has no authentication; never expose it to an untrusted LAN.
+
 ## Design notes
 
 Why Luerl (Lua-in-Erlang) and not a second OS process: a pickle is a
@@ -222,5 +263,12 @@ device node, and is inspectable from the console like everything else. The
 sandbox is capability-based and default-deny: the manifest's `capabilities`
 list is the complete statement of what a pickle can reach, which makes it
 reviewable at install time -- read two lines of JSON, know the blast
-radius. Module-level detail lives in the moduledocs: `MayonnaiOS.Pickles`,
-`.Store`, `.Sandbox`, `.Runner`, `.Lan`.
+radius. Module-level detail lives in `MayonnaiOS.Pickles`,
+`MayonnaiOS.Pickles.Store`, `MayonnaiOS.Pickles.Sandbox`,
+`MayonnaiOS.Pickles.Runner`, `MayonnaiOS.Pickles.Lan`, and
+`MayonnaiOS.Pickles.Frame`. Advanced console calls are covered in
+[SSH and IEx](ssh-and-iex.md); installed paths are listed in
+[On-device data layout](data-layout.md).
+
+[Edit this page](https://github.com/kek/mayonnaios/edit/trunk/docs/pickles.md) ·
+[Report a documentation issue](https://github.com/kek/mayonnaios/issues/new)

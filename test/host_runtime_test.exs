@@ -3,17 +3,22 @@ defmodule MayonnaiOS.HostRuntimeTest do
 
   alias MayonnaiOS.{HostRuntime, Programs}
 
+  @host_programs Application.compile_env!(:mayonnaios, :programs)
+
   setup do
     root = Path.join(System.tmp_dir!(), "host-runtime-#{System.unique_integer([:positive])}")
     files = Path.join(root, "files")
     pickles = Path.join(root, "pickles")
     backlight = Path.join(root, "brightness")
     previous_pickles = Application.get_env(:mayonnaios, :pickles_root)
+    previous_programs = Application.get_env(:mayonnaios, :programs)
 
     Application.put_env(:mayonnaios, :pickles_root, pickles)
+    Application.put_env(:mayonnaios, :programs, @host_programs)
 
     on_exit(fn ->
-      Application.put_env(:mayonnaios, :pickles_root, previous_pickles)
+      restore(:pickles_root, previous_pickles)
+      restore(:programs, previous_programs)
       File.rm_rf(root)
     end)
 
@@ -52,4 +57,7 @@ defmodule MayonnaiOS.HostRuntimeTest do
     refute Application.get_env(:mayonnaios, :host_runtime)
     refute Application.get_env(:mayonnaios, :autostart_ui)
   end
+
+  defp restore(key, nil), do: Application.delete_env(:mayonnaios, key)
+  defp restore(key, value), do: Application.put_env(:mayonnaios, key, value)
 end

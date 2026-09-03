@@ -1,25 +1,25 @@
 defmodule MayonnaiOS.USBGadget do
   @moduledoc """
-  Brings up a CDC-ECM USB gadget on the type-C port so the device is reachable
-  over the cable as `usb0`.
+  Implements CDC-ECM USB gadget setup on the type-C port, intended to create
+  the device interface `usb0`.
 
-  UART0 is on internal test pads, so without this WiFi is the only way in --
-  and WiFi has to get association, DHCP and mDNS all right before it says
-  anything. This gives an out-of-band channel that depends on none of that,
-  which has already been the difference between a recoverable device and one
-  needing its card reflashed.
+  This is **Untested** as a cable-access path on the RG40XXV: configfs setup and
+  VintageNetDirect configuration are implemented, but the type-C connection
+  has not been observed enumerating on a host. Do not rely on it for SSH or
+  recovery. WiFi is currently the only verified remote access; because UART0
+  is on internal test pads, firmware without working initial WiFi credentials
+  may need its card reflashed.
 
-  A working panel does not replace it: a firmware whose UI takes the
-  framebuffer and then fails leaves nothing on screen to read.
+  The inherited device tree sets the type-C port to `dr_mode = "peripheral"`,
+  and the kernel includes CONFIG_USB_CONFIGFS, ECM, and the musb sunxi UDC.
+  This module populates configfs and binds the available UDC. If enumeration
+  is later verified and `usb0` appears, VintageNetDirect (see
+  `config/target.exs`) assigns the direct-link network and serves DHCP to the
+  host.
 
-  The hardware side is already in place: the inherited device tree sets the
-  type-C port to `dr_mode = "peripheral"`, and the kernel has CONFIG_USB_CONFIGFS
-  with ECM plus the musb sunxi UDC built in. What is missing is that nothing
-  populates configfs at boot, which is what this does. Once `usb0` appears,
-  VintageNetDirect (see `config/target.exs`) assigns 172.31.x.x and serves DHCP
-  to the host.
-
-  CDC-ECM rather than RNDIS because macOS and Linux support ECM natively.
+  CDC-ECM is selected rather than RNDIS because macOS and Linux support ECM
+  natively. That host support does not establish that this handheld's port
+  enumerates.
   """
 
   require Logger

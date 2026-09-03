@@ -1,106 +1,101 @@
-# Provisioning RetroArch
+> **Documentation for current `trunk`; installed firmware may differ.**
 
-**Decision:** RetroArch is built by a separate pipeline, published as a
-versioned checksummed tarball, and installed onto the device's writable
-partition by this application. It is **not** a Buildroot package and does not
-go in `nerves_system_rg40xxv`.
+# Historical decision: provision RetroArch as a bundle
 
-## Why not in the system
+**Historical decision record — recorded 2026-08-16 from repository and RG40XXV
+observations.** The still-current decision is authoritative: RetroArch is built
+and released by
+[`mayonnaios_bundles`](https://github.com/kek/mayonnaios_bundles), then installed
+as a versioned, checksum-verified bundle on the writable partition. It is **not**
+a Buildroot package and does not belong in `nerves_system_rg40xxv`.
 
-Two reasons, and the scope one is the one that decides it.
+The Buildroot package under
+[`docs/retroarch-reference/`](https://github.com/kek/mayonnaios/tree/trunk/docs/retroarch-reference)
+is repository-only evidence from the investigation. It has **never been built**.
+Its comments are suspect and must not be treated as verified facts or current
+build instructions. For maintained behavior, read [RetroArch internals](retroarch-internals.md);
+for repository ownership, read [Repository responsibilities](repositories.md).
+
+## Decision drivers
+
+Two reasons led to the bundle decision, and scope is decisive.
 
 **Scope.** `nerves_system_rg40xxv` is board support: kernel, device tree,
-bootloader, drivers, base userland. An emulator is product content. A second
-product on the same board should not inherit RetroArch, and a core update
-should not mean reflashing an operating system.
+bootloader, drivers, and base userland. An emulator is product content. Another
+product using the board should not inherit RetroArch, and a core update should
+not require reflashing firmware.
 
-**Size.** Firmware here is A/B: two rootfs slots, each written whole on
-update. RetroArch plus a handful of cores is on the order of 100 MB. Baking
-that into the image doubles it on disk and makes every core update a full
-firmware write, on a device whose only reliable link is WiFi.
+**Size.** Firmware uses two rootfs slots, each written whole during an update.
+RetroArch plus cores is on the order of 100 MB. Baking it into the image would
+duplicate it across both slots and turn each content update into a firmware
+write, while the writable application partition has substantially more room.
 
-There is also a mechanical constraint worth writing down, because it is what
-makes "just put the package somewhere else" impossible rather than merely
-untidy. Nerves invokes Buildroot with exactly one external tree:
+The investigation also found a mechanical constraint at that time: Nerves
+invoked Buildroot with the system repository as its one `BR2_EXTERNAL` tree, and
+the Docker build runner exposed the system paths but not an arbitrary sibling
+package tree. A Buildroot package would therefore have had to live in the system
+repository, reinforcing the ownership mismatch. This paragraph records the
+investigation; consult current Nerves and system-repository source before relying
+on those implementation details today.
 
-    create-build.sh:189
-    make -C "$NERVES_SYSTEM/buildroot" BR2_EXTERNAL="$NERVES_SYSTEM" ...
+## Chosen architecture
 
-and the Docker build runner bind-mounts exactly two host paths into the
-container (`nerves/lib/nerves/artifact/build_runners/docker.ex:351`):
-`nerves_system_br` at `/nerves/env/platform`, and the system package itself at
-`/nerves/env/<app>`. A br2-external tree living in a sibling repository is not
-visible from inside the build at all. So a Buildroot package can only ever
-live in the system repo — which is the argument for not making it a Buildroot
-package.
+```text
+mayonnaios_bundles -> versioned native archive/release
+                                |
+                                v
+mayonnaios          -> fetch, verify, install on writable storage
+                                |
+                                v
+launcher            -> execute the selected current bundle
+```
 
-## The shape
+The responsibilities are:
 
-    build repo  ->  retroarch-<version>-aarch64.tar.xz + .sha256
-                        |
-                        v
-    this app    ->  fetch, verify, unpack to the writable partition
-                        |
-                        v
-    Launcher    ->  runs it like any other program
+1. **Native build repository.** Cross-build RetroArch and cores for the system's
+   `aarch64-nerves-linux-gnu` sysroot and publish versioned archives.
+2. **This application.** Keep trusted SHA-256 values in firmware, download only
+   on request, verify before unpacking, install to versioned writable paths, and
+   select the `current` version.
+3. **Launcher/runtime.** Re-stat program availability so an installed bundle can
+   become launchable without rebuilding firmware.
 
-Three pieces:
+Current archive formats, versions, and release procedures belong to
+`mayonnaios_bundles`; this record does not freeze the pre-decision sketch.
 
-1. **A build repo.** Cross-compiles RetroArch and the cores for
-   `aarch64-nerves-linux-gnu` in a container, against the same library set the
-   system ships (GBM, EGL, GLES, ALSA, libdrm). Publishes a tarball and a
-   SHA-256 to a release.
-2. **A provisioner in this app.** Downloads on demand, verifies the checksum
-   before unpacking, installs under the writable partition, records the
-   installed version, and is idempotent.
-3. **`MayonnaiOS.Programs`**, which already reads a configured list and
-   re-stats `installed?` on every call — deliberately, so a program that
-   appears on the data partition after boot shows up without a restart. That
-   was written for exactly this.
+## Evidence supporting writable installation
 
-## The load-bearing question, now answered
+The decision record contains an RG40XXV observation that `/root` was an f2fs
+writable partition mounted `nodev` but not `noexec`; an executable script ran
+there. `/data` resolved to the same partition. The recorded sample had a full
+66.5 MB read-only rootfs and approximately 13.4 GB free under `/root`.
 
-**The writable partition allows execution.** Checked on the device rather
-than inferred: a script was written to it, `chmod 0755`, and run.
+Those observations answered the load-bearing question—optional native content
+could execute from writable storage—and made a dedicated content partition
+unnecessary. They are historical evidence, not a current capacity guarantee;
+inspect the device when exact free space matters.
 
-    /dev/mmcblk0p4 on /root type f2fs (rw,lazytime,nodev,relatime,...)
+## Never-built Buildroot investigation
 
-    /root -> EXEC WORKS
-    /data -> EXEC WORKS
+The retained reference package captured a possible KMS/DRM, no-X11,
+no-Wayland, GLES configuration before the bundle decision. An adversarial source
+review found several comments that were asserted as observations but false or
+incomplete, including claims about `EGL_NO_X11`, a nonexistent assets submodule,
+the effect of `--disable-neon`, and an ungated fontconfig probe.
 
-`nodev` is set; `noexec` is not. `/data` is a symlink to `root`, so both names
-are the same f2fs partition.
+The configure flags were not thereby proven wrong, but neither the package nor
+its claims were validated by a build. Treat the files only as leads when
+researching upstream flags. Verify every claim against the selected RetroArch
+source and the current bundle pipeline; do not copy their comments into current
+documentation as facts.
 
-Space is not a constraint either, and the contrast is the argument for this
-whole approach in two lines:
+## Current decision check
 
-    /dev/root         66.5M   66.5M       0  100%  /
-    /dev/mmcblk0p4    13.7G  279.1M   13.4G    2%  /root
+The decision remains in force while optional native programs are built in
+`mayonnaios_bundles`, catalogue checksums are owned by this application, and
+installation targets writable versioned directories. Revisit it only if those
+ownership or platform constraints change, and record new evidence in a new
+decision rather than silently rewriting this historical investigation.
 
-The read-only rootfs is completely full at 66.5 MB. The writable partition has
-13.4 GB free. A 100 MB emulator payload does not fit in the first and
-disappears into the second — before considering ROMs, save states and
-thumbnails, which are pure content and belong there regardless.
-
-So route B stands, and the fallback (a dedicated read-only content partition
-written by fwup, which would touch the system repo) is not needed.
-
-## Build reference
-
-`docs/retroarch-reference/` holds a Buildroot package for RetroArch 1.22.2
-written before this decision. It is kept because the expensive part — the
-configure flag set for a KMS/DRM, no-X11, no-Wayland, GLES target — transfers
-directly to whatever drives the cross build.
-
-Treat its comments with suspicion. An adversarial review checked them against
-the real v1.22.2 tarball and found several stated as observed and false:
-
-- "grepping `EGL_NO_X11` across the tree matches zero files" — it matches two.
-- "`media/assets` is a git submodule" — there is no `.gitmodules` at all.
-- `--disable-neon` is described as a guard that must not be removed; NEON is
-  already off by default at that tag, so the flag is a no-op.
-- An undeclared optional dependency on fontconfig: `qb/config.libs.sh:540`
-  probes for it ungated and there is no `--disable-fontconfig` to turn it off.
-
-The flags themselves were not shown to be wrong. Nothing here has ever been
-built.
+[Edit this page](https://github.com/kek/mayonnaios/edit/trunk/docs/retroarch-provisioning.md) ·
+[Report a documentation issue](https://github.com/kek/mayonnaios/issues/new)

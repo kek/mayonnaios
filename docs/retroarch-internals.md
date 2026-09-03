@@ -1,9 +1,20 @@
+> **Documentation for current `trunk`; installed firmware may differ.**
+
 # RetroArch on this device: cores, config and saves
 
-How cores reach RetroArch, how this firmware keeps RetroArch's configuration
-honest, and what protects a save file on a device with no clean shutdown. The
-README has the short version: install cores from the web page or IEx, and
-saves reach the card within ten seconds.
+**Status: Verified runtime architecture.** RetroArch bundle operation,
+checksum-verified core installation, generated compatibility configuration, and
+the save policy have been observed on RG40XXV hardware. This page explains the
+mechanics; owners should start with
+[Upload games and install emulator cores](games-and-cores.md).
+
+## Prerequisites and task boundary
+
+- Install RetroArch and cores using the [games and cores guide](games-and-cores.md).
+- Use [Manage files and storage](files-and-storage.md) before moving libraries or
+  removing the second card.
+- Use this page to diagnose core discovery, configuration layering, and save
+  durability; do not treat internal paths as a replacement owner procedure.
 
 ## Where cores end up
 
@@ -107,3 +118,31 @@ while a game runs could catch an autosave between its truncate and its write,
 which is the one way this could destroy the file it exists to protect. A
 cable pulled mid-game is covered by the interval and by f2fs writeback, and
 by nothing else.
+
+## Success and troubleshooting
+
+A healthy runtime has a complete versioned RetroArch bundle selected by
+`current`, core symlinks that resolve to bundle or `/root/cores` artifacts, a
+last-wins `mayonnaios.cfg`, and save files fsynced after a confirmed stop.
+
+- **No cores appear:** run `MayonnaiOS.Cores.sync/0`. Inspect
+  `MayonnaiOS.Cores.append_config/0` and remove stale player
+  `libretro_directory` values with
+  `MayonnaiOS.Cores.clear_stale_directory/1`.
+- **A bundle keeps restoring a wrong core directory:** confirm it is v1.22.2-6
+  or later and that the MayonnaiOS config is the final `--appendconfig` file.
+- **A game freezes in audio polling:** retain the firmware-owned
+  `audio_sync = "false"` guard while investigating the codec path.
+- **Recent in-game save is absent after pulled power:** ten seconds is a maximum
+  exposure window, not zero. Confirm the launcher observed process death before
+  expecting `MayonnaiOS.Saves.flush/1` to have fsynced it.
+- **Installed data appears in an unexpected directory:** reconcile it with
+  [On-device data layout](data-layout.md); do not move player settings into a
+  versioned bundle.
+
+API reference: `MayonnaiOS.Cores`, `MayonnaiOS.Bundle`, and
+`MayonnaiOS.Saves`. The pre-bundle investigation is a separate
+[historical provisioning decision record](retroarch-provisioning.md).
+
+[Edit this page](https://github.com/kek/mayonnaios/edit/trunk/docs/retroarch-internals.md) ·
+[Report a documentation issue](https://github.com/kek/mayonnaios/issues/new)
