@@ -35,7 +35,7 @@ jobs:
           elixir-version: "1.20.3"
 
       - name: Install Nerves bootstrap
-        run: mix archive.install hex nerves_bootstrap 1.16.0 --force
+        run: mix archive.install hex nerves_bootstrap 1.17.2 --force
 
       - name: Fetch dependencies
         run: mix deps.get
