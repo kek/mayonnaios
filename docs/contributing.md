@@ -33,11 +33,10 @@ $ MIX_TARGET=host mix docs.check
 ```
 
 The first command fetches Mix dependencies. The second writes the static site to
-`doc/` and fails on ExDoc guide/module-reference warnings. `mix docs.check`
-validates generated internal links, fragments, and local assets; it is part of
-the complete documentation branch even if an earlier implementation commit is
-checked out before that task was added. External HTTP availability is reviewed
-when a link is introduced, but does not gate CI.
+`doc/` and fails on ExDoc guide/module-reference warnings. The third validates
+all generated internal links, fragments, and local assets. Run the commands in
+this order; the checker operates on the generated `doc/` tree. External HTTP
+availability is reviewed when a link is introduced, but does not gate CI.
 
 Optionally open ExDoc's normal local view:
 
