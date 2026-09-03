@@ -27,8 +27,10 @@ defmodule Mix.Tasks.Docs.CheckTest do
       <a href="mailto:docs@example.invalid">mail</a>
       <a href="tel:+15555550100">telephone</a>
       <img src="assets/logo%20mark.svg" srcset="assets/small.png 1x, /mayonnaios/assets/large.png 2x">
-      <code><a href="not-a-real-link.html">example attribute</a></code>
-      <pre><img src="also-not-real.png"></pre>
+      <img srcset="assets/comma,name.png 1x, data:image/png;base64,AAAA, assets/final.png 2x">
+      <code>&lt;a href="not-a-real-link.html"&gt;example attribute&lt;/a&gt;</code>
+      <pre>&lt;img src="also-not-real.png"&gt;</pre>
+      <pre><a href="guide.html#legacy">linked typespec</a></pre>
     </body></html>
     """)
 
@@ -45,12 +47,14 @@ defmodule Mix.Tasks.Docs.CheckTest do
     write(root, "assets/logo mark.svg", "<svg/>")
     write(root, "assets/small.png", "small")
     write(root, "assets/large.png", "large")
+    write(root, "assets/comma,name.png", "comma")
+    write(root, "assets/final.png", "final")
     write(root, "assets/paper.png", "paper")
     write(root, "assets/icon.svg", "<svg/>")
 
     output = run_task(root)
 
-    assert output =~ "Checked 4 generated HTML/CSS files and 12 local references."
+    assert output =~ "Checked 4 generated HTML/CSS files and 15 local references."
   end
 
   test "supports an output directory relative to the current directory", %{root: root} do
@@ -88,14 +92,21 @@ defmodule Mix.Tasks.Docs.CheckTest do
     assert error.message =~ "absolute local path is outside /mayonnaios/"
   end
 
-  test "reports missing srcset and CSS assets with their source files", %{root: root} do
-    write(root, "index.html", ~s(<img srcset="ok.png 1x, missing-2x.png 2x">))
+  test "reports missing srcset, typespec, and CSS references with their source files", %{
+    root: root
+  } do
+    write(root, "index.html", """
+    <img srcset="ok.png 1x, missing-2x.png 2x">
+    <pre><a href="#missing-typespec">linked typespec</a></pre>
+    """)
+
     write(root, "ok.png", "ok")
     write(root, "styles/site.css", ".hero { background-image: url(../missing-background.webp); }")
 
     error = assert_raise Mix.Error, fn -> run_task(root) end
 
     assert error.message =~ ~s(index.html: "missing-2x.png")
+    assert error.message =~ ~s(index.html: "#missing-typespec")
     assert error.message =~ ~s(styles/site.css: "../missing-background.webp")
   end
 

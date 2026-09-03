@@ -76,7 +76,9 @@ before making a cross-repository change.
 
 ## Contributing on the host
 
-Install GTK 3, Cairo, and `pkgconf` (plus XQuartz on macOS), then run:
+Install GTK 3, Cairo, and `pkgconf` (plus XQuartz on macOS). On Debian/Ubuntu,
+install `build-essential`, `libcairo2-dev`, `libfreetype6-dev`, `libgtk-3-dev`,
+`libmnl-dev`, `libsystemd-dev`, and `pkg-config`, then run:
 
 ```sh
 MIX_TARGET=host mix test

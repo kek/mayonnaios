@@ -13,7 +13,7 @@ other hardware behavior works on the handheld.
 - The native prerequisites used by `scenic_driver_local`: GTK 3, Cairo, and
   `pkgconf`; macOS also needs XQuartz. On Debian/Ubuntu, install
   `build-essential`, `libcairo2-dev`, `libfreetype6-dev`, `libgtk-3-dev`,
-  `libsystemd-dev`, and `pkg-config`.
+  `libmnl-dev`, `libsystemd-dev`, and `pkg-config`.
 
 Use `MIX_TARGET=host` explicitly in scripts and documentation work. An unset
 target currently defaults to host, but the explicit value prevents a target

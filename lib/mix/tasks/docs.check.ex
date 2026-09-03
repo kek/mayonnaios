@@ -126,13 +126,10 @@ defmodule Mix.Tasks.Docs.Check do
     |> MapSet.new()
   end
 
-  # Code examples can contain attribute-shaped text. They are document content,
-  # not links for a browser to follow.
-  defp strip_html_examples(html) do
-    html
-    |> String.replace(~r/<!--.*?-->/s, "")
-    |> String.replace(~r/<(pre|code)\b[^>]*>.*?<\/\1\s*>/is, "")
-  end
+  # Escaped examples are text, so `@html_tag` does not see them. Do not remove
+  # `<pre>` or `<code>` elements: ExDoc uses them for browser-followable links
+  # in rendered typespecs.
+  defp strip_html_examples(html), do: String.replace(html, ~r/<!--.*?-->/s, "")
 
   defp css_references(css) do
     css
@@ -153,38 +150,42 @@ defmodule Mix.Tasks.Docs.Check do
     |> then(&Regex.match?(~r/^lato-all-(?:400|700)-normal-[A-Z0-9]+\.woff$/, &1))
   end
 
-  defp srcset_references(value) do
-    # A srcset candidate's URL is its first whitespace-delimited token. Data
-    # URLs may contain a comma, so only commas outside such a token delimit it.
-    do_srcset_references(String.trim(value), [])
-  end
+  defp srcset_references(value), do: do_srcset_references(trim_srcset_separator(value), [])
 
   defp do_srcset_references("", references), do: Enum.reverse(references)
 
   defp do_srcset_references(value, references) do
     {url, rest} = take_srcset_url(value)
-    rest = rest |> String.trim_leading() |> discard_srcset_descriptor()
-    do_srcset_references(trim_srcset_separator(rest), [url | references])
+
+    if String.ends_with?(url, ",") do
+      # The HTML candidate parser consumes a URL through whitespace. Trailing
+      # commas then delimit descriptorless candidates; embedded commas belong
+      # to the URL (including ordinary filenames and data URLs).
+      do_srcset_references(
+        trim_srcset_separator(rest),
+        [String.trim_trailing(url, ",") | references]
+      )
+    else
+      do_srcset_references(
+        trim_srcset_separator(discard_srcset_descriptors(rest)),
+        [url | references]
+      )
+    end
   end
 
-  defp take_srcset_url("data:" <> _ = value) do
+  defp take_srcset_url(value) do
     case Regex.run(~r/\A(\S+)(.*)\z/s, value, capture: :all_but_first) do
       [url, rest] -> {url, rest}
       nil -> {value, ""}
     end
   end
 
-  defp take_srcset_url(value) do
-    case Regex.run(~r/\A([^\s,]+)(.*)\z/s, value, capture: :all_but_first) do
-      [url, rest] -> {url, rest}
-      nil -> {value, ""}
-    end
-  end
-
-  defp discard_srcset_descriptor(rest) do
+  # Once an URL without a trailing comma has been collected, commas terminate
+  # its descriptors and begin the next candidate.
+  defp discard_srcset_descriptors(rest) do
     case String.split(rest, ",", parts: 2) do
       [_last] -> ""
-      [_descriptor, remaining] -> remaining
+      [_descriptors, remaining] -> remaining
     end
   end
 

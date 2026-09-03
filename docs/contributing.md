@@ -13,7 +13,8 @@ Elixir `~> 1.20`; no OTP version is currently pinned). Ordinary host development
 and documentation compilation use the existing native prerequisites required by
 `scenic_driver_local`: GTK 3 (`gtk+3` in Homebrew), Cairo, and `pkgconf`, plus
 XQuartz on macOS. On Debian/Ubuntu, install `build-essential`, `libcairo2-dev`,
-`libfreetype6-dev`, `libgtk-3-dev`, `libsystemd-dev`, and `pkg-config`.
+`libfreetype6-dev`, `libgtk-3-dev`, `libmnl-dev`, `libsystemd-dev`, and
+`pkg-config`.
 Documentation generation does not remove or bypass those prerequisites.
 
 With `MIX_TARGET=host`, docs generation does not evaluate target credential

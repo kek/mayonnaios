@@ -36,12 +36,15 @@ The status bar also reflects a connection that completes after the screen's
 
 ## Safety guarantees and limitations
 
-Joining is additive: `MayonnaiOS.WiFi.join/3` keeps all existing entries,
-puts the newly chosen network first, and persists the result. The credentials
-built into the firmware therefore remain available. If the access point reports
-a rejected key, the panel says so and removes that bad entry so repeated attempts
-do not disrupt the network that works. A generic timeout leaves the entry in
-place because association or DHCP may still finish.
+Joining a different SSID is additive: `MayonnaiOS.WiFi.join/3` keeps all
+existing entries, puts the newly chosen network first, and persists the result.
+The credentials built into the firmware therefore remain available. Replacing
+the key for an existing SSID is an exception: its old entry is removed before
+the replacement is tried. If that replacement is rejected, the panel removes
+it too, so no saved key remains for that SSID. Verify a replacement key before
+pressing **X**, and keep another recovery route available. A generic timeout
+leaves the replacement entry in place because association or DHCP may still
+finish.
 
 802.1X/EAP and WEP networks are shown but cannot be joined from the panel.
 Enterprise setup needs identity/certificate/method fields, and WEP needs key-slot
@@ -53,8 +56,10 @@ that only while another recovery route is available.
 
 - **No radio:** leave the screen and inspect logs through the [advanced access
   guide](ssh-and-iex.md). Host development intentionally reports no radio.
-- **Passphrase refused:** press **A** to return to the list, select the network,
-  press **X**, and re-enter it. The rejected key has already been withdrawn.
+- **Passphrase refused:** press **A** to return to the list. A rejected new
+  network can be selected and joined again; a rejected replacement key has
+  removed the saved entry, so enter the key again with **A** when the network is
+  visible or use another recovery route.
 - **Timed out:** wait and inspect the status bar before retrying; the saved entry
   remains configured.
 - **Initial firmware cannot join:** because WiFi is the only verified remote

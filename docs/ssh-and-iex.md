@@ -48,9 +48,10 @@ MayonnaiOS.GamesCard.unmount()
 ```
 
 Always stop a game and wait for `MayonnaiOS.GamesCard.unmount/0` to return
-`:ok` before removing the second card. The [games guide](games-and-cores.md),
-[files guide](files-and-storage.md), and linked API pages own the contracts; do
-not infer success from a process merely starting.
+`:ok` or `{:ok, :not_mounted}` before removing the second card. The latter means
+it was already safe to remove. The [games guide](games-and-cores.md), [files
+guide](files-and-storage.md), and linked API pages own the contracts; do not
+infer success from a process merely starting.
 
 ## Bluetooth diagnosis and recovery
 

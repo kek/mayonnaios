@@ -66,8 +66,9 @@ an empty directory. Full policy and return contracts belong to
    MayonnaiOS.GamesCard.unmount()
    ```
 
-4. Remove the card only after the call returns `:ok`. A busy error means
-   something still has a file open.
+4. Remove the card only after the call returns `:ok` or `{:ok, :not_mounted}`.
+   The latter means it was already safe to remove. A busy error means something
+   still has a file open.
 
 FAT and exFAT have no journal. Pulling a mounted, read-write card can corrupt a
 directory; keep a backup even when an unmount succeeds.
