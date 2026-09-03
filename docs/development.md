@@ -11,7 +11,9 @@ other hardware behavior works on the handheld.
 - Elixir `~> 1.20` and a compatible Erlang/OTP.
 - Git and the dependencies fetched by Mix.
 - The native prerequisites used by `scenic_driver_local`: GTK 3, Cairo, and
-  `pkgconf`; macOS also needs XQuartz.
+  `pkgconf`; macOS also needs XQuartz. On Debian/Ubuntu, install
+  `build-essential`, `libcairo2-dev`, `libfreetype6-dev`, `libgtk-3-dev`,
+  `libsystemd-dev`, and `pkg-config`.
 
 Use `MIX_TARGET=host` explicitly in scripts and documentation work. An unset
 target currently defaults to host, but the explicit value prevents a target
@@ -98,9 +100,10 @@ mapping and `MayonnaiOS.Dev` for scriptable button helpers.
 
 ## Troubleshooting
 
-- **Native compilation fails:** install the existing GTK 3, Cairo, and
-  `pkgconf` development prerequisites; on macOS ensure XQuartz is installed and
-  available. Host docs compilation uses these same existing prerequisites too.
+- **Native compilation fails:** install the GTK 3, Cairo, `pkgconf`, compiler,
+  and systemd development prerequisites listed above; on macOS ensure XQuartz
+  is installed and available. Host docs compilation uses these same existing
+  prerequisites too.
 - **No window in `mix test`:** expected; tests are deliberately headless.
 - **Code recompiles but the view is unchanged:** run
   `MayonnaiOS.reload_ui/0` after `recompile/0`.

@@ -12,8 +12,9 @@ Use the Elixir/Erlang versions accepted by the project (`mix.exs` requires
 Elixir `~> 1.20`; no OTP version is currently pinned). Ordinary host development
 and documentation compilation use the existing native prerequisites required by
 `scenic_driver_local`: GTK 3 (`gtk+3` in Homebrew), Cairo, and `pkgconf`, plus
-XQuartz on macOS. Documentation generation does not remove or bypass those
-prerequisites.
+XQuartz on macOS. On Debian/Ubuntu, install `build-essential`, `libcairo2-dev`,
+`libfreetype6-dev`, `libgtk-3-dev`, `libsystemd-dev`, and `pkg-config`.
+Documentation generation does not remove or bypass those prerequisites.
 
 With `MIX_TARGET=host`, docs generation does not evaluate target credential
 guards, access `../nerves_system_rg40xxv`, start Scenic or application children,
