@@ -396,7 +396,7 @@ defmodule MayonnaiOS.Scene.Home do
   defp row(graph, node, x, y, selected?, focused?) do
     graph
     |> highlight(x, y, selected?, focused?)
-    |> text(truncate(node.name, name_chars()),
+    |> text(fit_label(node.name, 18, row_label_budget(node)),
       font_size: 18,
       fill: {:color, name_colour(node, selected? and focused?)},
       translate: {x + 12, y + 17}
@@ -435,10 +435,31 @@ defmodule MayonnaiOS.Scene.Home do
   defp name_colour(%{kind: kind}, false) when kind in [:category, :place, :dir], do: head()
   defp name_colour(_node, false), do: label()
 
-  # How many characters fit a slot with the highlight inset on the left and
-  # the chevron on the right. The larger Pixel Operator HB face needs a little
-  # more room for wide capitals than the regular face.
   defp name_chars, do: 15
+
+  # A row begins 12 px into its 200 px slot and ends 8 px before its edge.
+  # Expandable rows reserve the final chevron lane; leaf rows use it.
+  defp row_label_budget(node), do: if(Browser.expandable?(node), do: 168, else: 180)
+
+  defp fit_label(text, size, budget) do
+    if Theme.width(text, size) <= budget do
+      text
+    else
+      Enum.reduce_while(String.graphemes(text), "", fn grapheme, prefix ->
+        candidate = prefix <> grapheme
+
+        if Theme.width(candidate <> "…", size) <= budget do
+          {:cont, candidate}
+        else
+          {:halt, prefix}
+        end
+      end)
+      |> case do
+        "" -> if Theme.width("…", size) <= budget, do: "…", else: ""
+        prefix -> prefix <> "…"
+      end
+    end
+  end
 
   # Window the rows when a listing outgrows its column, keeping the cursor on
   # screen. Without this the hundredth ROM in a directory would be selected
@@ -518,7 +539,7 @@ defmodule MayonnaiOS.Scene.Home do
     {graph, y} =
       Enum.reduce(shown, {graph, @rows_top}, fn node, {acc, y} ->
         acc =
-          text(acc, truncate(node.name, name_chars()),
+          text(acc, fit_label(node.name, 16, 188),
             font_size: 16,
             fill: {:color, name_colour(node, false)},
             translate: {x + 4, y + 16}
