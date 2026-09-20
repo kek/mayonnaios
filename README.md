@@ -41,7 +41,7 @@ The canonical documentation is <https://kek.github.io/mayonnaios/> (start at
 
 There is **no supported prebuilt firmware image**. Source builds require Elixir
 `~> 1.20` with compatible Erlang/OTP, Nerves host tools, an SSH public key in
-`~/.ssh`, and
+`~/.ssh` (or `MAYONNAIOS_SSH_KEYS`), and
 [`nerves_system_rg40xxv`](https://github.com/kek/nerves_system_rg40xxv) checked
 out at `../nerves_system_rg40xxv`.
 

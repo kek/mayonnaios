@@ -8,7 +8,8 @@ observed on RG40XXV hardware; USB gadget recovery is **Untested**.
 
 ## Prerequisites
 
-- The firmware was built with your SSH public key in `~/.ssh`.
+- The firmware was built with your SSH public key in `~/.ssh` or in
+  `MAYONNAIOS_SSH_KEYS`.
 - The handheld is connected to the same network and shows an address under
   **System → WiFi**.
 - Use `nerves.local` only when one such device advertises that name; otherwise

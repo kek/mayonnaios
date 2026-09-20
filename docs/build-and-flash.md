@@ -15,7 +15,8 @@ only supported installation route for the Anbernic RG40XXV handheld.
   [`nerves_system_rg40xxv`](https://github.com/kek/nerves_system_rg40xxv) at
   `../nerves_system_rg40xxv` relative to this checkout. The dependency is a
   sibling path dependency, not a package Mix can substitute.
-- At least one SSH public key matching `~/.ssh/id_{rsa,ecdsa,ed25519}.pub`.
+- At least one SSH public key, from `~/.ssh/id_{rsa,ecdsa,ed25519}.pub` and/or
+  `MAYONNAIOS_SSH_KEYS` (below).
 - The initial WiFi SSID and WPA-PSK in `MAYONNAIOS_WIFI_SSID` and
   `MAYONNAIOS_WIFI_PSK`.
 - An SD card that may be erased, and a card reader, for the first flash.
@@ -42,6 +43,18 @@ RG40XXV system is a path dependency, Mix must also be able to read the sibling
 checkout. If Mix builds the system instead of using a published artifact, expect
 a full Nerves/Buildroot build; changes in the system tree, including comments,
 can change its artifact identity.
+
+To authorize other hosts without their private keys on the build host, set
+`MAYONNAIOS_SSH_KEYS` to their public keys, one per line. Blank lines and lines
+starting with `#` are ignored, and keys from `~/.ssh` are still included. The
+keys are baked in at build time, so they take effect on the next flash or
+`mix upload`.
+
+```console
+$ export MAYONNAIOS_SSH_KEYS="$(cat laptop.pub desktop.pub)"
+```
+
+In fish, keep the newlines with `set -x MAYONNAIOS_SSH_KEYS (cat laptop.pub desktop.pub | string collect)`.
 
 **Success:** `mix firmware` completes and reports the generated MayonnaiOS
 firmware image. A missing-key, missing-environment-variable, or missing-path

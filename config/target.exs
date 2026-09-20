@@ -28,21 +28,35 @@ config :nerves_runtime, startup_guard_enabled: true
 # * See https://nerves-ssh.hexdocs.pm/readme.html for general SSH configuration
 # * See https://ssh-subsystem-fwup.hexdocs.pm/readme.html for firmware updates
 
-keys =
+home_keys =
   System.user_home!()
   |> Path.join(".ssh/id_{rsa,ecdsa,ed25519}.pub")
   |> Path.wildcard()
+  |> Enum.map(&(&1 |> File.read!() |> String.trim()))
+
+# Extra authorized keys, one public key per line, so firmware can be built to
+# accept hosts whose private keys are not on the build host.
+env_keys =
+  "MAYONNAIOS_SSH_KEYS"
+  |> System.get_env("")
+  |> String.split("\n", trim: true)
+  |> Enum.map(&String.trim/1)
+  |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "#")))
+
+keys = Enum.uniq(home_keys ++ env_keys)
 
 if keys == [],
   do:
     Mix.raise("""
-    No SSH public keys found in ~/.ssh. An ssh authorized key is needed to
-    log into the Nerves device and update firmware on it using ssh.
-    See your project's config.exs for this error message.
+    No SSH public keys found in ~/.ssh or MAYONNAIOS_SSH_KEYS. An ssh
+    authorized key is needed to log into the Nerves device and update firmware
+    on it using ssh.
+
+        export MAYONNAIOS_SSH_KEYS="$(cat host1.pub host2.pub)"
     """)
 
 config :nerves_ssh,
-  authorized_keys: Enum.map(keys, &File.read!/1)
+  authorized_keys: keys
 
 wifi = fn var ->
   System.get_env(var) ||
