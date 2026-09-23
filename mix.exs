@@ -150,6 +150,7 @@ defmodule MayonnaiOS.MixProject do
         {"docs/retroarch-internals.md", title: "RetroArch internals"},
         {"docs/retroarch-provisioning.md", title: "RetroArch provisioning decision record"},
         {"docs/bluetooth-internals.md", title: "Bluetooth internals"},
+        {"docs/bluetooth-a2dp-scope.md", title: "Bluetooth A2DP scope estimate"},
         {"docs/hardware-status.md", title: "RG40XXV hardware status"}
       ]
       # Later migration steps add the remaining named guides. Keeping the
@@ -192,7 +193,8 @@ defmodule MayonnaiOS.MixProject do
           "docs/data-layout.md",
           "docs/retroarch-internals.md",
           "docs/retroarch-provisioning.md",
-          "docs/bluetooth-internals.md"
+          "docs/bluetooth-internals.md",
+          "docs/bluetooth-a2dp-scope.md"
         ],
         "Hardware status": ["docs/hardware-status.md"]
       ],

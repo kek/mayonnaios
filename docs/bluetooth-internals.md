@@ -100,6 +100,9 @@ also need a HID host and a kernel-visible input device for RetroArch.
 
 These are future protocol/profile projects, not hidden options. Their user-facing
 status remains **Unsupported** until implemented and observed on RG40XXV hardware.
+The headphone case is costed in the
+[A2DP scope estimate](bluetooth-a2dp-scope.md), including the three
+measurements that should precede any of the work.
 
 ## Troubleshooting source changes
 
