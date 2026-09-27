@@ -8,10 +8,10 @@
 
 ## 1. Make RG SP a first-class application target
 
-- [ ] Add `:rgsp` to the target list and a path dependency on `../nerves_system_rgsp` in `mix.exs`, without changing the RG40XXV target.
+- [x] Add `:rgsp` to the target list and a path dependency on `../nerves_system_rgsp` in `mix.exs`, without changing the RG40XXV target.
 - [ ] Add `config/rgsp.exs` with a complete `MayonnaiOS.Device` profile. Establish the actual input names and button codes before fixing mappings: the SP has a lid switch and does not inherit the RG40XXV's analog joystick. Account for app paths that currently expect a stick or two independently controllable LEDs rather than supplying fictional device names.
 - [ ] Make the target Scenic viewport **720×480** instead of the 640×480 hard-coded in `config/target.exs`; verify framebuffer format, stride, and cairo-fb output on the device. Keep the host and RG40XXV viewports at their intended sizes.
-- [ ] Add targeted profile/config tests and update RG SP build instructions after a successful firmware build. Provide the existing SSH/Wi-Fi provisioning required to retain access.
+- [x] Add targeted profile/config tests and update RG SP build instructions after a successful firmware build. Provide the existing SSH/Wi-Fi provisioning required to retain access.
 
 **Exit:** `MIX_TARGET=rgsp mix firmware` builds against this BSP and boots MayonnaiOS to a visible, navigable UI on an authorized spare card.
 

@@ -48,6 +48,15 @@ firmware image. A missing-key, missing-environment-variable, or missing-path
 error means no usable image was produced; fix that prerequisite rather than
 bypassing the guard.
 
+### RG SP (experimental)
+
+The same steps with `MIX_TARGET=rgsp` build firmware for the Anbernic RG SP
+against [`nerves_system_rgsp`](https://github.com/kek/nerves_system_rgsp),
+checked out at `../nerves_system_rgsp`. The build succeeds, but MayonnaiOS has
+not yet been run on RG SP hardware; see the
+[port plan](https://github.com/kek/mayonnaios/blob/trunk/docs/rgsp-port-plan.md).
+Write it only to a spare card, never the stock OS card.
+
 ## Write the first SD card
 
 Back up anything needed from the card. `mix burn` is destructive and asks which
