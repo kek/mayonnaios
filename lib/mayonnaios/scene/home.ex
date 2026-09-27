@@ -57,8 +57,8 @@ defmodule MayonnaiOS.Scene.Home do
   alias Scenic.Graph
   import Scenic.Primitives
 
-  @width 640
-  @height 480
+  @width MayonnaiOS.Screen.width()
+  @height MayonnaiOS.Screen.height()
 
   # The shared top bar owns the top of the panel on every screen, so this one
   # starts its breadcrumb below it rather than at the top edge. The height
@@ -119,13 +119,13 @@ defmodule MayonnaiOS.Scene.Home do
 
   # The full view's table: monospace, because listings and hexdumps are
   # columns of figures, and one line per text primitive. 13 px Roboto Mono
-  # runs about 7.8 px per glyph, so 76 characters fill the span.
+  # runs about 7.8 px per glyph; a character per 8.1 px leaves margin.
   @mono :roboto_mono
   @full_pitch 19
-  @full_chars 76
+  @full_chars div(@span * 10, 81)
   # The info full view draws in the theme's body font, which is wider than
-  # @mono: 72 glyphs at 17 px is what fits @span.
-  @info_chars 72
+  # @mono: a glyph per 8.55 px at 17 px is what fits @span.
+  @info_chars div(@span * 100, 855)
 
   # Where streamed textures go, one fixed id per box. Fixed, so a new image
   # replaces the old one instead of leaking a texture per file browsed.
@@ -284,7 +284,7 @@ defmodule MayonnaiOS.Scene.Home do
     text(graph, "holding: #{truncate(name, 24)} (#{mode})",
       font_size: 14,
       fill: {:color, wait()},
-      translate: {400, @title_y}
+      translate: {@width - 240, @title_y}
     )
   end
 

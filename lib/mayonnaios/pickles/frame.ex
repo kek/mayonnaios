@@ -8,9 +8,9 @@ defmodule MayonnaiOS.Pickles.Frame do
 
       function on_draw()
         return {
-          {kind = "rect", x = 0, y = 0, w = 640, h = 480, color = "black"},
+          {kind = "rect", x = 0, y = 0, w = mayo.ui.width, h = mayo.ui.height, color = "black"},
           {kind = "text", x = 40, y = 60, text = "hello", size = 32},
-          {kind = "line", x1 = 0, y1 = 80, x2 = 640, y2 = 80, color = "gray"},
+          {kind = "line", x1 = 0, y1 = 80, x2 = mayo.ui.width, y2 = 80, color = "gray"},
           {kind = "circle", x = 320, y = 240, r = 24, color = "red", fill = false},
         }
       end
@@ -85,7 +85,7 @@ defmodule MayonnaiOS.Pickles.Frame do
     "gold" => :gold
   }
 
-  @panel {640, 480}
+  @panel MayonnaiOS.Screen.size()
 
   @type op ::
           {:text,

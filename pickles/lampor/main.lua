@@ -548,7 +548,7 @@ function on_draw()
   local ops = {
     { kind = "rect", x = 0, y = 0, w = mayo.ui.width, h = mayo.ui.height, color = "black" },
     { kind = "text", x = 30, y = 44, text = "lampor", size = 32, color = "gold" },
-    { kind = "line", x1 = 30, y1 = 58, x2 = 610, y2 = 58, color = "dark_gray" },
+    { kind = "line", x1 = 30, y1 = 58, x2 = mayo.ui.width - 30, y2 = 58, color = "dark_gray" },
   }
   local devs = devices()
   if #devs == 0 then
@@ -572,14 +572,14 @@ function on_draw()
       state_text, state_color = "?", "dark_gray"
     end
     if i == sel then
-      ops[#ops + 1] = { kind = "rect", x = 22, y = y - 20, w = 596, h = 27, color = "navy", fill = true }
+      ops[#ops + 1] = { kind = "rect", x = 22, y = y - 20, w = mayo.ui.width - 44, h = 27, color = "navy", fill = true }
     end
     ops[#ops + 1] = { kind = "text", x = 34, y = y, text = d.name, size = 20,
                       color = i == sel and "white" or "light_gray" }
-    ops[#ops + 1] = { kind = "text", x = 470, y = y, text = state_text, size = 20, color = state_color }
+    ops[#ops + 1] = { kind = "text", x = mayo.ui.width - 170, y = y, text = state_text, size = 20, color = state_color }
     local b = lamp_bright[d.name]
     if b and state == true then
-      ops[#ops + 1] = { kind = "text", x = 540, y = y, text = math.floor(b / 10) .. "%", size = 16, color = "teal" }
+      ops[#ops + 1] = { kind = "text", x = mayo.ui.width - 100, y = y, text = math.floor(b / 10) .. "%", size = 16, color = "teal" }
     end
     y = y + 28
   end

@@ -141,6 +141,8 @@ defmodule MayonnaiOS.Pickles.UiTest do
     start_runner(name, root)
 
     send(Runner.whereis(name), {:ui_attach, self()})
-    assert_receive {:pickle_frame, %{ops: [{:text, %{text: "before 640x480"}}]}}
+    {width, height} = MayonnaiOS.Screen.size()
+    expected = "before #{width}x#{height}"
+    assert_receive {:pickle_frame, %{ops: [{:text, %{text: ^expected}}]}}
   end
 end

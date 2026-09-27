@@ -1,5 +1,5 @@
 defmodule MayonnaiOS.Scene.Backup do
-  @moduledoc "The 640×480 snapshot-only backup screen."
+  @moduledoc "The snapshot-only backup screen."
 
   use Scenic.Scene
   import Scenic.Primitives
@@ -68,7 +68,7 @@ defmodule MayonnaiOS.Scene.Backup do
 
   defp base do
     Graph.build(font: :roboto, font_size: 16)
-    |> rect({640, 480}, fill: {:color, @bg})
+    |> rect(MayonnaiOS.Screen.size(), fill: {:color, @bg})
     |> StatusBar.mount()
   end
 
@@ -78,14 +78,15 @@ defmodule MayonnaiOS.Scene.Backup do
   defp footer(graph, words),
     do:
       graph
-      |> rect({640, 1}, fill: {:color, @label}, translate: {0, 446})
+      |> rect({MayonnaiOS.Screen.width(), 1}, fill: {:color, @label}, translate: {0, 446})
       |> add_text(words, 470, @label, 14)
 
   defp progress_bar(graph, done, total) do
-    width = if is_integer(total) and total > 0, do: min(600, div(600 * done, total)), else: 0
+    bar = MayonnaiOS.Screen.width() - 40
+    width = if is_integer(total) and total > 0, do: min(bar, div(bar * done, total)), else: 0
 
     graph
-    |> rect({600, 16}, fill: {:color, {35, 42, 58}}, translate: {20, 220})
+    |> rect({bar, 16}, fill: {:color, {35, 42, 58}}, translate: {20, 220})
     |> rect({width, 16}, fill: {:color, @good}, translate: {20, 220})
   end
 

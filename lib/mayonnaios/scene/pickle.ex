@@ -29,8 +29,8 @@ defmodule MayonnaiOS.Scene.Pickle do
 
   import Scenic.Primitives
 
-  @width 640
-  @height 480
+  @width MayonnaiOS.Screen.width()
+  @height MayonnaiOS.Screen.height()
 
   # The device palette, for the frames this scene draws itself (waiting,
   # errors). The pickle's own frames choose from Frame's named colors.

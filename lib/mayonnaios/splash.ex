@@ -83,7 +83,7 @@ defmodule MayonnaiOS.Splash do
   @doc """
   The framebuffer's dimensions, read from sysfs rather than assumed.
 
-  Falls back to this panel's 640x480 if sysfs does not say, because a wrong
+  Falls back to the configured panel size if sysfs does not say, because a wrong
   guess here writes a sheared image rather than failing, and a sheared image
   is harder to recognise as a configuration problem than a correct one.
   """
@@ -94,7 +94,7 @@ defmodule MayonnaiOS.Splash do
          {h, ""} <- Integer.parse(h) do
       {w, h}
     else
-      _ -> {640, 480}
+      _ -> MayonnaiOS.Screen.size()
     end
   end
 

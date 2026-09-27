@@ -77,7 +77,7 @@ defmodule MayonnaiOS.Scene.StatusBar do
 
   import Scenic.Primitives
 
-  @width 640
+  @width MayonnaiOS.Screen.width()
 
   # The height of the strip. Every scene reserves it and takes the number
   # from `height/0`, so there is one place to change it and a test that
@@ -113,7 +113,7 @@ defmodule MayonnaiOS.Scene.StatusBar do
   # Laid out from the right edge leftwards, because the right edge is the
   # thing that has to stay put: the fields grow and shrink with their own
   # text, and a fixed left origin would let a long word walk off the panel.
-  @right 626
+  @right @width - 14
   @gap 16
   @baseline 20
   @font 14

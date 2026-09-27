@@ -39,8 +39,8 @@ defmodule MayonnaiOS.Scene.Controller do
 
   import Scenic.Primitives
 
-  @width 640
-  @height 480
+  @width MayonnaiOS.Screen.width()
+  @height MayonnaiOS.Screen.height()
 
   # The shared top bar owns the top of the panel on every screen, so the title
   # starts below it. The height comes from the bar rather than being copied.
