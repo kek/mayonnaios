@@ -28,6 +28,9 @@ defmodule MayonnaiOS.Device do
     :sleep
   ]
   @input_keys [:gamepad, :stick, :volume, :headphone, :power]
+  # Inputs a board may lack. Their value is `nil` rather than a name nothing
+  # answers to.
+  @optional_inputs [:stick]
 
   @enforce_keys [
     :id,
@@ -48,7 +51,7 @@ defmodule MayonnaiOS.Device do
           id: atom(),
           name: String.t(),
           panel_size: {pos_integer(), pos_integer()},
-          inputs: %{required(atom()) => String.t()},
+          inputs: %{required(atom()) => String.t() | nil},
           buttons: %{required(atom()) => atom()},
           leds: %{green: String.t(), red: String.t()},
           power_supplies: %{battery: String.t(), usb: String.t()},
@@ -83,8 +86,8 @@ defmodule MayonnaiOS.Device do
   @spec button(atom()) :: atom()
   def button(semantic), do: Map.fetch!(current!().buttons, semantic)
 
-  @doc "Return one input device's device-tree name."
-  @spec input(atom()) :: String.t()
+  @doc "Return one input device's device-tree name, or `nil` if the board has none."
+  @spec input(atom()) :: String.t() | nil
   def input(kind), do: Map.fetch!(current!().inputs, kind)
 
   defp validate!(profile) do
@@ -105,7 +108,20 @@ defmodule MayonnaiOS.Device do
       raise ArgumentError, "device :panel_size must contain two positive integers"
     end
 
-    require_values!(profile.inputs, &is_binary/1, :inputs, "strings")
+    require_values!(
+      Map.drop(profile.inputs, @optional_inputs),
+      &is_binary/1,
+      :inputs,
+      "strings"
+    )
+
+    require_values!(
+      Map.take(profile.inputs, @optional_inputs),
+      &(is_nil(&1) or is_binary(&1)),
+      :inputs,
+      "strings or nil for #{inspect(@optional_inputs)}"
+    )
+
     require_values!(profile.buttons, &is_atom/1, :buttons, "atoms")
     require_values!(profile.leds, &is_binary/1, :leds, "strings")
     require_values!(profile.power_supplies, &is_binary/1, :power_supplies, "strings")

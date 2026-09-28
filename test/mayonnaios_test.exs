@@ -24,13 +24,15 @@ defmodule MayonnaiOSTest do
   end
 
   describe "viewport configuration" do
-    test "matches the panel geometry" do
-      # 640x480 is not a preference. The framebuffer is fixed at that size with
-      # a 2560-byte stride, and a mismatch here draws off the end of it.
+    test "matches the panel geometry scenes are laid out for" do
+      # A viewport larger than the framebuffer draws off the end of it, and
+      # one that differs from MayonnaiOS.Screen leaves scenes laid out for
+      # another panel.
       config = Application.get_env(:mayonnaios, :viewport)
 
       if config do
-        assert config[:size] == {640, 480}
+        assert config[:size] == MayonnaiOS.Screen.size()
+        assert config[:size] == Application.fetch_env!(:mayonnaios, :device).panel_size
       end
     end
   end

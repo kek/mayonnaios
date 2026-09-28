@@ -5,6 +5,7 @@ defmodule MayonnaiOS.MixProject do
   @version "0.1.0"
   @all_targets [
     :rg40xxv,
+    :rgsp,
     :bbb,
     :mangopi_mq_pro,
     :qemu_aarch64,
@@ -125,7 +126,11 @@ defmodule MayonnaiOS.MixProject do
       # The Anbernic RG40XXV system. Must ship cairo and freetype for the
       # Scenic driver to link, and Mesa for anything wanting GLES.
       {:nerves_system_rg40xxv,
-       path: "../nerves_system_rg40xxv", runtime: false, targets: :rg40xxv}
+       path: "../nerves_system_rg40xxv", runtime: false, targets: :rg40xxv},
+
+      # The Anbernic RG SP system, derived from the RG40XXV one. Bring-up
+      # state and hardware evidence are in its README.
+      {:nerves_system_rgsp, path: "../nerves_system_rgsp", runtime: false, targets: :rgsp}
     ]
   end
 

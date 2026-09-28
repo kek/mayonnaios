@@ -129,15 +129,14 @@ config :mdns_lite,
     }
   ]
 
-# Scenic viewport. The size must match the panel: the framebuffer is
-# 640x480 XRGB8888 with a 2560-byte stride and no padding.
+# Scenic viewport. The size is the panel's and comes from the board's config
+# file; `MayonnaiOS.Device` refuses a profile whose panel disagrees with it.
 #
 # Scenic.Driver.Local picks its renderer from MIX_TARGET -- under Nerves that
 # is cairo-fb, drawing on the CPU into /dev/fb0. No GPU is involved, which is
 # why this path works before Mesa exists.
 config :mayonnaios, :viewport,
   name: :main_viewport,
-  size: {640, 480},
   theme: :dark,
   default_scene: MayonnaiOS.Scene.Home,
   drivers: [

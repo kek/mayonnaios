@@ -47,11 +47,11 @@ function on_draw()
   return {
     {kind = "rect", x = 0, y = 0, w = mayo.ui.width, h = mayo.ui.height, color = "black"},
     {kind = "text", x = 40, y = 70, text = "hello, this is a pickle", size = 32, color = "yellow"},
-    {kind = "line", x1 = 40, y1 = 90, x2 = 600, y2 = 90, color = "gray"},
+    {kind = "line", x1 = 40, y1 = 90, x2 = mayo.ui.width - 40, y2 = 90, color = "gray"},
     {kind = "text", x = 40, y = 140, text = "boot number " .. (mayo.storage.get("visits") or 0), size = 24},
     {kind = "text", x = 40, y = 180, text = "minutes up " .. uptime_ticks, size = 24},
     {kind = "text", x = 40, y = 220, text = "A pressed " .. presses .. " times", size = 24, color = "cyan"},
-    {kind = "circle", x = 320, y = 340, r = 24 + math.min(presses, 60), color = "green", fill = false},
+    {kind = "circle", x = mayo.ui.width // 2, y = 340, r = 24 + math.min(presses, 60), color = "green", fill = false},
     {kind = "text", x = 40, y = 460, text = "A counts, Menu goes back", size = 16, color = "gray"},
   }
 end

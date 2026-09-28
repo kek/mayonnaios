@@ -3,6 +3,9 @@ import Config
 # This board has no external RTC, so erlinit advances a stale clock at boot.
 config :nerves, :erlinit, update_clock: true
 
+# The framebuffer is 640x480 XRGB8888 with a 2560-byte stride and no padding.
+config :mayonnaios, :viewport, size: {640, 480}
+
 # Facts specific to the physical RG40XXV. Shared application paths, bundles,
 # cores, systems and release behaviour remain in target.exs.
 config :mayonnaios, :device, %{

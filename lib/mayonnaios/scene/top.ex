@@ -22,8 +22,8 @@ defmodule MayonnaiOS.Scene.Top do
 
   import Scenic.Primitives
 
-  @width 640
-  @height 480
+  @width MayonnaiOS.Screen.width()
+  @height MayonnaiOS.Screen.height()
 
   # Same palette as the other screens, so they read as one device.
   @bg {12, 14, 22}

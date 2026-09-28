@@ -420,7 +420,7 @@ defmodule MayonnaiOS.Launcher do
                Enum.reject(
                  [
                    Input.find(Device.input(:gamepad)),
-                   Input.find(Device.input(:stick)),
+                   stick_device(),
                    Sleep.device(),
                    lid_device()
                  ],
@@ -822,6 +822,13 @@ defmodule MayonnaiOS.Launcher do
       Enum.any?(events, &match?({:ev_sw, ^key, 1}, &1)) -> :closed
       Enum.any?(events, &match?({:ev_sw, ^key, 0}, &1)) -> :opened
       true -> nil
+    end
+  end
+
+  defp stick_device do
+    case Device.input(:stick) do
+      nil -> nil
+      name -> Input.find(name)
     end
   end
 

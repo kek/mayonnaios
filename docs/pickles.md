@@ -175,7 +175,8 @@ end
 
 The panel repaints after every button, action call and timer tick, and
 whenever the script asks with `mayo.ui.redraw()`. `mayo.ui.width` and
-`mayo.ui.height` are the panel size (640x480).
+`mayo.ui.height` are the panel size: 640x480 on the RG40XXV, 720x480 on the
+RG SP. Lay out from them rather than from literals.
 
 ### What is not there
 

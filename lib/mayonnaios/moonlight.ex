@@ -82,9 +82,12 @@ defmodule MayonnaiOS.Moonlight do
   #
   # The choices are what this hardware can actually be asked for rather than
   # everything Moonlight accepts: the stream is decoded in software on four
-  # A53s and the panel is 640x480, so 1080p is on the list as the thing a
-  # Sunshine host will happily send and this device will drop frames on, and
-  # 4K is not on it at all.
+  # A53s and the panel is small, so the panel's own size comes first, 1080p is
+  # on the list as the thing a Sunshine host will happily send and this device
+  # will drop frames on, and 4K is not on it at all.
+  {panel_w, panel_h} = MayonnaiOS.Screen.size()
+  @panel "#{panel_w}x#{panel_h}"
+
   @fields [
     %{
       id: :address,
@@ -101,10 +104,10 @@ defmodule MayonnaiOS.Moonlight do
       label: "Resolution",
       kind: :choice,
       keys: ["width", "height"],
-      choices: ["640x480", "1280x720", "1920x1080"],
+      choices: [@panel, "1280x720", "1920x1080"],
       suffix: "",
       placeholder: "",
-      note: "The panel is 640x480; anything larger is scaled down to it."
+      note: "The panel is #{@panel}; anything larger is scaled down to it."
     },
     %{
       id: :fps,

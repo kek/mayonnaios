@@ -75,12 +75,12 @@ defmodule MayonnaiOS.SplashTest do
     end
 
     test "falls back when sysfs is absent", %{dir: dir} do
-      assert Splash.geometry(Path.join(dir, "nope")) == {640, 480}
+      assert Splash.geometry(Path.join(dir, "nope")) == MayonnaiOS.Screen.size()
     end
 
     test "falls back rather than crashing on nonsense", %{dir: dir} do
       File.write!(Path.join(dir, "virtual_size"), "not,numbers\n")
-      assert Splash.geometry(dir) == {640, 480}
+      assert Splash.geometry(dir) == MayonnaiOS.Screen.size()
     end
   end
 

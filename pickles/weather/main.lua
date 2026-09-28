@@ -511,10 +511,10 @@ function on_draw()
                      size = 16, color = "light_gray"}
   end
   if #places > 1 then
-    ops[#ops + 1] = {kind = "text", x = 560, y = 46,
+    ops[#ops + 1] = {kind = "text", x = mayo.ui.width - 80, y = 46,
                      text = idx .. "/" .. #places, size = 20, color = "light_gray"}
   end
-  ops[#ops + 1] = {kind = "line", x1 = 24, y1 = 88, x2 = 616, y2 = 88,
+  ops[#ops + 1] = {kind = "line", x1 = 24, y1 = 88, x2 = mayo.ui.width - 24, y2 = 88,
                    color = "gray", width = 2}
 
   local c = d and d.current
@@ -547,11 +547,11 @@ function on_draw()
   -- The four-day strip.
   local daily = d and d.daily
   if type(daily) == "table" and type(daily.time) == "table" then
-    ops[#ops + 1] = {kind = "line", x1 = 24, y1 = 318, x2 = 616, y2 = 318,
+    ops[#ops + 1] = {kind = "line", x1 = 24, y1 = 318, x2 = mayo.ui.width - 24, y2 = 318,
                      color = "gray", width = 2}
 
     for n = 1, math.min(4, #daily.time) do
-      local x = 24 + (n - 1) * 148
+      local x = 24 + (n - 1) * ((mayo.ui.width - 48) // 4)
       local _, family = describe(daily.weather_code and daily.weather_code[n])
 
       ops[#ops + 1] = {kind = "text", x = x + 4, y = 346,

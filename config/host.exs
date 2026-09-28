@@ -7,6 +7,19 @@ import Config
 host_files = Path.expand("tmp/host/files")
 host_backlight = Path.expand("tmp/host/brightness")
 
+# The panel to lay scenes out for: 640x480 like the RG40XXV unless
+# MAYONNAIOS_PANEL names another, e.g. `MAYONNAIOS_PANEL=720x480` for the RG SP.
+# Scenes read it at compile time: after changing it, run `mix compile --force`.
+host_panel =
+  case System.get_env("MAYONNAIOS_PANEL") do
+    nil ->
+      {640, 480}
+
+    spec ->
+      [width, height] = spec |> String.split("x") |> Enum.map(&String.to_integer/1)
+      {width, height}
+  end
+
 config :mayonnaios,
   pickles_root: Path.expand(".pickles"),
   file_roots: [%{key: "host", path: host_files, note: "host development scratch files"}],
@@ -52,7 +65,7 @@ config :mayonnaios, :programs, [
 config :mayonnaios, :device, %{
   id: :host,
   name: "MayonnaiOS host",
-  panel_size: {640, 480},
+  panel_size: host_panel,
   inputs: %{
     gamepad: "host-gamepad",
     stick: "host-stick",
@@ -116,9 +129,9 @@ config :nerves_runtime,
 
 # Scenic viewport for host development.
 #
-# The same shape as the one in target.exs, and deliberately the same 640x480:
-# a scene that looks right in a differently-sized window is not evidence about
-# the panel, and this is the size the device has.
+# The same shape as the one in target.exs, and deliberately a panel's size
+# (`host_panel` above): a scene that looks right in a differently-sized window
+# is not evidence about the panel.
 #
 # `scenic_driver_local` picks its backend from MIX_TARGET -- cairo-gtk in a
 # window here, cairo-fb straight to /dev/fb0 on the device -- so the same
@@ -147,7 +160,7 @@ config :nerves_runtime,
 # struct; keep `vp` bound in the session and it is one line per reload.
 config :mayonnaios, :viewport,
   name: :main_viewport,
-  size: {640, 480},
+  size: host_panel,
   theme: :dark,
   default_scene: MayonnaiOS.Scene.Home,
   drivers: [

@@ -531,7 +531,13 @@ defmodule MayonnaiOS.Cores do
   is no device to go and repair afterwards, which is the property
   `libretro_directory` did not have.
 
-  One file with two settings rather than a second file with one, because the
+  The video mode is here for the same reason. The RetroArch bundle pins
+  `video_fullscreen_x`/`_y` to the RG40XXV's 640x480, and a KMS mode the panel
+  does not offer makes RetroArch exit with status 1 before drawing anything --
+  which is what it did on the RG SP's 720x480 panel. This file names the
+  panel this firmware was built for, from `MayonnaiOS.Screen`.
+
+  One file with several settings rather than a second file with one, because the
   file has exactly one writer and that is worth keeping. Two modules writing
   one path is a clobber waiting for the boot order to change; and the
   `--appendconfig` argument in `config :mayonnaios, :programs` names this path
@@ -541,11 +547,16 @@ defmodule MayonnaiOS.Cores do
   def write_append_config do
     path = append_config()
 
-    contents = """
-    libretro_directory = "#{dir()}"
-    audio_sync = "false"
-    autosave_interval = "#{autosave_interval()}"
-    """
+    {width, height} = MayonnaiOS.Screen.size()
+
+    contents =
+      """
+      libretro_directory = "#{dir()}"
+      audio_sync = "false"
+      autosave_interval = "#{autosave_interval()}"
+      video_fullscreen_x = "#{width}"
+      video_fullscreen_y = "#{height}"
+      """ <> gamepad_binds_config()
 
     with :ok <- File.mkdir_p(Path.dirname(path)),
          :ok <- File.write(path, contents) do
@@ -554,6 +565,86 @@ defmodule MayonnaiOS.Cores do
       {:error, reason} ->
         Logger.warning("[cores] could not write #{path}: #{inspect(reason)}")
         {:error, reason}
+    end
+  end
+
+  # RetroPad binds by evdev key code. RetroArch's udev joypad driver numbers a
+  # device's buttons by rank among its key codes from BTN_JOYSTICK up, so the
+  # index for a code depends on which other keys the device has: the RG40XXV's
+  # stick click (BTN_THUMBL, 317) sorts before the D-pad and moves it up by
+  # one. The bundle's autoconfig carries the RG40XXV's numbers, and both boards
+  # name the device gpio-keys-gamepad, so the indices are computed here from
+  # the keys the running device reports. Player binds override autoconfig.
+  #
+  # X and Y are by the silkscreen, which disagrees with the device tree on both
+  # boards: the button marked X emits BTN_WEST (308).
+  @retropad [
+    {304, "input_player1_b_btn"},
+    {305, "input_player1_a_btn"},
+    {307, "input_player1_y_btn"},
+    {308, "input_player1_x_btn"},
+    {310, "input_player1_l_btn"},
+    {311, "input_player1_r_btn"},
+    {312, "input_player1_l2_btn"},
+    {313, "input_player1_r2_btn"},
+    {314, "input_player1_select_btn"},
+    {315, "input_player1_start_btn"},
+    {316, "input_menu_toggle_btn"},
+    {317, "input_player1_l3_btn"},
+    {544, "input_player1_up_btn"},
+    {545, "input_player1_down_btn"},
+    {546, "input_player1_left_btn"},
+    {547, "input_player1_right_btn"}
+  ]
+
+  @btn_joystick 0x120
+
+  @doc """
+  RetroArch binds for a gamepad reporting `codes`, as config lines.
+
+  Each RetroPad button whose key the device has gets that key's udev joypad
+  index; buttons the device lacks are left out rather than bound to a number
+  that means another key.
+  """
+  @spec gamepad_binds([non_neg_integer()]) :: String.t()
+  def gamepad_binds(codes) do
+    index =
+      codes
+      |> Enum.filter(&(&1 >= @btn_joystick))
+      |> Enum.sort()
+      |> Enum.uniq()
+      |> Enum.with_index()
+      |> Map.new()
+
+    for {code, key} <- @retropad, Map.has_key?(index, code), into: "" do
+      ~s(#{key} = "#{index[code]}"\n)
+    end
+  end
+
+  @doc """
+  The key codes in a sysfs `capabilities/key` bitmap: space-separated hex
+  words, most significant first, 64 bits each on this platform.
+  """
+  @spec key_codes(String.t()) :: [non_neg_integer()]
+  def key_codes(bitmap) do
+    bitmap
+    |> String.split()
+    |> Enum.reverse()
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {word, i} ->
+      value = String.to_integer(word, 16)
+      for bit <- 0..63, Bitwise.band(value, Bitwise.bsl(1, bit)) != 0, do: i * 64 + bit
+    end)
+  end
+
+  defp gamepad_binds_config do
+    with name when is_binary(name) <- MayonnaiOS.Device.input(:gamepad),
+         path when is_binary(path) <- MayonnaiOS.Input.find(name),
+         {:ok, bitmap} <-
+           File.read("/sys/class/input/#{Path.basename(path)}/device/capabilities/key") do
+      gamepad_binds(key_codes(bitmap))
+    else
+      _ -> ""
     end
   end
 

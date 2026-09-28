@@ -16,8 +16,8 @@ defmodule MayonnaiOS.Scene.Update do
 
   import Scenic.Primitives
 
-  @width 640
-  @height 480
+  @width MayonnaiOS.Screen.width()
+  @height MayonnaiOS.Screen.height()
 
   @bg {12, 14, 22}
   @title {235, 238, 245}

@@ -268,6 +268,35 @@ defmodule MayonnaiOS.CoresTest do
     end
   end
 
+  describe "gamepad_binds/1" do
+    # The RG SP's gpio-keys-gamepad, read from sysfs on the device.
+    @rgsp_caps "f00000000 0 0 0 1fdb000000000000 0 0 0 0"
+
+    test "reads key codes out of a sysfs capabilities bitmap" do
+      assert Cores.key_codes(@rgsp_caps) ==
+               [304, 305, 307, 308, 310, 311, 312, 313, 314, 315, 316, 544, 545, 546, 547]
+    end
+
+    test "numbers the RG SP's D-pad right after Menu, since it has no stick click" do
+      binds = @rgsp_caps |> Cores.key_codes() |> Cores.gamepad_binds()
+
+      assert binds =~ ~s(input_player1_b_btn = "0")
+      assert binds =~ ~s(input_menu_toggle_btn = "10")
+      assert binds =~ ~s(input_player1_up_btn = "11")
+      assert binds =~ ~s(input_player1_right_btn = "14")
+      refute binds =~ "l3"
+    end
+
+    test "matches the bundle's RG40XXV autoconfig when the stick click is there" do
+      rg40xxv = [304, 305, 307, 308, 310, 311, 312, 313, 314, 315, 316, 317, 544, 545, 546, 547]
+      binds = Cores.gamepad_binds(rg40xxv)
+
+      assert binds =~ ~s(input_player1_l3_btn = "11")
+      assert binds =~ ~s(input_player1_up_btn = "12")
+      assert binds =~ ~s(input_player1_right_btn = "15")
+    end
+  end
+
   describe "write_append_config/0" do
     # The bundle's own config sets libretro_directory and the launcher appends
     # it on every launch, so boot-time repair loses to launch-time damage. This
@@ -288,6 +317,17 @@ defmodule MayonnaiOS.CoresTest do
       assert :ok = Cores.write_append_config()
 
       assert File.read!(Cores.append_config()) =~ ~s(audio_sync = "false")
+    end
+
+    test "asks for the panel's own video mode" do
+      # The bundle pins 640x480; a mode the panel lacks makes RetroArch exit
+      # before it draws. This file is appended last, so its mode wins.
+      {width, height} = MayonnaiOS.Screen.size()
+      assert :ok = Cores.write_append_config()
+      contents = File.read!(Cores.append_config())
+
+      assert contents =~ ~s(video_fullscreen_x = "#{width}")
+      assert contents =~ ~s(video_fullscreen_y = "#{height}")
     end
 
     test "turns SRAM autosave on, because off is what lost a save" do

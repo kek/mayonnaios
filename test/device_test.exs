@@ -23,7 +23,6 @@ defmodule MayonnaiOS.DeviceTest do
     profile = Device.current!()
 
     assert profile.id == :host
-    assert profile.panel_size == {640, 480}
     assert profile.panel_size == get_in(Application.fetch_env!(:mayonnaios, :viewport), [:size])
     assert Device.input(:gamepad) == "host-gamepad"
     assert Device.button(:launch) == :btn_b
@@ -45,6 +44,38 @@ defmodule MayonnaiOS.DeviceTest do
     on_exit(fn -> Application.put_env(:mayonnaios, :device, previous) end)
 
     assert_raise ArgumentError, ~r/does not match viewport/, &Device.current!/0
+  end
+
+  for {file, id} <- [{"config/rg40xxv.exs", :rg40xxv}, {"config/rgsp.exs", :rgsp}] do
+    test "the #{id} profile in #{file} is complete and agrees with its viewport" do
+      config = Config.Reader.read!(unquote(file))[:mayonnaios]
+
+      Application.put_env(:mayonnaios, :device, config[:device])
+
+      Application.put_env(
+        :mayonnaios,
+        :viewport,
+        Keyword.merge(@host_viewport, config[:viewport])
+      )
+
+      assert Device.current!().id == unquote(id)
+    end
+  end
+
+  test "the RG SP has a lid switch and no stick" do
+    config = Config.Reader.read!("config/rgsp.exs")[:mayonnaios]
+    Application.put_env(:mayonnaios, :device, config[:device])
+    Application.put_env(:mayonnaios, :viewport, Keyword.merge(@host_viewport, config[:viewport]))
+
+    assert Device.current!().panel_size == {720, 480}
+    assert Device.input(:stick) == nil
+    assert Device.current!().lid_switch == %{device: "gpio-keys-lid", key: :sw_lid}
+  end
+
+  test "only optional inputs may be nil" do
+    Application.put_env(:mayonnaios, :device, put_in(@host_device, [:inputs, :gamepad], nil))
+
+    assert_raise ArgumentError, ~r/inputs values must be strings/, &Device.current!/0
   end
 
   defp restore(key, nil), do: Application.delete_env(:mayonnaios, key)
