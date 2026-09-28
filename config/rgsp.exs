@@ -10,7 +10,8 @@ config :mayonnaios, :viewport, size: {720, 480}
 # Facts specific to the physical RG SP. Names come from the BSP's device tree,
 # which includes mainline's sun50i-h700-anbernic-rg35xx-sp.dts, and every
 # input, LED, power supply and backlight named here is present on the device.
-# Which physical key sends which code has not been recorded with evtest.
+# Every key below, the lid switch and the power key were pressed on the device
+# and arrived as these codes. The headphone jack has not been exercised.
 config :mayonnaios, :device, %{
   id: :rgsp,
   name: "RG SP",
@@ -23,8 +24,8 @@ config :mayonnaios, :device, %{
     headphone: "H616 Audio Codec Headphone Jack",
     power: "axp20x-pek"
   },
-  # The same gpio-keys-gamepad node as the RG40XXV, so the same A/B and X/Y
-  # swap for this shell.
+  # The same gpio-keys-gamepad node as the RG40XXV, and the same A/B and X/Y
+  # swap: physical A sends btn_b, B btn_a, X btn_y, Y btn_x.
   buttons: %{
     launch: :btn_b,
     confirm: :btn_x,
